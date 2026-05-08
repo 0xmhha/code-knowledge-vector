@@ -1,0 +1,121 @@
+# ==============================================================================
+# Go
+# ==============================================================================
+
+# Compiled binaries
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go module / build cache
+/vendor/
+go.work
+go.work.sum
+
+# Test & coverage artifacts
+coverage.out
+coverage.txt
+coverage.html
+*.coverprofile
+profile.out
+*.prof
+*.pprof
+cpu.out
+mem.out
+
+# ==============================================================================
+# Make / Build artifacts
+# ==============================================================================
+
+# Build output directories produced by the Makefile
+/build/
+/out/
+/release/
+/.build/
+*.tar.gz
+*.zip
+
+# Local Make state
+.make/
+.make-stamp
+
+# ==============================================================================
+# CKV (Code Knowledge Vector) runtime outputs
+# ==============================================================================
+
+# Generated indexes / databases (vector DB, BM25 index, AST cache)
+/data/
+/indexes/
+/.ckv/
+/tmp/ckv-*
+
+# SQLite / embedded DB sidecar files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.lance
+
+# Embedding caches and downloaded models
+/models/
+/.cache/
+*.gguf
+*.onnx
+*.safetensors
+
+# Bootstrap & systemization reports (regeneratable)
+/reports/
+systemization_report.json
+
+# Working memory snapshots (per-run, not source of truth)
+/state-store/
+working_memory.json
+
+# ==============================================================================
+# Logs / temporary files
+# ==============================================================================
+*.log
+logs/
+tmp/
+.tmp/
+
+# ==============================================================================
+# Editor / IDE
+# ==============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ==============================================================================
+# OS
+# ==============================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==============================================================================
+# Local environment & secrets
+# ==============================================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ==============================================================================
+# Claude Code / tool-specific local settings
+# ==============================================================================
+.claude/settings.local.json
