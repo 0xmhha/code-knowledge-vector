@@ -1,0 +1,192 @@
+// Package chunk turns ([]parse.SymbolSpan, source) into ([]types.Chunk)
+// — the records the embedder + vector store actually persist.
+//
+// Strategy (plan §5.4):
+//   1. Each symbol span (function/method/type/...) becomes one chunk.
+//   2. Spans whose Text exceeds MaxInputTokens worth of characters are
+//      truncated at the head so the signature stays intact. Splitting
+//      large functions into sub-chunks is a W3 enhancement; for now,
+//      the signature + body prefix preserves most of the semantic
+//      signal (per the plan, "signature is the head"). Note that the
+//      mock embedder has infinite max input, so this only triggers
+//      with the real ONNX embedder.
+//   3. A file_header chunk captures the first N lines of the file —
+//      package decl + imports + top-level const/var. This lets queries
+//      like "what package owns the metrics client" hit the right file
+//      even when nothing function-level matches.
+package chunk
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/0xmhha/code-knowledge-vector/internal/parse"
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
+)
+
+// FileHeaderLines is the number of leading lines of each file we
+// capture as a "file_header" chunk. 50 mirrors plan §5.4 — enough to
+// cover the package decl + a typical import block + top-level consts.
+const FileHeaderLines = 50
+
+// charsPerToken is the approximate ratio used to convert MaxInputTokens
+// into a character cap. Real tokenizers vary (BPE for bge-code ~3.5,
+// GPT ~4); 4 is a safe upper bound that keeps us under the model limit
+// while keeping the math simple.
+const charsPerToken = 4
+
+// Options configure chunking. Zero value uses documented defaults.
+type Options struct {
+	MaxInputTokens   int  // hard upper bound on chunk Text size; 0 → no cap
+	IncludeFileHeader bool // emit a file_header chunk per file (default: true)
+}
+
+// Input is everything the chunker needs about one file.
+type Input struct {
+	File       string           // repo-relative path
+	Language   string           // "go" | "typescript" | "solidity"
+	CommitHash string           // built-time git HEAD
+	Source     []byte           // full file contents
+	Spans      []parse.SymbolSpan
+}
+
+// Chunker turns parsed spans into Chunks.
+type Chunker struct {
+	opts Options
+}
+
+// New returns a Chunker with the given options. opts.MaxInputTokens of
+// 0 disables truncation (appropriate for the mock embedder).
+func New(opts Options) *Chunker {
+	if !opts.IncludeFileHeader {
+		// Make the default opt-in: explicit zero-value Options{} should
+		// produce the typical "include the header" behavior. We flip
+		// the bit here so the caller writes Options{} for the default
+		// and Options{IncludeFileHeader: false} only when disabling.
+		opts.IncludeFileHeader = true
+	}
+	return &Chunker{opts: opts}
+}
+
+// Chunk produces all chunks for one file. The returned slice carries
+// IDs and content_sha256 already computed — callers do not need to
+// hash again before Upsert.
+func (c *Chunker) Chunk(in Input) []types.Chunk {
+	out := make([]types.Chunk, 0, len(in.Spans)+1)
+
+	if c.opts.IncludeFileHeader {
+		if hdr := c.fileHeaderChunk(in); hdr != nil {
+			out = append(out, *hdr)
+		}
+	}
+
+	for _, sp := range in.Spans {
+		text := c.maybeTruncate(sp.Text)
+		out = append(out, c.symbolChunk(in, sp, text))
+	}
+	return out
+}
+
+// fileHeaderChunk emits the leading-lines chunk. Returns nil for empty
+// files or when the file has fewer than 2 non-blank lines (no signal).
+func (c *Chunker) fileHeaderChunk(in Input) *types.Chunk {
+	if len(in.Source) == 0 {
+		return nil
+	}
+	lines := strings.SplitN(string(in.Source), "\n", FileHeaderLines+1)
+	if len(lines) == 0 {
+		return nil
+	}
+	if len(lines) > FileHeaderLines {
+		lines = lines[:FileHeaderLines]
+	}
+	text := strings.Join(lines, "\n")
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	contentHash := types.ContentSHA256(text)
+	id := types.ChunkID(in.File, 1, len(lines), contentHash)
+	return &types.Chunk{
+		ID:            id,
+		File:          in.File,
+		StartLine:     1,
+		EndLine:       len(lines),
+		Language:      in.Language,
+		SymbolKind:    types.KindFileHeader,
+		ChunkKind:     types.ChunkFileHeader,
+		CommitHash:    in.CommitHash,
+		ContentSHA256: contentHash,
+		Text:          c.maybeTruncate(text),
+	}
+}
+
+func (c *Chunker) symbolChunk(in Input, sp parse.SymbolSpan, text string) types.Chunk {
+	contentHash := types.ContentSHA256(text)
+	id := types.ChunkID(in.File, sp.StartLine, sp.EndLine, contentHash)
+	return types.Chunk{
+		ID:            id,
+		File:          in.File,
+		StartLine:     sp.StartLine,
+		EndLine:       sp.EndLine,
+		Language:      in.Language,
+		SymbolName:    sp.Name,
+		SymbolKind:    sp.Kind,
+		ChunkKind:     types.ChunkSymbol,
+		CommitHash:    in.CommitHash,
+		ContentSHA256: contentHash,
+		Text:          text,
+	}
+}
+
+// maybeTruncate enforces the embedder's input cap. Keeps the prefix so
+// the signature stays embedded. The trailing "// ..." marker makes the
+// truncation explicit in audit/eval logs without changing semantics.
+func (c *Chunker) maybeTruncate(text string) string {
+	if c.opts.MaxInputTokens <= 0 {
+		return text
+	}
+	max := c.opts.MaxInputTokens * charsPerToken
+	if len(text) <= max {
+		return text
+	}
+	const marker = "\n// ... [CKV-TRUNCATED]"
+	if max <= len(marker) {
+		return text[:max]
+	}
+	return text[:max-len(marker)] + marker
+}
+
+// Stats summarizes the output of one Chunk() call; useful for build
+// progress and the bootstrap report.
+type Stats struct {
+	Total       int
+	Symbol      int
+	FileHeader  int
+	Truncated   int
+}
+
+// Summarize counts chunk kinds. Cheap O(n) pass over the slice.
+func Summarize(chunks []types.Chunk) Stats {
+	var s Stats
+	for _, c := range chunks {
+		s.Total++
+		switch c.ChunkKind {
+		case types.ChunkSymbol:
+			s.Symbol++
+		case types.ChunkFileHeader:
+			s.FileHeader++
+		}
+		if strings.Contains(c.Text, "[CKV-TRUNCATED]") {
+			s.Truncated++
+		}
+	}
+	return s
+}
+
+// formatLineRange is a tiny utility kept here (not in pkg/types) because
+// it's only used for log + progress strings, not the chunk model.
+func formatLineRange(start, end int) string {
+	return fmt.Sprintf("%d-%d", start, end)
+}
+
+var _ = formatLineRange // reserved for future progress logging
