@@ -15,6 +15,7 @@ import (
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
+	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
@@ -27,10 +28,11 @@ import (
 type Options struct {
 	SrcRoot   string
 	OutDir    string
-	Embedder  types.Embedder // required
-	CKVIgnore []string       // extra ignore patterns from --ckvignore CLI flag
-	BatchSize int            // embedding batch size; 0 → 32
+	Embedder  types.Embedder     // required
+	CKVIgnore []string           // extra ignore patterns from --ckvignore CLI flag
+	BatchSize int                // embedding batch size; 0 → 32
 	Now       func() time.Time
+	Footprint *footprint.Logger // optional; nil → no logging
 }
 
 // Result is what Run returns to the CLI for the summary log.
@@ -65,12 +67,18 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
+	fp := o.Footprint
+	if fp == nil {
+		fp = footprint.Discard()
+	}
 
 	if err := os.MkdirAll(o.OutDir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir out: %w", err)
 	}
 
 	commit, _ := detectCommit(o.SrcRoot) // empty string when not a git repo; acceptable
+
+	doneBuild := fp.Span("build", "src_root", o.SrcRoot, "out_dir", o.OutDir, "embedder", o.Embedder.Name())
 
 	files, walkErrs, err := discover.Walk(o.SrcRoot, discover.Options{Extra: o.CKVIgnore})
 	if err != nil {
@@ -169,6 +177,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if err := manifest.Save(o.OutDir, man); err != nil {
 		return nil, fmt.Errorf("save manifest.json: %w", err)
 	}
+
+	doneBuild(
+		"files_indexed", indexedFiles,
+		"chunks_total", totalStats.Total,
+		"chunks_symbol", totalStats.Symbol,
+		"chunks_file_header", totalStats.FileHeader,
+		"chunks_truncated", totalStats.Truncated,
+		"indexed_head", commit,
+		"languages", languageCounts,
+	)
 
 	return &Result{
 		FilesIndexed: indexedFiles,

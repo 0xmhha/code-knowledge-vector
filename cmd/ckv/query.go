@@ -59,7 +59,10 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 	// Mock embedder for W3; swap to bgeonnx in W3-late or W4.
 	emb := mock.Default()
 
-	eng, err := query.Open(opts.out, emb)
+	fp := newFootprint(opts.out, "")
+	defer fp.Close()
+
+	eng, err := query.Open(opts.out, emb, query.WithFootprint(fp))
 	if err != nil {
 		if errors.Is(err, query.ErrIndexUnavailable) {
 			fmt.Fprintln(os.Stderr, "ckv:", err)

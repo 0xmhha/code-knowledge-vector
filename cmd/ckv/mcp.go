@@ -49,8 +49,11 @@ func runMCP(opts *mcpOpts) error {
 		return errors.New("mcp: --http transport not yet wired (W3-late)")
 	}
 
+	fp := newFootprint(opts.out, "")
+	defer fp.Close()
+
 	// W3 still ships with the mock embedder; bgeonnx swap is W3-late / W4.
-	eng, err := query.Open(opts.out, mock.Default())
+	eng, err := query.Open(opts.out, mock.Default(), query.WithFootprint(fp))
 	if err != nil {
 		if errors.Is(err, query.ErrIndexUnavailable) {
 			fmt.Fprintln(os.Stderr, "ckv mcp:", err)
@@ -59,7 +62,7 @@ func runMCP(opts *mcpOpts) error {
 	}
 	defer eng.Close()
 
-	srv := ckvmcp.NewServer(eng)
+	srv := ckvmcp.NewServer(eng, ckvmcp.WithFootprint(fp))
 	// ServeStdio blocks until stdin EOF or fatal transport error.
 	// We deliberately log nothing on stdout — MCP stdio transport
 	// reserves stdout for JSON-RPC frames.

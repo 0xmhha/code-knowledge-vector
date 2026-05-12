@@ -56,10 +56,14 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 	// ONNX runtime. Swap to bgeonnx in W3 once the runtime decision lands.
 	emb := mock.Default()
 
+	fp := newFootprint(opts.out, "")
+	defer fp.Close()
+
 	res, err := build.Run(ctx, build.Options{
-		SrcRoot:  opts.src,
-		OutDir:   opts.out,
-		Embedder: emb,
+		SrcRoot:   opts.src,
+		OutDir:    opts.out,
+		Embedder:  emb,
+		Footprint: fp,
 	})
 	if err != nil {
 		return err

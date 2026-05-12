@@ -11,10 +11,13 @@
 package query
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
 
+	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
@@ -85,19 +88,31 @@ type ResponseMetadata struct {
 
 // Engine is the long-lived query handler. Hold one per --out directory.
 // Concurrency-safe: store.Search is read-only; we never mutate Engine
-// state after Open.
+// state after Open (footprint Logger is sync-safe by contract).
 type Engine struct {
-	store    *sqlitevec.Store
-	emb      types.Embedder
-	man      *manifest.Manifest
-	srcRoot  string
+	store   *sqlitevec.Store
+	emb     types.Embedder
+	man     *manifest.Manifest
+	srcRoot string
+	fp      *footprint.Logger
+}
+
+// OpenOption customizes Engine construction (functional options).
+type OpenOption func(*Engine)
+
+// WithFootprint attaches a logger to the Engine. Every Search emits a
+// span (query.search.start / query.search.done) including intent hash,
+// hit count, citation drops, and latency. Nil-safe.
+func WithFootprint(fp *footprint.Logger) OpenOption {
+	return func(e *Engine) { e.fp = fp }
 }
 
 // Open loads the index at outDir and validates the manifest against
 // the supplied Embedder. Mismatches produce ErrIndexUnavailable with a
 // human-readable cause; callers (CLI / MCP) surface a "ckv reindex"
-// hint to the user.
-func Open(outDir string, emb types.Embedder) (*Engine, error) {
+// hint to the user. opts apply after the engine is constructed but
+// before it is returned.
+func Open(outDir string, emb types.Embedder, opts ...OpenOption) (*Engine, error) {
 	if emb == nil {
 		return nil, errors.New("query: nil Embedder")
 	}
@@ -123,12 +138,20 @@ func Open(outDir string, emb types.Embedder) (*Engine, error) {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
 
-	return &Engine{
+	e := &Engine{
 		store:   store,
 		emb:     emb,
 		man:     man,
 		srcRoot: man.SrcRoot,
-	}, nil
+		fp:      footprint.Discard(),
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	if e.fp == nil {
+		e.fp = footprint.Discard()
+	}
+	return e, nil
 }
 
 // Close releases the underlying store. Idempotent.
@@ -162,6 +185,14 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	if intent == "" {
 		return nil, errors.New("query: empty intent")
 	}
+
+	doneSearch := e.fp.Span("query.search",
+		"intent_hash", intentHash(intent),
+		"intent_preview", preview(intent, 80),
+		"k", opts.K,
+		"threshold", opts.Threshold,
+		"language", opts.Filter.Language,
+	)
 
 	k := opts.K
 	if k <= 0 {
@@ -225,7 +256,7 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	}
 	hits, tokensUsed := DensityAdjust(enforced, budget)
 
-	return &Response{
+	response := &Response{
 		Hits:     hits,
 		Warnings: warnings,
 		Metadata: ResponseMetadata{
@@ -233,5 +264,40 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 			IndexedHeadCKV: e.man.IndexedHead,
 			Fresh:          true, // freshness check arrives with `ckv freshness`
 		},
-	}, nil
+	}
+	doneSearch(
+		"hits", len(hits),
+		"citation_drops", droppedCitations,
+		"warnings", warnings,
+		"tokens_used", tokensUsed,
+		"top_file", topFile(hits),
+	)
+	return response, nil
+}
+
+// intentHash is the SHA256 prefix of the intent string. Stable across
+// runs so working memory can dedupe repeat questions. We log only the
+// hex prefix (12 chars) to keep log volume manageable.
+func intentHash(intent string) string {
+	sum := sha256.Sum256([]byte(intent))
+	return hex.EncodeToString(sum[:6]) // 12 hex chars
+}
+
+// preview truncates intent for human-readable logs without dumping the
+// whole prompt. The full intent is recoverable via intent_hash + the
+// caller's own log of the original request.
+func preview(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// topFile returns the file of the top-ranked hit, or empty when none.
+// Useful single field for grep-friendly footprint audit.
+func topFile(hits []Hit) string {
+	if len(hits) == 0 {
+		return ""
+	}
+	return hits[0].Citation.File
 }

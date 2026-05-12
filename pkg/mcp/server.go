@@ -26,6 +26,7 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
@@ -42,18 +43,34 @@ const (
 type Server struct {
 	engine *query.Engine
 	mcp    *server.MCPServer
+	fp     *footprint.Logger
+}
+
+// Option customizes NewServer (functional options).
+type Option func(*Server)
+
+// WithFootprint attaches a footprint logger; each MCP tool dispatch is
+// then wrapped in a span (event = "mcp.<tool>"). Nil-safe.
+func WithFootprint(fp *footprint.Logger) Option {
+	return func(s *Server) { s.fp = fp }
 }
 
 // NewServer constructs the MCP server bound to a pre-opened
 // query.Engine. The caller owns the engine and is responsible for
 // Close-ing it on shutdown.
-func NewServer(eng *query.Engine) *Server {
+func NewServer(eng *query.Engine, opts ...Option) *Server {
 	mcpSrv := server.NewMCPServer(
 		ServerName,
 		ServerVersion,
 		server.WithToolCapabilities(true),
 	)
-	s := &Server{engine: eng, mcp: mcpSrv}
+	s := &Server{engine: eng, mcp: mcpSrv, fp: footprint.Discard()}
+	for _, opt := range opts {
+		opt(s)
+	}
+	if s.fp == nil {
+		s.fp = footprint.Discard()
+	}
 	s.registerTools()
 	return s
 }
@@ -110,6 +127,9 @@ func (s *Server) registerTools() {
 // ---- handlers ----
 
 func (s *Server) handleSemanticSearch(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.semantic_search")
+	defer done()
+
 	args := req.GetArguments()
 
 	intent, _ := args["intent"].(string)
@@ -145,6 +165,9 @@ func (s *Server) handleSemanticSearch(ctx context.Context, req mcpgo.CallToolReq
 }
 
 func (s *Server) handleGetFreshness(_ context.Context, _ mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.get_freshness")
+	defer done()
+
 	man := s.engine.Manifest()
 	report, err := freshness.Check(man.SrcRoot, man.IndexedHead)
 	if err != nil {
@@ -154,6 +177,9 @@ func (s *Server) handleGetFreshness(_ context.Context, _ mcpgo.CallToolRequest) 
 }
 
 func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.health")
+	defer done()
+
 	man := s.engine.Manifest()
 	payload := map[string]any{
 		"server":          ServerName,
