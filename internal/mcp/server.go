@@ -1,0 +1,168 @@
+// Package mcp wraps the CKV query / freshness surface as an MCP server.
+//
+// Tools exposed (plan §8.2):
+//   - cks.context.semantic_search  — query.Engine.Search wrapper
+//   - cks.ops.get_freshness        — freshness.Check wrapper
+//   - cks.ops.health               — embedder + index identity probe
+//
+// Transport is stdio by default (Claude Code default). The combined
+// cks-mcp binary (CKG + CKV, S1-W3 Group B) embeds CKV's MCPServer
+// alongside CKG's, so this package must stay transport-agnostic.
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	mcpgo "github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
+	"github.com/0xmhha/code-knowledge-vector/internal/query"
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
+)
+
+// ServerName / ServerVersion are surfaced to MCP clients on init.
+const (
+	ServerName    = "ckv"
+	ServerVersion = "0.1.0-S1W3"
+)
+
+// Server owns the long-lived query engine + the underlying MCP server
+// object. One Server per --out directory.
+type Server struct {
+	engine *query.Engine
+	mcp    *server.MCPServer
+}
+
+// NewServer constructs the MCP server bound to a pre-opened
+// query.Engine. The caller owns the engine and is responsible for
+// Close-ing it on shutdown.
+func NewServer(eng *query.Engine) *Server {
+	mcpSrv := server.NewMCPServer(
+		ServerName,
+		ServerVersion,
+		server.WithToolCapabilities(true),
+	)
+	s := &Server{engine: eng, mcp: mcpSrv}
+	s.registerTools()
+	return s
+}
+
+// ServeStdio runs the JSON-RPC stdio loop. Blocks until EOF on stdin
+// or context cancellation. This is what `claude mcp add cks` invokes.
+func (s *Server) ServeStdio() error {
+	return server.ServeStdio(s.mcp)
+}
+
+// Underlying returns the *server.MCPServer so a combined binary (e.g.
+// cks-mcp) can register additional tools alongside CKV's.
+func (s *Server) Underlying() *server.MCPServer { return s.mcp }
+
+func (s *Server) registerTools() {
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.semantic_search",
+		mcpgo.WithDescription("Semantic code search over the CKV vector index. Returns ranked hits with citations (file, line range, commit_hash) and budget-adjusted snippets."),
+		mcpgo.WithString("intent",
+			mcpgo.Description("Natural-language description of what the caller is looking for."),
+			mcpgo.Required(),
+		),
+		mcpgo.WithNumber("k",
+			mcpgo.Description("Top-K results (default 10)."),
+		),
+		mcpgo.WithString("language",
+			mcpgo.Description("Filter by language: go | typescript | solidity."),
+		),
+		mcpgo.WithString("path",
+			mcpgo.Description("Filter by path glob (filepath.Match, single-star)."),
+		),
+		mcpgo.WithString("symbol_kind",
+			mcpgo.Description("Filter by symbol kind: Function | Method | Type | Struct | Interface | Contract | Event | Modifier | FileHeader."),
+		),
+		mcpgo.WithNumber("budget_tokens",
+			mcpgo.Description("Snippet density budget in tokens (default 4000)."),
+		),
+		mcpgo.WithNumber("threshold",
+			mcpgo.Description("Minimum normalized score [0,1]; <0 disables."),
+		),
+	), s.handleSemanticSearch)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.ops.get_freshness",
+		mcpgo.WithDescription("Compare the index's indexed_head with the source tree's current git HEAD. Returns the list of changed files if stale."),
+	), s.handleGetFreshness)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.ops.health",
+		mcpgo.WithDescription("Report index identity (embedding model, dim, indexed_head, chunk count). Used as a startup probe."),
+	), s.handleHealth)
+}
+
+// ---- handlers ----
+
+func (s *Server) handleSemanticSearch(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	args := req.GetArguments()
+
+	intent, _ := args["intent"].(string)
+	if intent == "" {
+		return mcpgo.NewToolResultError("intent is required"), nil
+	}
+
+	opts := query.Options{}
+	if v, ok := args["k"].(float64); ok && v > 0 {
+		opts.K = int(v)
+	}
+	if v, ok := args["budget_tokens"].(float64); ok && v > 0 {
+		opts.BudgetTokens = int(v)
+	}
+	if v, ok := args["threshold"].(float64); ok {
+		opts.Threshold = v
+	}
+	if v, ok := args["language"].(string); ok {
+		opts.Filter.Language = v
+	}
+	if v, ok := args["path"].(string); ok {
+		opts.Filter.PathGlob = v
+	}
+	if v, ok := args["symbol_kind"].(string); ok && v != "" {
+		opts.Filter.SymbolKinds = []types.SymbolKind{types.SymbolKind(v)}
+	}
+
+	res, err := s.engine.Search(ctx, intent, opts)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("semantic_search: %v", err)), nil
+	}
+	return jsonResult(res)
+}
+
+func (s *Server) handleGetFreshness(_ context.Context, _ mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	man := s.engine.Manifest()
+	report, err := freshness.Check(man.SrcRoot, man.IndexedHead)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("get_freshness: %v", err)), nil
+	}
+	return jsonResult(report)
+}
+
+func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	man := s.engine.Manifest()
+	payload := map[string]any{
+		"server":          ServerName,
+		"server_version":  ServerVersion,
+		"embedding_model": man.EmbeddingModel,
+		"embedding_dim":   man.EmbeddingDim,
+		"indexed_head":    man.IndexedHead,
+		"chunk_count":     man.ChunkCount,
+		"built_at":        man.BuiltAt,
+		"src_root":        man.SrcRoot,
+	}
+	return jsonResult(payload)
+}
+
+// jsonResult marshals payload into a CallToolResult.Text. MCP tools
+// today exchange strings; we use JSON so clients can parse structurally.
+func jsonResult(payload any) (*mcpgo.CallToolResult, error) {
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("encode result: %v", err)), nil
+	}
+	return mcpgo.NewToolResultText(string(data)), nil
+}
