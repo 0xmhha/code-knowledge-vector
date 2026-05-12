@@ -1,0 +1,59 @@
+# CKV eval fixture — schema v1
+#
+# Each query expresses a natural-language intent and the ground-truth
+# code location that should appear in `ckv query` top-K. Used by
+# `ckv eval` to compute recall@k, MRR, and citation accuracy.
+#
+# A "hit" is correct if its citation.file equals expected.file AND
+# the citation's line range overlaps expected.line_range (the chunker
+# may emit either a tight symbol chunk or a file_header — either
+# bracketing the expected lines counts).
+#
+# corpus: ./testdata/sample (server.go + cache.go).
+# Note these intents are deliberately varied (verbs, synonyms, vague
+# phrasing) so mock-embedder regression detection has signal.
+schema_version: "1"
+
+queries:
+  - id: q1
+    intent: "TCP socket bind on port"
+    expected:
+      file: server.go
+      symbol: Server.Listen
+      kind: Method
+      line_range: [22, 29]
+    notes: "primary acceptance #2 fixture"
+
+  - id: q2
+    intent: "shutdown listener and release the socket"
+    expected:
+      file: server.go
+      symbol: Server.Close
+      kind: Method
+      line_range: [32, 37]
+
+  - id: q3
+    intent: "thread-safe in-memory key value cache"
+    expected:
+      file: cache.go
+      # Either the Cache struct or NewCache constructor counts —
+      # both occupy the top of cache.go.
+      symbol: Cache
+      kind: Struct
+      line_range: [7, 15]
+
+  - id: q4
+    intent: "store value under a key in the cache"
+    expected:
+      file: cache.go
+      symbol: Cache.Set
+      kind: Method
+      line_range: [18, 22]
+
+  - id: q5
+    intent: "retrieve value by key; report whether it was found"
+    expected:
+      file: cache.go
+      symbol: Cache.Get
+      kind: Method
+      line_range: [25, 30]

@@ -34,6 +34,7 @@ func newRootCmd() *cobra.Command {
 		newMCPCmd(),
 		newFreshnessCmd(),
 		newModelCmd(),
+		newEvalCmd(),
 	)
 
 	return cmd
