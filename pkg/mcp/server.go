@@ -1,13 +1,21 @@
-// Package mcp wraps the CKV query / freshness surface as an MCP server.
+// Package mcp wraps the CKV read-only surface as an MCP server.
 //
-// Tools exposed (plan §8.2):
+// CKV exposes only **read-only** tools — those that *infer* meaning from
+// the indexed code. The companion **read-write** memory MCP (working
+// memory: remember_fact, record_decision, log_interaction) is a separate
+// concern and will live in pkg/memory (planned). Splitting the two is
+// deliberate so callers (coding agent, CKS) can mount the write surface
+// behind tighter policy than the read surface.
+//
+// Tools exposed today (read-only, plan §8.2):
 //   - cks.context.semantic_search  — query.Engine.Search wrapper
 //   - cks.ops.get_freshness        — freshness.Check wrapper
 //   - cks.ops.health               — embedder + index identity probe
 //
-// Transport is stdio by default (Claude Code default). The combined
-// cks-mcp binary (CKG + CKV, S1-W3 Group B) embeds CKV's MCPServer
-// alongside CKG's, so this package must stay transport-agnostic.
+// Transport is stdio by default (Claude Code default). This package is
+// importable by **CKS** — CKS multiplexes CKV's tools alongside CKG's
+// in its own combined `cks-mcp` binary. See plan-S1-ckv.md §7 for the
+// (CKS-side) integration shape.
 package mcp
 
 import (
@@ -56,13 +64,16 @@ func (s *Server) ServeStdio() error {
 	return server.ServeStdio(s.mcp)
 }
 
-// Underlying returns the *server.MCPServer so a combined binary (e.g.
-// cks-mcp) can register additional tools alongside CKV's.
+// Underlying returns the *server.MCPServer for cross-package multiplex.
+//
+// Used by CKS (separate repo) to register CKG tools alongside CKV's
+// inside one MCP endpoint. CKV itself never multiplexes — callers that
+// only need CKV use cmd/ckv/mcp, which calls ServeStdio directly.
 func (s *Server) Underlying() *server.MCPServer { return s.mcp }
 
 func (s *Server) registerTools() {
 	s.mcp.AddTool(mcpgo.NewTool("cks.context.semantic_search",
-		mcpgo.WithDescription("Semantic code search over the CKV vector index. Returns ranked hits with citations (file, line range, commit_hash) and budget-adjusted snippets."),
+		mcpgo.WithDescription("Semantic code search over the CKV vector index. Returns ranked hits with citations (file, line range, commit_hash) and budget-adjusted snippets. READ-ONLY."),
 		mcpgo.WithString("intent",
 			mcpgo.Description("Natural-language description of what the caller is looking for."),
 			mcpgo.Required(),
@@ -88,11 +99,11 @@ func (s *Server) registerTools() {
 	), s.handleSemanticSearch)
 
 	s.mcp.AddTool(mcpgo.NewTool("cks.ops.get_freshness",
-		mcpgo.WithDescription("Compare the index's indexed_head with the source tree's current git HEAD. Returns the list of changed files if stale."),
+		mcpgo.WithDescription("Compare the index's indexed_head with the source tree's current git HEAD. Returns the list of changed files if stale. READ-ONLY."),
 	), s.handleGetFreshness)
 
 	s.mcp.AddTool(mcpgo.NewTool("cks.ops.health",
-		mcpgo.WithDescription("Report index identity (embedding model, dim, indexed_head, chunk count). Used as a startup probe."),
+		mcpgo.WithDescription("Report index identity (embedding model, dim, indexed_head, chunk count). Used as a startup probe. READ-ONLY."),
 	), s.handleHealth)
 }
 

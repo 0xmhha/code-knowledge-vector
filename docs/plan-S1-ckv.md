@@ -296,31 +296,30 @@ ckv freshness                    # M5
 
 ---
 
-## 7. CKG ↔ CKV 통합 (`cks-mcp` 통합 binary)
+## 7. CKG ↔ CKV 통합 (`cks-mcp` 통합 binary) — **CKS 책임 (정보용)**
 
-### 7.1 Module dependency
+> **방향 정정 (2026-05-12)**: 본 절의 통합 작업은 **CKS repo** (`tools/code-knowledge-system`)에서 수행한다. CKV는 CKG를 import하지 않으며, `cks-mcp` 바이너리도 CKV에서 빌드하지 않는다. CKV는 read-only MCP 표면(`pkg/mcp`)을 *노출* 하고, CKS가 이를 import해서 CKG MCP와 multiplex한다.
+
+### 7.1 Module dependency (목표 구조)
 ```
-github.com/0xmhha/code-knowledge-vector
-└── go.mod imports:
-    └── github.com/0xmhha/code-knowledge-graph (= CKG)
+github.com/0xmhha/code-knowledge-system   ← S1 이후 별도 repo
+├── go.mod imports:
+│   ├── github.com/0xmhha/code-knowledge-graph (CKG, read-only graph)
+│   └── github.com/0xmhha/code-knowledge-vector (CKV, read-only vector)
+└── cmd/cks-mcp/main.go:
+    multiplexes CKG MCP + CKV MCP (pkg/mcp.Server.Underlying()) + RRF
 ```
 
-CKV의 `cmd/cks-mcp/main.go`가 두 repo를 합쳐 single binary 생성:
-- CKG의 `internal/mcp/server.go` (이미 존재) — find_symbol, find_callers 등.
-- CKV의 `internal/mcp/server.go` (S1 신규) — semantic_search, query_code.
-- 두 server를 multiplex하는 `cks-mcp` 진입점.
+CKV가 CKS에 노출하는 표면 (이미 W3-T8에서 완료):
+- `pkg/mcp.NewServer(eng)` → `*Server`
+- `Server.Underlying()` → `*server.MCPServer` (CKS가 자기 MCPServer에 직접 등록 가능)
+- `query.Engine` (CKV의 vector retrieval API)
 
 ### 7.2 build target
 ```bash
-# CKV repo에서
+# CKV repo
 make build              # bin/ckv (standalone)
-make build-cks          # bin/cks-mcp (combined CKG+CKV)
-```
-
-`make build-cks`:
-```makefile
-build-cks:
-	go build -tags cks_combined -o bin/cks-mcp ./cmd/cks-mcp
+# CKV는 cks-mcp를 빌드하지 않는다. CKS repo의 Makefile이 책임.
 ```
 
 ### 7.3 query_code MCP capability
@@ -409,32 +408,56 @@ build-cks:
 
 ### 8.1 Transport
 - stdio (Claude Code default).
-- `cks-mcp` binary는 `os.Stdin` / `os.Stdout`으로 JSON-RPC 처리.
+- `ckv mcp` binary (and the CKS-side `cks-mcp`)는 `os.Stdin` / `os.Stdout`으로 JSON-RPC 처리.
 - 추가: `--http :8080` 옵션 (개발/디버깅 모드, S2에서 정식 지원).
 
-### 8.2 Tool registry
+### 8.2 Two-MCP Architecture (방향 정정 — 2026-05-12)
+
+> Coding agent / 상위 캘러는 **두 종류의 MCP 표면**을 봐야 한다 (사용자 명시):
+> 1. **Read-only MCP**: 바이브 요청 사항을 분석해 의미를 추론. 코드/그래프 인덱스에서 *읽기*만.
+> 2. **Read-write MCP** *(working memory / footprint)*: 작업 요청·내부 처리·응답 결과를 *축적*하여 knowledge 처리를 점점 똑똑하게.
+>
+> 두 표면은 동일 바이너리 안에서 namespace 분리, **또는** 별도 바이너리로 분리 가능. 분리하면 read-write에 더 strict한 정책(예: append-only, mTLS, run-id whitelist)을 적용하기 쉽다.
+
+CKV가 노출하는 read-only tool (W3-T8 완료):
 ```
-cks.context.semantic_search       # CKV 단독
-cks.context.query_code            # CKV+CKG hybrid (acceptance #1)
-cks.context.find_symbol           # CKG 단독 (기존)
-cks.context.find_callers          # CKG 단독 (기존, S0)
-cks.context.impact_of_change      # CKG 단독 (기존, S0)
-cks.ops.get_freshness             # 양쪽 indexed_head 통합
-cks.ops.health                    # health check
+cks.context.semantic_search       # CKV vector → ranked hits + citation (READ-ONLY)
+cks.ops.get_freshness             # indexed_head vs git HEAD          (READ-ONLY)
+cks.ops.health                    # index identity probe              (READ-ONLY)
+```
+
+CKV가 노출할 예정인 read-write tool (W3-T14 footprint + future working memory):
+```
+cks.memory.log_interaction        # 작업 요청·응답·메타 적재          (READ-WRITE)
+cks.memory.remember_fact          # (planned) UC-V9 명시 writeback     (READ-WRITE)
+cks.memory.record_decision        # (planned) UC-V9                    (READ-WRITE)
+cks.memory.recall_session         # (planned) UC-V14                   (READ-ONLY on RW store)
+```
+
+CKS가 추가로 multiplex할 tool (CKS의 책임, CKV에는 포함되지 않음):
+```
+cks.context.query_code            # CKV + CKG hybrid (RRF)             (READ-ONLY)
+cks.context.find_symbol           # CKG 단독                          (READ-ONLY)
+cks.context.find_callers          # CKG 단독                          (READ-ONLY)
+cks.context.impact_of_change      # CKG 단독                          (READ-ONLY)
 ```
 
 ### 8.3 등록
 ```bash
-cd /path/to/cks
-make build-cks
-claude mcp add cks --command ./bin/cks-mcp
+# CKV 단독 (vector-layer만 시연; acceptance #1 부분 충족)
+claude mcp add ckv --command "$(pwd)/bin/ckv mcp --out=$(pwd)/ckv-data"
+
+# CKS 통합 (CKS repo가 빌드; acceptance #1 완전 충족)
+cd /path/to/cks && make build
+claude mcp add cks --command "$(pwd)/bin/cks-mcp"
 ```
 
-acceptance #1을 위해 위 흐름이 빈 manifest 없이도 동작해야 한다. CKG/CKV 데이터 디렉토리 경로는 환경변수 `CKS_DATA_DIR=/var/cks/data`로 전달.
+acceptance #1을 위해 위 흐름이 빈 manifest 없이도 동작해야 한다. CKV 데이터 디렉토리는 `--out` 플래그 또는 환경변수 `CKV_DATA_DIR`로 전달.
 
 ### 8.4 Auth
 - S1 = loopback (127.0.0.1) only. mTLS는 S6에서 도입 (EXECUTION-GUIDE §5.3 보안 검증).
 - caller cert SAN 검증 등은 S1 범위 외.
+- Read-write MCP는 read-only보다 더 strict한 정책 대상 (write 권한은 별도 capability — coding agent에 한정).
 
 ---
 
@@ -550,31 +573,35 @@ featurelist §21의 q1~q5 + 추가:
 ### W1 — Skeleton + scaffolding (M0)
 - `cmd/ckv/main.go` Cobra CLI shell.
 - Makefile (build/test/lint/tidy/fmt).
-- `go.mod` with CKG dependency: `require github.com/0xmhha/code-knowledge-graph v0.x.x`.
+- `go.mod` — **CKG는 import하지 않는다** (정정 2026-05-12). CKS가 양쪽을 import.
 - README quickstart.
 - Tests: `bin/ckv --help` 출력 검증.
 
-### W2 — Indexer + embedding (M1+M2)
-- `internal/parse/<lang>/` go/typescript/solidity walkers.
+### W2 — Indexer + embedding (M1+M2)  ✅ 완료
+- `internal/parse/<lang>/` go walker (TS/Sol은 W3-T9/T10).
 - `internal/chunk/` chunking 로직.
-- `internal/embed/` Embedder 인터페이스 + bge-code-v1 ONNX 어댑터.
+- `internal/embed/` Embedder 인터페이스 + mock + bgeonnx 스텁.
 - `internal/store/sqlitevec/` VectorStore 구현.
 - `ckv build` 명령 동작.
 - Tests: 작은 sample repo → chunk 수, manifest 검증.
 
-### W3 — MCP + query_code (M3+M5)
-- `internal/mcp/server.go` — `cks.context.*`, `cks.ops.*`.
-- `cmd/cks-mcp/main.go` — combined binary (CKG dep).
-- `internal/fusion/rrf.go` — RRF.
-- `ckv mcp` 동작.
-- Tests: known query → expected file:line.
+### W3 — MCP + query (M3+M5, CKV 단독) — **정정**
+- `pkg/mcp/server.go` — `cks.context.*`, `cks.ops.*` (read-only). ✅
+- `ckv query`, `ckv mcp`, `ckv freshness` 동작. ✅
+- TS / Solidity tree-sitter parser (W3-T9, W3-T10) — *진행 예정*
+- **Footprint logging** (W3-T14, neu): slog + JSONL sink, 모든 build/query/mcp 경로에 latency·hit count·citation drop 계측 — *진행 예정*
+- **Skill extension hook** (W3-T15, neu): `<src>/.claude/` 또는 `ckv.yaml`로 per-project chunking/필터 커스터마이즈 — *진행 예정*
+- **삭제**: `cmd/cks-mcp` / `internal/fusion/rrf.go` — CKS의 책임으로 이관.
+- Tests: known query → expected file:line, footprint event schema 검증.
 
-### W4 — Hybrid acceptance + eval (M6 부분)
-- 5개 known query test fixture.
-- recall@5 / MRR 측정 스크립트.
-- Hybrid > BM25-only 시연.
+### W4 — Eval & acceptance (M7 부분, CKV 단독) — **정정**
+- 5개 known query test fixture (`testdata/queries.yaml`) — W4-T1
+- `ckv eval` runner — W4-T2: recall@k, MRR, citation accuracy
+- *(opt-in)* cli-wrapper LLM-as-judge — W4-T3: harness/cli-wrapper로 headless Claude Code 호출
+- **삭제**: "Hybrid > BM25-only 시연" — CKS에서 수행 (acceptance #3).
+- CKV 단독으로 가능한 acceptance: #2 (citation accuracy 100%) — formal demo.
 - README의 acceptance 섹션 갱신.
-- S1 done — S2 진입 가능.
+- S1 (CKV 측) done. CKS 작업과 병행 가능.
 
 각 주차 끝에 demo + acceptance check. 실패 항목은 follow-up task로 분해 (EXECUTION-GUIDE §5.2 원칙).
 
@@ -591,6 +618,8 @@ featurelist §21의 q1~q5 + 추가:
 - Hunk graph 통합 (CKG H1~H4의 Hunk 노드 임베딩) — CKG H1 land 후 S2 또는 S3.
 - mTLS auth — S6.
 - Observability (Prometheus exporter) — S2.
+- **`cks-mcp` 통합 binary, RRF fusion, `cks.context.query_code`** — **CKS repo의 책임** (`tools/code-knowledge-system`). CKV는 `pkg/mcp.Server.Underlying()`로 표면만 노출.
+- **Hybrid (CKV+CKG) acceptance** (#3) — CKS에서 수행.
 
 ---
 
@@ -635,3 +664,4 @@ S0의 8080 vs 현재 8787 정합 — 별도 작은 fix.
 | 일자 | 버전 | 변경 |
 |---|---|---|
 | 2026-05-08 | 0.1 | 초안 작성 (CKG b60a50f 기준, EXECUTION-GUIDE 2026-05-06 기준) |
+| 2026-05-12 | 0.2 | **방향 정정**: CKV는 CKG를 import하지 않음. `cks-mcp` 빌드 + RRF fusion + `query_code` tool은 별도 CKS repo의 책임. CKV는 `pkg/mcp.Server.Underlying()`로 read-only 표면만 노출. **Two-MCP 아키텍처** 추가 (read-only context / read-write memory). §7·§8·§12·§13 정정, W3-T9/T10 (TS/Sol parser) + W3-T14 (footprint) + W3-T15 (skill hook) + W4-T1/T2/T3 (eval + cli-wrapper judge) 명시. |

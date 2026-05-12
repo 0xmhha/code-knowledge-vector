@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
-	ckvmcp "github.com/0xmhha/code-knowledge-vector/internal/mcp"
+	ckvmcp "github.com/0xmhha/code-knowledge-vector/pkg/mcp"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 )
 

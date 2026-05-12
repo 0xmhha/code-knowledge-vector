@@ -14,9 +14,9 @@ all: build ## Default: build the ckv binary
 build: ## Build bin/ckv
 	$(GO) build -o $(BIN_DIR)/ckv ./cmd/ckv
 
-build-cks: ## Build combined CKG+CKV binary (S1-W3; placeholder)
-	@echo "build-cks: not yet implemented (S1-W3 task)"
-	@exit 1
+# The combined CKG+CKV binary (cks-mcp) lives in the CKS repository, not
+# here. CKV stays as a pure Vector-layer library; CKS imports it (and CKG)
+# and produces the multiplexed MCP binary. See plan-S1-ckv.md §7.
 
 test: ## Run unit tests
 	$(GO) test $(PKG_LIST)
