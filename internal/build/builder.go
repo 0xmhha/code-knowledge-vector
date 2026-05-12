@@ -19,6 +19,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
+	"github.com/0xmhha/code-knowledge-vector/internal/parse/typescript"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
@@ -96,9 +97,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	defer store.Close()
 
 	parsers := map[string]cparse.Parser{
-		"go": golang.New(),
-		// "typescript": tsParser.New(),  // W3
-		// "solidity":   solParser.New(), // W3
+		"go":         golang.New(),
+		"typescript": typescript.New(),
+		// "solidity":   solParser.New(), // W3-T10
 	}
 
 	totalStats := chunk.Stats{}

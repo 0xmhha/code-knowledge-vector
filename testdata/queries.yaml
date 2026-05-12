@@ -57,3 +57,20 @@ queries:
       symbol: Cache.Get
       kind: Method
       line_range: [25, 30]
+
+  # ---- TS coverage (added W3-T9) ----
+  - id: q6
+    intent: "route request path to a registered handler"
+    expected:
+      file: handler.ts
+      symbol: Handler.dispatch
+      kind: Method
+      line_range: [24, 30]
+
+  - id: q7
+    intent: "bind a callback to a URL path"
+    expected:
+      file: handler.ts
+      symbol: Handler.register
+      kind: Method
+      line_range: [19, 21]

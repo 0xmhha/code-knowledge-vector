@@ -41,7 +41,7 @@ Incremental indexing (--since) lands in S2.`,
 	f.StringVar(&opts.src, "src", ".", "source repository path")
 	f.StringVar(&opts.out, "out", "./ckv-data", "output data directory (vector.db, manifest.json)")
 	f.StringVar(&opts.ckgPath, "ckg", "", "CKG data directory for symbol alignment (optional; W3)")
-	f.StringSliceVar(&opts.languages, "lang", nil, "languages to index (default: auto-detect; supported: go)")
+	f.StringSliceVar(&opts.languages, "lang", nil, "languages to index (default: auto-detect; supported: go, typescript)")
 	f.StringVar(&opts.configPth, "config", "", "path to ckv.yaml (optional; W3)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 

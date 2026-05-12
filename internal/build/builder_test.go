@@ -38,16 +38,22 @@ func TestRunIndexesSample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if res.FilesIndexed != 2 {
-		t.Errorf("expected 2 files indexed, got %d", res.FilesIndexed)
+	// testdata/sample currently has 3 source files (server.go, cache.go,
+	// handler.ts). Add one to the lower bound here every time a fixture
+	// file lands. We check ≥ rather than == so adding more fixtures
+	// doesn't churn the test.
+	if res.FilesIndexed < 3 {
+		t.Errorf("expected ≥3 files indexed, got %d", res.FilesIndexed)
 	}
-	// 2 file_header + symbols (NewServer, Listen, Close, Server type,
-	// NewCache, Set, Get, Cache type) → 2 + 8 = 10. Treat as lower bound.
-	if res.Chunks.Total < 10 {
-		t.Errorf("expected ≥10 chunks, got %d (%+v)", res.Chunks.Total, res.Chunks)
+	// Symbols per current fixtures: Go (NewServer, Listen, Close, Server,
+	// NewCache, Set, Get, Cache) = 8; TS (Request, Response, Handler,
+	// Handler.register, Handler.dispatch, notFound) = 6. + one file_header
+	// per file. Treat as a lower bound.
+	if res.Chunks.Total < 14 {
+		t.Errorf("expected ≥14 chunks, got %d (%+v)", res.Chunks.Total, res.Chunks)
 	}
-	if res.Chunks.FileHeader != 2 {
-		t.Errorf("expected 2 file_header chunks (one per file), got %d", res.Chunks.FileHeader)
+	if res.Chunks.FileHeader < 3 {
+		t.Errorf("expected ≥3 file_header chunks (one per file), got %d", res.Chunks.FileHeader)
 	}
 
 	// manifest.json round-trips
