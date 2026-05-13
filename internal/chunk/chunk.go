@@ -24,10 +24,17 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
-// FileHeaderLines is the number of leading lines of each file we
-// capture as a "file_header" chunk. 50 mirrors plan §5.4 — enough to
-// cover the package decl + a typical import block + top-level consts.
-const FileHeaderLines = 50
+// DefaultFileHeaderLines is the number of leading lines of each file
+// captured as a "file_header" chunk when Options.FileHeaderLines is
+// unset. 50 mirrors plan §5.4 — enough to cover the package decl + a
+// typical import block + top-level consts. Per-project ckv.yaml can
+// override this via chunking.file_header_lines.
+const DefaultFileHeaderLines = 50
+
+// FileHeaderLines is the legacy export retained for callers that
+// reference the constant directly. New code should set
+// Options.FileHeaderLines and read Chunker.opts.
+const FileHeaderLines = DefaultFileHeaderLines
 
 // charsPerToken is the approximate ratio used to convert MaxInputTokens
 // into a character cap. Real tokenizers vary (BPE for bge-code ~3.5,
@@ -37,8 +44,11 @@ const charsPerToken = 4
 
 // Options configure chunking. Zero value uses documented defaults.
 type Options struct {
-	MaxInputTokens   int  // hard upper bound on chunk Text size; 0 → no cap
+	MaxInputTokens    int  // hard upper bound on chunk Text size; 0 → no cap
 	IncludeFileHeader bool // emit a file_header chunk per file (default: true)
+	// FileHeaderLines overrides DefaultFileHeaderLines (50). 0 keeps
+	// the default. Sourced from project ckv.yaml.chunking.file_header_lines.
+	FileHeaderLines int
 }
 
 // Input is everything the chunker needs about one file.
@@ -93,12 +103,16 @@ func (c *Chunker) fileHeaderChunk(in Input) *types.Chunk {
 	if len(in.Source) == 0 {
 		return nil
 	}
-	lines := strings.SplitN(string(in.Source), "\n", FileHeaderLines+1)
+	limit := c.opts.FileHeaderLines
+	if limit <= 0 {
+		limit = DefaultFileHeaderLines
+	}
+	lines := strings.SplitN(string(in.Source), "\n", limit+1)
 	if len(lines) == 0 {
 		return nil
 	}
-	if len(lines) > FileHeaderLines {
-		lines = lines[:FileHeaderLines]
+	if len(lines) > limit {
+		lines = lines[:limit]
 	}
 	text := strings.Join(lines, "\n")
 	if strings.TrimSpace(text) == "" {

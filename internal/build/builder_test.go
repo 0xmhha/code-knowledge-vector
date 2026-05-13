@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -87,6 +88,60 @@ func TestRunIndexesSample(t *testing.T) {
 	gotFile := hits[0].Chunk.File
 	if gotFile != "server.go" && gotFile != "cache.go" {
 		t.Errorf("top hit file unexpected: %q (raw=%+v)", gotFile, hits[0].Chunk)
+	}
+}
+
+func TestRunHonorsProjectCKVYaml(t *testing.T) {
+	// Stage a minimal multi-language tree inside a TempDir so we can
+	// drop a ckv.yaml without polluting testdata/sample.
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "main.go"), []byte("package x\nfunc A() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "ui.ts"), []byte("export function f() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "ckv.yaml"), []byte(`schema_version: "1"
+languages: [go]
+chunking:
+  file_header_lines: 5
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   t.TempDir(),
+		Embedder: mock.Default(),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Only Go should be indexed because ckv.yaml restricts languages.
+	if res.FilesIndexed != 1 {
+		t.Errorf("expected 1 file indexed (go only), got %d", res.FilesIndexed)
+	}
+	// 1 file_header + 1 symbol (func A) = 2 chunks.
+	if res.Chunks.Total != 2 {
+		t.Errorf("expected 2 chunks, got %d (%+v)", res.Chunks.Total, res.Chunks)
+	}
+	if res.Chunks.FileHeader != 1 {
+		t.Errorf("expected 1 file_header chunk, got %d", res.Chunks.FileHeader)
+	}
+}
+
+func TestRunFailsOnMalformedCKVYaml(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "ckv.yaml"), []byte("schema_version: \"99\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   t.TempDir(),
+		Embedder: mock.Default(),
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported schema_version, got nil")
 	}
 }
 

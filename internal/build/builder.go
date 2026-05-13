@@ -21,6 +21,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/solidity"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/typescript"
+	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
@@ -80,9 +81,31 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	commit, _ := detectCommit(o.SrcRoot) // empty string when not a git repo; acceptable
 
+	// Load per-project hook (<src>/ckv.yaml). Absence is OK — Load
+	// returns a zero-value Config that the rest of the pipeline
+	// treats as "use defaults".
+	cfg, cfgErr := projectcfg.LoadOrDefault(o.SrcRoot)
+	if cfgErr != nil {
+		// Malformed config is fatal: silently ignoring would leak
+		// surprises into indexing. Fail-fast with a clear message.
+		return nil, fmt.Errorf("project config: %w", cfgErr)
+	}
+	fp.Emit("project_config.loaded",
+		"path", o.SrcRoot,
+		"has_ckv_yaml", len(cfg.Ignore)+len(cfg.Languages)+cfg.Chunking.FileHeaderLines > 0,
+		"languages_filter", cfg.Languages,
+		"extra_ignore_count", len(cfg.Ignore),
+		"file_header_lines", cfg.Chunking.FileHeaderLines,
+		"important_symbol_count", len(cfg.ImportantSymbols),
+	)
+
 	doneBuild := fp.Span("build", "src_root", o.SrcRoot, "out_dir", o.OutDir, "embedder", o.Embedder.Name())
 
-	files, walkErrs, err := discover.Walk(o.SrcRoot, discover.Options{Extra: o.CKVIgnore})
+	// Merge config-supplied ignore patterns under CLI-supplied ones so
+	// the CLI flag wins when there is overlap (CLI is more proximate).
+	mergedIgnore := append([]string{}, cfg.Ignore...)
+	mergedIgnore = append(mergedIgnore, o.CKVIgnore...)
+	files, walkErrs, err := discover.Walk(o.SrcRoot, discover.Options{Extra: mergedIgnore})
 	if err != nil {
 		return nil, fmt.Errorf("walk: %w", err)
 	}
@@ -107,14 +130,21 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	languageCounts := make(map[string]int)
 	indexedFiles := 0
 
-	chunker := chunk.New(chunk.Options{
+	chunkOpts := chunk.Options{
 		MaxInputTokens: o.Embedder.MaxInputTokens(),
-	})
+	}
+	if cfg.Chunking.FileHeaderLines > 0 {
+		chunkOpts.FileHeaderLines = cfg.Chunking.FileHeaderLines
+	}
+	chunker := chunk.New(chunkOpts)
 
 	for _, f := range files {
 		p, ok := parsers[f.Language]
 		if !ok {
-			continue // language parser not implemented yet (TS/Sol)
+			continue // language parser not implemented yet
+		}
+		if !cfg.LanguageAllowed(f.Language) {
+			continue // project ckv.yaml disabled this language
 		}
 		src, err := os.ReadFile(f.AbsPath)
 		if err != nil {
