@@ -74,3 +74,28 @@ queries:
       symbol: Handler.register
       kind: Method
       line_range: [19, 21]
+
+  # ---- Solidity coverage (added W3-T10) ----
+  - id: q8
+    intent: "ERC20 token transfer with balance check"
+    expected:
+      file: token.sol
+      symbol: Token.transfer
+      kind: Method
+      line_range: [35, 46]
+
+  - id: q9
+    intent: "require non-zero amount before continuing"
+    expected:
+      file: token.sol
+      symbol: Token.onlyPositive
+      kind: Modifier
+      line_range: [19, 22]
+
+  - id: q10
+    intent: "Transfer event log"
+    expected:
+      file: token.sol
+      symbol: Token.Transfer
+      kind: Event
+      line_range: [13, 13]
