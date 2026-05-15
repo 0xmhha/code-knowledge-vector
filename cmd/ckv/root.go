@@ -11,6 +11,8 @@ var Version = "dev"
 // set via PersistentFlags so any leaf command can read them.
 type rootFlags struct {
 	noFootprint bool
+	embedder    string // mock | bgeonnx
+	modelDir    string // override default ~/.cache/ckv/models/<name>
 }
 
 var globalFlags rootFlags
@@ -27,6 +29,10 @@ func newRootCmd() *cobra.Command {
 
 	cmd.PersistentFlags().BoolVar(&globalFlags.noFootprint, "no-footprint", false,
 		"disable the JSONL footprint log written to <out>/footprint.jsonl")
+	cmd.PersistentFlags().StringVar(&globalFlags.embedder, "embedder", "mock",
+		"embedder backend: mock (default, no deps) or bgeonnx (requires model + libonnxruntime)")
+	cmd.PersistentFlags().StringVar(&globalFlags.modelDir, "model-dir", "",
+		"override the model directory (default ~/.cache/ckv/models/<name>)")
 
 	cmd.AddCommand(
 		newBuildCmd(),

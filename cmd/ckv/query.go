@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
@@ -56,8 +55,11 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// Mock embedder for W3; swap to bgeonnx in W3-late or W4.
-	emb := mock.Default()
+	emb, cleanup, err := resolveEmbedder(globalFlags.embedder, globalFlags.modelDir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 
 	fp := newFootprint(opts.out, "")
 	defer fp.Close()

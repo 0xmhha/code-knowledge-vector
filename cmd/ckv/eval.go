@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
 	"github.com/0xmhha/code-knowledge-vector/internal/eval"
 	"github.com/0xmhha/code-knowledge-vector/internal/judge"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
@@ -63,7 +62,12 @@ func runEval(ctx context.Context, opts *evalOpts) error {
 		return err
 	}
 
-	emb := mock.Default()
+	emb, cleanup, err := resolveEmbedder(globalFlags.embedder, globalFlags.modelDir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
 	fp := newFootprint(opts.out, "")
 	defer fp.Close()
 

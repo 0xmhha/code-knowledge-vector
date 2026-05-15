@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
 	ckvmcp "github.com/0xmhha/code-knowledge-vector/pkg/mcp"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 )
@@ -52,8 +51,13 @@ func runMCP(opts *mcpOpts) error {
 	fp := newFootprint(opts.out, "")
 	defer fp.Close()
 
-	// W3 still ships with the mock embedder; bgeonnx swap is W3-late / W4.
-	eng, err := query.Open(opts.out, mock.Default(), query.WithFootprint(fp))
+	emb, cleanup, err := resolveEmbedder(globalFlags.embedder, globalFlags.modelDir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	eng, err := query.Open(opts.out, emb, query.WithFootprint(fp))
 	if err != nil {
 		if errors.Is(err, query.ErrIndexUnavailable) {
 			fmt.Fprintln(os.Stderr, "ckv mcp:", err)

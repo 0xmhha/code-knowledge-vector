@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/build"
-	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
 )
 
 type buildOpts struct {
@@ -52,9 +51,11 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// W2 ships with the mock embedder so the pipeline works without an
-	// ONNX runtime. Swap to bgeonnx in W3 once the runtime decision lands.
-	emb := mock.Default()
+	emb, cleanup, err := resolveEmbedder(globalFlags.embedder, globalFlags.modelDir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 
 	fp := newFootprint(opts.out, "")
 	defer fp.Close()
