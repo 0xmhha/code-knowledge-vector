@@ -27,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -96,22 +97,44 @@ func Open(opts Options) (*Adapter, error) {
 		session:   opts.Session,
 	}
 	if a.tokenizer == nil {
-		a.tokenizer = stubTokenizer{}
+		tk, err := defaultTokenizer(opts.ModelDir)
+		if err != nil {
+			return nil, fmt.Errorf("bgeonnx: default tokenizer: %w", err)
+		}
+		a.tokenizer = tk
 	}
 	if a.session == nil {
-		a.session = stubSession{}
+		s, err := defaultSession(opts.ModelDir)
+		if err != nil {
+			return nil, fmt.Errorf("bgeonnx: default session: %w", err)
+		}
+		a.session = s
 	}
 	return a, nil
 }
 
-// Close releases the underlying Session. Idempotent.
+// Close releases the underlying Session and Tokenizer. The Tokenizer
+// interface deliberately omits Close — only some implementations need
+// it (the HF binding holds a Rust object) — so we test for io.Closer
+// dynamically. Idempotent.
 func (a *Adapter) Close() error {
-	if a == nil || a.session == nil {
+	if a == nil {
 		return nil
 	}
-	err := a.session.Close()
+	var firstErr error
+	if c, ok := a.tokenizer.(io.Closer); ok {
+		if err := c.Close(); err != nil {
+			firstErr = err
+		}
+	}
+	if a.session != nil {
+		if err := a.session.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	a.tokenizer = nil
 	a.session = nil
-	return err
+	return firstErr
 }
 
 func (a *Adapter) Name() string        { return ModelName }
