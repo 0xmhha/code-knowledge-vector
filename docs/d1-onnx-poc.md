@@ -1,8 +1,8 @@
 # D1 — ONNX bge-code-v1 PoC Report
 
-> **Status**: investigation + scaffolding complete (2026-05-13)
+> **Status**: scaffolding (2026-05-13) → FU-1+FU-2 wired (2026-05-17, commits `98dd373` + `3405124`). FU-3 (end-to-end measurement) pending user-side install.
 > **Owner**: CKV maintainers
-> **Outcome**: pick `yalue/onnxruntime_go` + Python tokenizer service for first cut; pure-Go tokenizer migration deferred.
+> **Outcome**: `yalue/onnxruntime_go` + `daulet/tokenizers` behind `-tags bgeonnx`. Default build untouched. See `docs/d1-installation-guide.md` for the user-side setup.
 
 ---
 
@@ -160,13 +160,13 @@ model itself is at fault.
 
 ## 6. Follow-up tasks
 
-| ID | Task | Notes |
-|---|---|---|
-| D1-FU-1 | Wire `yalue/onnxruntime_go` Session inside `internal/embed/bgeonnx/session.go` | Build tag `bgeonnx` so existing CI without ORT stays green |
-| D1-FU-2 | Wire `daulet/tokenizers` inside `internal/embed/bgeonnx/tokenizer.go` | Read `tokenizer.json` at Open() |
-| D1-FU-3 | Run the runbook end-to-end on M-series Mac, capture numbers | Update §3.3 Hypothesis → actuals |
-| D1-FU-4 | `ckv model fetch` command (D2) | Use HuggingFace CLI or direct CDN download with sha256 verify |
-| D1-FU-5 | linux/amd64 + linux/arm64 CI build matrix | Cross-build with appropriate `libonnxruntime` |
+| ID | Status | Task | Notes |
+|---|---|---|---|
+| D1-FU-1 | **done** (commit `3405124`) | Wire `yalue/onnxruntime_go` Session in `session_impl.go` | Gated by `-tags bgeonnx`. Masked mean pool + L2 normalize extracted to `pooling.go` and unit-tested without ORT. |
+| D1-FU-2 | **done** (commit `98dd373`) | Wire `daulet/tokenizers` in `tokenizer_impl.go` | Gated by `-tags bgeonnx`. Two-pass encode + pad-to-max-in-batch keeps inference cost proportional to actual sequence length. |
+| D1-FU-3 | open | Run the runbook end-to-end on M-series Mac, capture numbers | User installs deps per `docs/d1-installation-guide.md`, then `go test -tags 'bgeonnx bgeonnx_smoke' ./internal/embed/bgeonnx/` + `ckv eval --embedder=bgeonnx`. Update §3.3 Hypothesis → actuals. |
+| D1-FU-4 | open (D2 scope) | `ckv model fetch` command | Use HuggingFace CLI or direct CDN download with sha256 verify. Removes Python dependency from user workflow. |
+| D1-FU-5 | open | linux/amd64 + linux/arm64 CI build matrix | Cross-build with appropriate `libonnxruntime` + `libtokenizers`. |
 
 ---
 
