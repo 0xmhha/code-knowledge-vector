@@ -15,9 +15,9 @@ import (
 )
 
 func TestONNXSessionSmoke_EmbedShape(t *testing.T) {
-	dir := defaultModelDir(t) // defined in tokenizer_impl_smoke_test.go
-	if _, err := os.Stat(filepath.Join(dir, fileModel)); err != nil {
-		t.Skipf("model.onnx not installed at %s — see docs/d1-installation-guide.md", dir)
+	dir, cfg := defaultModelDir(t) // defined in tokenizer_impl_smoke_test.go
+	if _, err := os.Stat(filepath.Join(dir, cfg.OnnxFile)); err != nil {
+		t.Skipf("%s not installed at %s — see docs/d1-installation-guide.md", cfg.OnnxFile, dir)
 	}
 
 	a, err := Open(Options{ModelDir: dir})
@@ -37,8 +37,8 @@ func TestONNXSessionSmoke_EmbedShape(t *testing.T) {
 		t.Fatalf("expected 2 vectors, got %d", len(vecs))
 	}
 	for i, v := range vecs {
-		if len(v) != ModelDim {
-			t.Errorf("row %d: dim %d, want %d", i, len(v), ModelDim)
+		if len(v) != cfg.Dim {
+			t.Errorf("row %d: dim %d, want %d", i, len(v), cfg.Dim)
 		}
 		var norm float64
 		for _, x := range v {

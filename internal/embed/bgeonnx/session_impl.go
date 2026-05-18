@@ -7,6 +7,10 @@
 //
 // This file builds only with `-tags bgeonnx` so the default build
 // avoids the libonnxruntime system dependency. See docs/d1-installation-guide.md.
+//
+// Model-specific behavior (input names, extra inputs, pooling) is
+// driven entirely by ModelConfig — see model_config.go. Adding a new
+// model never requires editing this file.
 
 package bgeonnx
 
@@ -49,27 +53,18 @@ func initORT() error {
 	return ortInitErr
 }
 
-// Input/output names emitted by HuggingFace's BERT ONNX export.
-// bge-large-en-v1.5 requires token_type_ids (BERT inherits the
-// next-sentence-prediction architecture even though we only embed
-// single sequences — all zeros is the right value). Future non-BERT
-// models will need a different signature; gate on ModelName then.
-var (
-	onnxInputNames  = []string{"input_ids", "attention_mask", "token_type_ids"}
-	onnxOutputNames = []string{"last_hidden_state"}
-)
-
 type onnxSession struct {
 	sess *ort.DynamicAdvancedSession
+	cfg  ModelConfig
 }
 
-func newONNXSession(modelDir string) (*onnxSession, error) {
+func newONNXSession(modelDir string, cfg ModelConfig) (*onnxSession, error) {
 	if err := initORT(); err != nil {
 		return nil, fmt.Errorf("init ONNX environment: %w", err)
 	}
-	modelPath := filepath.Join(modelDir, fileModel)
+	modelPath := filepath.Join(modelDir, cfg.OnnxFile)
 	if _, err := os.Stat(modelPath); err != nil {
-		return nil, fmt.Errorf("model.onnx missing at %s: %w", modelPath, err)
+		return nil, fmt.Errorf("%s missing at %s: %w", cfg.OnnxFile, modelPath, err)
 	}
 
 	opts, err := ort.NewSessionOptions()
@@ -77,21 +72,19 @@ func newONNXSession(modelDir string) (*onnxSession, error) {
 		return nil, fmt.Errorf("session options: %w", err)
 	}
 	defer opts.Destroy()
-	// Default optimization level + intra-op threading. Tuning is FU-3
-	// once we have actual latency numbers from the runbook.
 
-	sess, err := ort.NewDynamicAdvancedSession(modelPath, onnxInputNames, onnxOutputNames, opts)
+	sess, err := ort.NewDynamicAdvancedSession(modelPath, cfg.InputOrder, cfg.Outputs, opts)
 	if err != nil {
 		return nil, fmt.Errorf("create ONNX session: %w", err)
 	}
-	return &onnxSession{sess: sess}, nil
+	return &onnxSession{sess: sess, cfg: cfg}, nil
 }
 
-// Run executes one batch and applies mean pooling (attention-masked)
-// + L2 normalization. The bge-* family was trained against pooled+
-// normalized vectors so cosine similarity in downstream search lines
-// up with the training objective — skip either step and the recall
-// numbers drop measurably.
+// Run executes one batch and applies pooling per ModelConfig.Pooling
+// + L2 normalization. Inputs are assembled in ModelConfig.InputOrder:
+// input_ids / attention_mask come from the tokenizer; any extra
+// inputs (token_type_ids for BERT, position_ids for Qwen2, etc.) come
+// from ModelConfig.ExtraInputs.
 func (s *onnxSession) Run(ctx context.Context, tokens TokenizedBatch) ([][]float32, error) {
 	if s == nil || s.sess == nil {
 		return nil, fmt.Errorf("bgeonnx: session closed")
@@ -118,29 +111,40 @@ func (s *onnxSession) Run(ctx context.Context, tokens TokenizedBatch) ([][]float
 		copy(idsFlat[i*seqLen:(i+1)*seqLen], tokens.InputIDs[i])
 		copy(maskFlat[i*seqLen:(i+1)*seqLen], tokens.AttentionMask[i])
 	}
-
 	shape := ort.NewShape(int64(batch), int64(seqLen))
-	idsTensor, err := ort.NewTensor[int64](shape, idsFlat)
-	if err != nil {
-		return nil, fmt.Errorf("input_ids tensor: %w", err)
+
+	// Assemble inputs in the exact order the ONNX graph expects.
+	inputs := make([]ort.Value, len(s.cfg.InputOrder))
+	for i, name := range s.cfg.InputOrder {
+		var t ort.Value
+		var err error
+		switch name {
+		case "input_ids":
+			t, err = ort.NewTensor[int64](shape, idsFlat)
+		case "attention_mask":
+			t, err = ort.NewTensor[int64](shape, maskFlat)
+		default:
+			fn, ok := s.cfg.ExtraInputs[name]
+			if !ok {
+				return nil, fmt.Errorf("bgeonnx: input %q has no source — register an ExtraInputFn in model_config.go", name)
+			}
+			t, err = ort.NewTensor[int64](shape, fn(batch, seqLen))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s tensor: %w", name, err)
+		}
+		inputs[i] = t
 	}
-	defer idsTensor.Destroy()
-	maskTensor, err := ort.NewTensor[int64](shape, maskFlat)
-	if err != nil {
-		return nil, fmt.Errorf("attention_mask tensor: %w", err)
-	}
-	defer maskTensor.Destroy()
-	// bge-large-en-v1.5 is a single-sequence embedder so every token
-	// belongs to segment 0. The BERT ONNX graph still requires the
-	// input, so allocate a zero tensor of the matching shape.
-	typeIDsTensor, err := ort.NewTensor[int64](shape, make([]int64, batch*seqLen))
-	if err != nil {
-		return nil, fmt.Errorf("token_type_ids tensor: %w", err)
-	}
-	defer typeIDsTensor.Destroy()
+	defer func() {
+		for _, in := range inputs {
+			if in != nil {
+				_ = in.Destroy()
+			}
+		}
+	}()
 
 	outputs := []ort.Value{nil} // nil → ORT auto-allocates; we free below.
-	if err := s.sess.Run([]ort.Value{idsTensor, maskTensor, typeIDsTensor}, outputs); err != nil {
+	if err := s.sess.Run(inputs, outputs); err != nil {
 		return nil, fmt.Errorf("ONNX run: %w", err)
 	}
 	defer func() {
@@ -154,13 +158,11 @@ func (s *onnxSession) Run(ctx context.Context, tokens TokenizedBatch) ([][]float
 		return nil, fmt.Errorf("bgeonnx: output is %T, want *Tensor[float32] — check ONNX export FP32 vs FP16", outputs[0])
 	}
 	outShape := hidden.GetShape()
-	if len(outShape) != 3 || outShape[0] != int64(batch) || outShape[1] != int64(seqLen) || outShape[2] != int64(ModelDim) {
-		return nil, fmt.Errorf("bgeonnx: output shape %v, want [%d,%d,%d]", outShape, batch, seqLen, ModelDim)
+	if len(outShape) != 3 || outShape[0] != int64(batch) || outShape[1] != int64(seqLen) || outShape[2] != int64(s.cfg.Dim) {
+		return nil, fmt.Errorf("bgeonnx: output shape %v, want [%d,%d,%d]", outShape, batch, seqLen, s.cfg.Dim)
 	}
 
-	// bge-large-en-v1.5 → CLS pooling (mask is unused here; [CLS] is
-	// always at position 0 and always attended in BERT encoders).
-	return clsPoolNormalize(hidden.GetData(), batch, seqLen, ModelDim)
+	return poolByMode(s.cfg.Pooling, hidden.GetData(), tokens.AttentionMask, batch, seqLen, s.cfg.Dim)
 }
 
 func (s *onnxSession) Close() error {

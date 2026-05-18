@@ -13,32 +13,39 @@ import (
 	"testing"
 )
 
-func defaultModelDir(t *testing.T) string {
+// defaultModelDir + defaultCfg return the operator's standard model
+// install location + its registry config. Skipped when the model
+// isn't on disk so CI without it stays green.
+func defaultModelDir(t *testing.T) (string, ModelConfig) {
 	t.Helper()
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(home, ".cache", "ckv", "models", ModelName)
+	cfg, err := LookupModel(DefaultModelName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(home, ".cache", "ckv", "models", cfg.Name), cfg
 }
 
 func TestHFTokenizerSmoke_PadsToMaxInBatch(t *testing.T) {
-	dir := defaultModelDir(t)
-	if _, err := os.Stat(filepath.Join(dir, fileTokenizer)); err != nil {
-		t.Skipf("tokenizer.json not installed at %s — see docs/d1-installation-guide.md", dir)
+	dir, cfg := defaultModelDir(t)
+	if _, err := os.Stat(filepath.Join(dir, cfg.TokenizerFile)); err != nil {
+		t.Skipf("%s not installed at %s — see docs/d1-installation-guide.md", cfg.TokenizerFile, dir)
 	}
-	tk, err := newHFTokenizer(dir)
+	tk, err := newHFTokenizer(dir, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tk.Close()
 
 	// Two inputs of very different lengths — the short one should be
-	// padded to match the long one (not to ModelMaxInput).
+	// padded to match the long one (not to MaxInput).
 	short := "x"
 	long := "def fetch_user(id: int) -> User: " + // simulate ~30-token code snippet
 		"return repo.get(id) if id > 0 else None"
-	out, err := tk.Tokenize(context.Background(), []string{short, long}, ModelMaxInput)
+	out, err := tk.Tokenize(context.Background(), []string{short, long}, cfg.MaxInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,11 +63,11 @@ func TestHFTokenizerSmoke_PadsToMaxInBatch(t *testing.T) {
 }
 
 func TestHFTokenizerSmoke_TruncatesAboveMaxLen(t *testing.T) {
-	dir := defaultModelDir(t)
-	if _, err := os.Stat(filepath.Join(dir, fileTokenizer)); err != nil {
-		t.Skipf("tokenizer.json not installed at %s — see docs/d1-installation-guide.md", dir)
+	dir, cfg := defaultModelDir(t)
+	if _, err := os.Stat(filepath.Join(dir, cfg.TokenizerFile)); err != nil {
+		t.Skipf("%s not installed at %s — see docs/d1-installation-guide.md", cfg.TokenizerFile, dir)
 	}
-	tk, err := newHFTokenizer(dir)
+	tk, err := newHFTokenizer(dir, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

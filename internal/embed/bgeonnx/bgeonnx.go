@@ -1,26 +1,16 @@
-// Package bgeonnx is the production Embedder for bge-code-v1 over ONNX
-// Runtime. The package is organized as three concerns:
+// Package bgeonnx is the production Embedder backend running ONNX
+// models locally via CGO. The package is organized into three concerns:
 //
 //   - bgeonnx.go (this file): the Embedder facade — identity, lifecycle,
-//     and the Embed() call that orchestrates tokenizer → session → pool.
-//   - tokenizer.go: turns []string into (input_ids, attention_mask).
-//     Today: an interface + a stub. Production impl arrives via
-//     daulet/tokenizers (see docs/d1-onnx-poc.md §2.2).
-//   - session.go: turns tokens into 1024-d vectors via ONNX Runtime.
-//     Today: an interface + a stub. Production impl arrives via
-//     yalue/onnxruntime_go behind the `bgeonnx` build tag.
+//     Embed() orchestration. Model-agnostic.
+//   - model_config.go: per-model registry of ONNX input signature,
+//     pooling strategy, file layout. Adding a new model is one entry.
+//   - tokenizer.go / tokenizer_impl.go: text → (input_ids, attention_mask).
+//   - session.go / session_impl.go: tokens → pooled+normalized vectors.
 //
-// Why scaffolded instead of fully implemented in this commit: the
-// runtime + tokenizer libraries each need their system dependency
-// (libonnxruntime.dylib + libtokenizers.so) plus the ~520 MB model
-// artifact downloaded out of band. Building the scaffold first lets
-// the operator follow the runbook in docs/d1-onnx-poc.md §3.2 to
-// finish the integration in a focused 30-minute spike.
-//
-// During the scaffold period, Embed() returns ErrNotImplemented so
-// callers (cmd/ckv `--embedder=bgeonnx` users) get a clear "you
-// haven't finished the install" signal instead of mysterious zero
-// vectors.
+// Default build (no `bgeonnx` tag) keeps the stub variants so users
+// without libonnxruntime + libtokenizers can still build CKV with the
+// mock embedder. `-tags bgeonnx` wires the real CGO implementations.
 package bgeonnx
 
 import (
@@ -32,87 +22,99 @@ import (
 	"path/filepath"
 )
 
-// ErrNotImplemented is returned by Embed() until the production
-// Session + Tokenizer have been wired (see D1-FU-1 / D1-FU-2 in
-// docs/d1-onnx-poc.md §6).
-var ErrNotImplemented = errors.New("bgeonnx: ONNX runtime not wired yet — see docs/d1-onnx-poc.md §3.2")
+// ErrNotImplemented is returned by stub Tokenizer / Session when
+// callers compile without `-tags bgeonnx`. Makes "you didn't enable
+// the real backend" a clear runtime signal rather than a mysterious
+// zero-vector output.
+var ErrNotImplemented = errors.New("bgeonnx: ONNX runtime not wired — rebuild with -tags bgeonnx (see docs/d1-installation-guide.md)")
 
-// Model identity. Stable across the runtime wiring swap so manifest
-// schemas stay backward-compatible. Values reflect bge-large-en-v1.5
-// (BertModel, 24 layers, 335M params); see docs/d1-onnx-poc.md.
-const (
-	ModelName      = "bge-large-en-v1.5"
-	ModelDim       = 1024
-	ModelMaxInput  = 512
-	ModelNormalize = "l2"
-)
-
-// Files we expect at ModelDir. The HuggingFace repo for
-// bge-large-en-v1.5 ships the ONNX export under `onnx/model.onnx`
-// alongside the PyTorch weights, so we point straight at it instead
-// of requiring an `optimum-cli` conversion step.
-const (
-	fileModel     = "onnx/model.onnx"
-	fileTokenizer = "tokenizer.json"
-)
-
-// Adapter is the Embedder facade. Hold one per process (Sessions are
-// expensive to construct and threadsafe for inference).
+// Adapter is the Embedder facade. One per process: Session
+// construction is expensive (~1.5s cold start) so callers hold this
+// long-lived and share it across queries.
 type Adapter struct {
 	modelDir  string
+	modelCfg  ModelConfig
 	tokenizer Tokenizer
 	session   Session
 }
 
-// Options control adapter construction. ModelDir is required and
-// must contain model.onnx + tokenizer.json. Tokenizer / Session
-// override the default factories — used by tests and by the smoke
-// build-tag variant.
+// Options control adapter construction.
+//
+// ModelDir + ModelName resolution order:
+//
+//  1. ModelName explicit  → registry lookup; ModelDir defaults to
+//     ~/.cache/ckv/models/<ModelName>.
+//  2. ModelDir explicit, ModelName empty → infer ModelName from
+//     ModelDir's basename, then registry lookup.
+//  3. Both empty → DefaultModelName + ~/.cache/ckv/models/<default>.
+//
+// Tokenizer / Session override the default factories. Tests inject
+// stubs here to bypass CGO; production callers leave them nil.
 type Options struct {
 	ModelDir  string
+	ModelName string // optional; inferred from ModelDir basename if blank
 	Tokenizer Tokenizer
 	Session   Session
 }
 
-// Open validates the model directory and constructs an Adapter. The
-// default Tokenizer + Session implementations return ErrNotImplemented
-// from their work methods so callers know the runtime is not yet
-// active. Production wiring replaces both via Options.
+// Open validates the model directory + registry config and constructs
+// an Adapter.
 func Open(opts Options) (*Adapter, error) {
-	if opts.ModelDir == "" {
-		// Fall back to the documented cache location so users with
-		// the model in the conventional spot don't need a flag.
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("bgeonnx: resolve model dir: %w", err)
-		}
-		opts.ModelDir = filepath.Join(home, ".cache", "ckv", "models", ModelName)
+	cfg, modelDir, err := resolveModel(opts)
+	if err != nil {
+		return nil, err
 	}
-	for _, f := range []string{fileModel, fileTokenizer} {
-		if _, err := os.Stat(filepath.Join(opts.ModelDir, f)); err != nil {
-			return nil, fmt.Errorf("bgeonnx: %s missing in %s — see docs/d1-onnx-poc.md §3.2", f, opts.ModelDir)
+
+	for _, f := range []string{cfg.OnnxFile, cfg.TokenizerFile} {
+		if _, err := os.Stat(filepath.Join(modelDir, f)); err != nil {
+			return nil, fmt.Errorf("bgeonnx: %s missing in %s — see docs/d1-installation-guide.md", f, modelDir)
 		}
 	}
+
 	a := &Adapter{
-		modelDir:  opts.ModelDir,
+		modelDir:  modelDir,
+		modelCfg:  cfg,
 		tokenizer: opts.Tokenizer,
 		session:   opts.Session,
 	}
 	if a.tokenizer == nil {
-		tk, err := defaultTokenizer(opts.ModelDir)
+		tk, err := defaultTokenizer(modelDir, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("bgeonnx: default tokenizer: %w", err)
 		}
 		a.tokenizer = tk
 	}
 	if a.session == nil {
-		s, err := defaultSession(opts.ModelDir)
+		s, err := defaultSession(modelDir, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("bgeonnx: default session: %w", err)
 		}
 		a.session = s
 	}
 	return a, nil
+}
+
+func resolveModel(opts Options) (ModelConfig, string, error) {
+	name := opts.ModelName
+	if name == "" && opts.ModelDir != "" {
+		name = filepath.Base(opts.ModelDir)
+	}
+	if name == "" {
+		name = DefaultModelName
+	}
+	cfg, err := LookupModel(name)
+	if err != nil {
+		return ModelConfig{}, "", err
+	}
+	modelDir := opts.ModelDir
+	if modelDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ModelConfig{}, "", fmt.Errorf("bgeonnx: resolve model dir: %w", err)
+		}
+		modelDir = filepath.Join(home, ".cache", "ckv", "models", cfg.Name)
+	}
+	return cfg, modelDir, nil
 }
 
 // Close releases the underlying Session and Tokenizer. The Tokenizer
@@ -139,14 +141,13 @@ func (a *Adapter) Close() error {
 	return firstErr
 }
 
-func (a *Adapter) Name() string        { return ModelName }
-func (a *Adapter) Dimension() int      { return ModelDim }
-func (a *Adapter) MaxInputTokens() int { return ModelMaxInput }
+// Identity methods (Embedder interface).
+func (a *Adapter) Name() string        { return a.modelCfg.Name }
+func (a *Adapter) Dimension() int      { return a.modelCfg.Dim }
+func (a *Adapter) MaxInputTokens() int { return a.modelCfg.MaxInput }
 
-// Embed orchestrates tokenizer → session → pooling. Both inner pieces
-// today return ErrNotImplemented so this function does too; once the
-// runtime wires up D1-FU-1 / D1-FU-2 the orchestration here stays
-// unchanged.
+// Embed orchestrates tokenizer → session. Pooling and normalization
+// happen inside Session per the model's ModelConfig.Pooling.
 func (a *Adapter) Embed(ctx context.Context, batch []string) ([][]float32, error) {
 	if a == nil {
 		return nil, errors.New("bgeonnx: nil adapter")
@@ -154,7 +155,7 @@ func (a *Adapter) Embed(ctx context.Context, batch []string) ([][]float32, error
 	if len(batch) == 0 {
 		return nil, nil
 	}
-	tokens, err := a.tokenizer.Tokenize(ctx, batch, ModelMaxInput)
+	tokens, err := a.tokenizer.Tokenize(ctx, batch, a.modelCfg.MaxInput)
 	if err != nil {
 		return nil, fmt.Errorf("bgeonnx: tokenize: %w", err)
 	}

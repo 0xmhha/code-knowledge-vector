@@ -147,7 +147,7 @@ func TestStatsReflectsManifest(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.SetManifest(ctx, map[string]string{
-		"embedding_model": "bge-code-v1",
+		"embedding_model": "bge-large-en-v1.5",
 		"indexed_head":    "abc123",
 		"built_at":        "2026-05-08T12:00:00Z",
 	})
@@ -155,7 +155,7 @@ func TestStatsReflectsManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
 	}
-	if st.EmbeddingModel != "bge-code-v1" || st.IndexedHead != "abc123" || st.EmbeddingDim != testDim {
+	if st.EmbeddingModel != "bge-large-en-v1.5" || st.IndexedHead != "abc123" || st.EmbeddingDim != testDim {
 		t.Errorf("manifest not surfaced: %+v", st)
 	}
 }

@@ -1,10 +1,10 @@
 //go:build bgeonnx
 
 // hfTokenizer wraps daulet/tokenizers (a CGO binding around the
-// HuggingFace Rust `tokenizers` crate). Reading `tokenizer.json`
-// directly keeps us bit-exact with the upstream HF reference, which
-// matters for bge-code-v1 — drift here would silently change the
-// embedding distribution.
+// HuggingFace Rust `tokenizers` crate). Reading the model's
+// `tokenizer.json` directly keeps us bit-exact with the upstream HF
+// reference — drift here would silently change the embedding
+// distribution.
 //
 // This file builds only with `-tags bgeonnx` so the default build
 // avoids the libtokenizers system dependency. See docs/d1-installation-guide.md.
@@ -24,14 +24,14 @@ type hfTokenizer struct {
 	tk *tokenizers.Tokenizer
 }
 
-func newHFTokenizer(modelDir string) (*hfTokenizer, error) {
-	path := filepath.Join(modelDir, fileTokenizer)
+func newHFTokenizer(modelDir string, cfg ModelConfig) (*hfTokenizer, error) {
+	path := filepath.Join(modelDir, cfg.TokenizerFile)
 	if _, err := os.Stat(path); err != nil {
-		return nil, fmt.Errorf("tokenizer.json missing at %s: %w", path, err)
+		return nil, fmt.Errorf("%s missing at %s: %w", cfg.TokenizerFile, path, err)
 	}
 	tk, err := tokenizers.FromFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("load tokenizer.json: %w", err)
+		return nil, fmt.Errorf("load %s: %w", cfg.TokenizerFile, err)
 	}
 	return &hfTokenizer{tk: tk}, nil
 }
@@ -39,12 +39,12 @@ func newHFTokenizer(modelDir string) (*hfTokenizer, error) {
 // Tokenize encodes batch into uniform-length int64 tensors padded to
 // the longest sequence in the batch (truncated to maxLen first). Two
 // passes is intentional: pass 1 finds the actual max so we don't pad
-// to 8192 when the batch is mostly short snippets — fixed-max padding
-// would 10x the inference cost on small batches.
+// to MaxInput when the batch is mostly short snippets — fixed-max
+// padding would 10x the inference cost on small batches.
 //
-// bge-code-v1's ONNX export does not consume token_type_ids, so we
-// leave TokenTypeIDs nil — Session.Run treats nil as "zeros" if the
-// graph requests it.
+// TokenTypeIDs is left nil here regardless of model. If the ONNX
+// graph requires it (e.g. BERT-family), Session.Run synthesizes a
+// zeros tensor via ModelConfig.ExtraInputs.
 func (t *hfTokenizer) Tokenize(ctx context.Context, batch []string, maxLen int) (TokenizedBatch, error) {
 	if t == nil || t.tk == nil {
 		return TokenizedBatch{}, fmt.Errorf("bgeonnx: tokenizer closed")

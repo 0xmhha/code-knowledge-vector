@@ -6,10 +6,10 @@
 
 package bgeonnx
 
-func defaultTokenizer(_ string) (Tokenizer, error) {
+func defaultTokenizer(_ string, _ ModelConfig) (Tokenizer, error) {
 	return stubTokenizer{}, nil
 }
 
-func defaultSession(_ string) (Session, error) {
+func defaultSession(_ string, _ ModelConfig) (Session, error) {
 	return stubSession{}, nil
 }

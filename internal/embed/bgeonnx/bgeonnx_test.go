@@ -8,13 +8,23 @@ import (
 	"testing"
 )
 
-// fakeModelDir writes the bare-minimum files Open() validates.
-// Contents are irrelevant — Open only stats the paths. Creates any
-// parent directories needed (e.g. `onnx/` for fileModel).
+// fakeModelDir writes the bare-minimum files Open() validates for
+// the default model. Contents are irrelevant — Open only stats the
+// paths. Creates any parent directories needed (e.g. `onnx/`).
+// The directory basename matches DefaultModelName so Open() can
+// resolve the right ModelConfig without an explicit ModelName.
 func fakeModelDir(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	for _, f := range []string{fileModel, fileTokenizer} {
+	base := t.TempDir()
+	dir := filepath.Join(base, DefaultModelName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LookupModel(DefaultModelName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{cfg.OnnxFile, cfg.TokenizerFile} {
 		full := filepath.Join(dir, f)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
@@ -44,17 +54,21 @@ func openWithStubs(t *testing.T) *Adapter {
 	return a
 }
 
-func TestIdentityConstants(t *testing.T) {
+func TestIdentityFromRegistry(t *testing.T) {
 	a := openWithStubs(t)
 	defer a.Close()
-	if a.Name() != ModelName {
-		t.Errorf("Name = %q, want %q", a.Name(), ModelName)
+	cfg, err := LookupModel(DefaultModelName)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if a.Dimension() != ModelDim {
-		t.Errorf("Dimension = %d, want %d", a.Dimension(), ModelDim)
+	if a.Name() != cfg.Name {
+		t.Errorf("Name = %q, want %q", a.Name(), cfg.Name)
 	}
-	if a.MaxInputTokens() != ModelMaxInput {
-		t.Errorf("MaxInputTokens = %d, want %d", a.MaxInputTokens(), ModelMaxInput)
+	if a.Dimension() != cfg.Dim {
+		t.Errorf("Dimension = %d, want %d", a.Dimension(), cfg.Dim)
+	}
+	if a.MaxInputTokens() != cfg.MaxInput {
+		t.Errorf("MaxInputTokens = %d, want %d", a.MaxInputTokens(), cfg.MaxInput)
 	}
 }
 
@@ -94,13 +108,16 @@ func (f *fakeTokenizer) Tokenize(_ context.Context, batch []string, _ int) (Toke
 	return out, nil
 }
 
-type fakeSession struct{ received int }
+type fakeSession struct {
+	received int
+	dim      int
+}
 
 func (f *fakeSession) Run(_ context.Context, tokens TokenizedBatch) ([][]float32, error) {
 	f.received = len(tokens.InputIDs)
 	out := make([][]float32, len(tokens.InputIDs))
 	for i := range out {
-		out[i] = make([]float32, ModelDim)
+		out[i] = make([]float32, f.dim)
 		out[i][0] = 1.0
 	}
 	return out, nil
@@ -109,8 +126,12 @@ func (f *fakeSession) Run(_ context.Context, tokens TokenizedBatch) ([][]float32
 func (f *fakeSession) Close() error { return nil }
 
 func TestEmbedOrchestratesTokenizerAndSession(t *testing.T) {
+	cfg, err := LookupModel(DefaultModelName)
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
-	sess := &fakeSession{}
+	sess := &fakeSession{dim: cfg.Dim}
 	a, err := Open(Options{
 		ModelDir:  fakeModelDir(t),
 		Tokenizer: &fakeTokenizer{calls: &calls},
@@ -131,8 +152,8 @@ func TestEmbedOrchestratesTokenizerAndSession(t *testing.T) {
 	if sess.received != 2 {
 		t.Errorf("session expected 2 inputs, got %d", sess.received)
 	}
-	if len(vecs) != 2 || len(vecs[0]) != ModelDim {
-		t.Errorf("vector shape wrong: got %dx%d, want 2x%d", len(vecs), len(vecs[0]), ModelDim)
+	if len(vecs) != 2 || len(vecs[0]) != cfg.Dim {
+		t.Errorf("vector shape wrong: got %dx%d, want 2x%d", len(vecs), len(vecs[0]), cfg.Dim)
 	}
 }
 

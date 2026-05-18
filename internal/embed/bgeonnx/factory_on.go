@@ -1,14 +1,14 @@
 //go:build bgeonnx
 
-// Default factories for the `bgeonnx` build. Tokenizer swaps to the
-// real HF binding; Session stays on stubSession until D1-FU-1 lands.
+// Default factories for the `bgeonnx` build. Wires the real CGO
+// implementations (HF Rust tokenizers + ONNX Runtime).
 
 package bgeonnx
 
-func defaultTokenizer(modelDir string) (Tokenizer, error) {
-	return newHFTokenizer(modelDir)
+func defaultTokenizer(modelDir string, cfg ModelConfig) (Tokenizer, error) {
+	return newHFTokenizer(modelDir, cfg)
 }
 
-func defaultSession(modelDir string) (Session, error) {
-	return newONNXSession(modelDir)
+func defaultSession(modelDir string, cfg ModelConfig) (Session, error) {
+	return newONNXSession(modelDir, cfg)
 }

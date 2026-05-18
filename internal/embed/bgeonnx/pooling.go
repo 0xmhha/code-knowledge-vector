@@ -1,7 +1,7 @@
-// Pure-Go pooling primitives. No build tag — these are exercised by
-// unit tests even without libonnxruntime installed, so the numeric
-// correctness of mean pooling + L2 normalize is regression-tested in
-// every CI run, not just the smoke build.
+// Pure-Go pooling primitives + dispatch. No build tag — these are
+// exercised by unit tests even without libonnxruntime installed, so
+// the numeric correctness of every pooling mode is regression-tested
+// in every CI run, not just the smoke build.
 
 package bgeonnx
 
@@ -9,6 +9,23 @@ import (
 	"fmt"
 	"math"
 )
+
+// poolByMode dispatches to the right pooling implementation per
+// ModelConfig.Pooling. Session calls this — neither bgeonnx.go nor
+// session_impl.go knows which strategy to use; the model registry
+// decides.
+func poolByMode(mode PoolingMode, raw []float32, mask [][]int64, batch, seqLen, hidden int) ([][]float32, error) {
+	switch mode {
+	case PoolingCLS:
+		return clsPoolNormalize(raw, batch, seqLen, hidden)
+	case PoolingMean:
+		return meanPoolNormalize(raw, mask, batch, seqLen, hidden)
+	case PoolingLastToken:
+		return nil, fmt.Errorf("bgeonnx: pooling mode %s not yet implemented — see model_config.go and add lastTokenPoolNormalize", mode)
+	default:
+		return nil, fmt.Errorf("bgeonnx: unknown pooling mode %s", mode)
+	}
+}
 
 // meanPoolNormalize reduces ONNX `last_hidden_state` output of shape
 // [batch, seqLen, hidden] to [batch, hidden] by attention-masked mean

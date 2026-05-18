@@ -15,7 +15,7 @@ func TestSaveAndLoadRoundtrip(t *testing.T) {
 		SrcRoot:            "/path/to/repo",
 		SrcCommit:          "abc123",
 		IndexedHead:        "abc123",
-		EmbeddingModel:     "bge-code-v1",
+		EmbeddingModel:     "bge-large-en-v1.5",
 		EmbeddingDim:       1024,
 		EmbeddingNormalize: "l2",
 		ChunkCount:         42,
@@ -30,7 +30,7 @@ func TestSaveAndLoadRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.EmbeddingDim != 1024 || got.EmbeddingModel != "bge-code-v1" {
+	if got.EmbeddingDim != 1024 || got.EmbeddingModel != "bge-large-en-v1.5" {
 		t.Errorf("embedding fields not round-tripped: %+v", got)
 	}
 	if got.Languages["go"] != 40 {

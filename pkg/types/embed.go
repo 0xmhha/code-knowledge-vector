@@ -4,11 +4,13 @@ import "context"
 
 // Embedder turns text into a fixed-dimension vector. Implementations:
 //   - internal/embed/mock      — deterministic hash-based, for tests
-//   - internal/embed/bgeonnx   — ONNX bge-code-v1 (S1-W2 W2-T4)
+//   - internal/embed/bgeonnx   — ONNX-backed local embedder; supports
+//                                a model registry (see model_config.go),
+//                                currently bge-large-en-v1.5 by default.
 //
 // Plan §3:
 //   - Name returns a stable identifier persisted in the manifest
-//     ("bge-code-v1"). Mismatch on rebuild → IndexUnavailable.
+//     (e.g. "bge-large-en-v1.5"). Mismatch on rebuild → IndexUnavailable.
 //   - Dimension is the vector length. Used to size the sqlite-vec column.
 //   - MaxInputTokens is the model's context limit; the chunker truncates
 //     overlong text up front (signature stays at the head).
