@@ -1,8 +1,8 @@
 # D1 — ONNX bge-code-v1 PoC Report
 
-> **Status**: scaffolding (2026-05-13) → FU-1+FU-2 wired (2026-05-17, commits `98dd373` + `3405124`). FU-3 (end-to-end measurement) pending user-side install.
+> **Status**: scaffolding (2026-05-13) → FU-1+FU-2 wired (2026-05-17) → **model pivot bge-code-v1 → bge-large-en-v1.5 + E2E measured (2026-05-18)**. PoC complete; bge-code-v1 Qwen2 adapter deferred to D2.
 > **Owner**: CKV maintainers
-> **Outcome**: `yalue/onnxruntime_go` + `daulet/tokenizers` behind `-tags bgeonnx`. Default build untouched. See `docs/d1-installation-guide.md` for the user-side setup.
+> **Outcome**: `yalue/onnxruntime_go` + `daulet/tokenizers` + bge-large-en-v1.5 (BERT 335M, 1024d, CLS pooling) behind `-tags bgeonnx`. Default build untouched. recall@5=1.0 / MRR=0.77 / p95=43ms on 10-query fixture.
 
 ---
 
@@ -89,43 +89,49 @@ This document represents the **scaffolding** delivery. Two parts:
 
 ### 3.2 Operator runbook
 
-When the user has model + dependencies on disk:
+Detailed step-by-step is in [`docs/d1-installation-guide.md`](./d1-installation-guide.md).
+Short version:
 
 ```bash
-# 1. install onnxruntime (one-time)
-brew install onnxruntime              # provides libonnxruntime.dylib
+# install system libs (one-time)
+brew install onnxruntime
+# libtokenizers v1.26.0 darwin-arm64 .a → ~/lib/
 
-# 2. fetch the model (one-time)
-mkdir -p ~/.cache/ckv/models/bge-code-v1
-cd ~/.cache/ckv/models/bge-code-v1
-huggingface-cli download BAAI/bge-code-v1 --local-dir .
-optimum-cli export onnx --model BAAI/bge-code-v1 ./onnx
+# fetch model (one-time, ~2.5 GB; ONNX export already bundled in repo)
+mkdir -p ~/.cache/ckv/models/bge-large-en-v1.5
+cd ~/.cache/ckv/models/bge-large-en-v1.5
+hf download BAAI/bge-large-en-v1.5 --local-dir .
 
-# 3. point ckv at it
-export CKV_MODEL_PATH=~/.cache/ckv/models/bge-code-v1
+# build ckv with the production embedder
+CGO_LDFLAGS="-L$HOME/lib" \
+  go build -tags bgeonnx -o ./bin/ckv ./cmd/ckv
+
+# index + eval
 ./bin/ckv build --src=./testdata/sample --out=/tmp/ckv-bge --embedder=bgeonnx
-
-# 4. eval against the bge baseline
 ./bin/ckv eval --out=/tmp/ckv-bge --fixture=./testdata/queries.yaml \
-    --top=5 --threshold=-1 --min-recall5=0.95
+    --top=5 --threshold=-1 --embedder=bgeonnx
 
-# 5. run the smoke test
-go test -tags bgeonnx_smoke ./internal/embed/bgeonnx/ -v
+# smoke test
+CGO_LDFLAGS="-L$HOME/lib" go test \
+    -tags 'bgeonnx bgeonnx_smoke' ./internal/embed/bgeonnx/
 ```
 
-### 3.3 Expected outcome on first run
+### 3.3 Measured outcomes (2026-05-18, bge-large-en-v1.5)
 
-Hypothesis (to be confirmed when the model is in place):
+| Metric | mock baseline | bge-large-en-v1.5 | D1 hypothesis | Met? |
+|---|---|---|---|---|
+| recall@5 | 0.900 | **1.000** | 1.0 | ✅ |
+| recall@3 | — | 0.900 | — | — |
+| recall@1 | — | 0.600 | — | — |
+| MRR | 0.590 | **0.770** | ≥ 0.85 | ⚠️ short |
+| p95 latency (warm) | — | **43 ms** | ≤ 200 ms | ✅ (1/4 of budget) |
+| citation@1 | — | 1.000 | — | — |
+| Index build | — | 26 chunks / 16 s ≈ **1.6 chunks/s** | ≈ 17 chunks/s | ❌ 10× slower than guess |
 
-- recall@5 climbs from 0.900 → 1.0 on the 10-query fixture
-- MRR rises from 0.59 → ≥ 0.85
-- p95 query latency ≤ 200 ms warm (plan §3 NFR)
-- Index build ≈ 17 chunks/s on M-series Mac (CPU) — comfortable for
-  testdata; the 1M LOC target needs a separate scaling pass.
-
-If recall@5 drops below 0.95 vs mock, treat as a wiring bug (probably
-input normalization or pooling) and re-verify before claiming the
-model itself is at fault.
+Notes:
+- **MRR shortfall**: q5 (`retrieve value by key; report whether it was found`) lands at rank 5; top hit is `handler.ts` instead of `cache.go`. bge-large-en-v1.5 is general-text, not code-trained. A bge-code-v1 adapter would likely lift MRR but needs the Qwen2 path (deferred, see §6).
+- **Build throughput miss**: 1.6 chunks/s on M-series CPU. The 17 chunks/s guess was naive — didn't account for the per-chunk ORT cold-call cost + L2 normalize CPU work. 1M LOC scaling needs (a) batching chunks per Embed() call or (b) onnxruntime CoreML execution provider.
+- **N=10**: statistically weak. Expand fixture to ≥ 50 queries for a robust signal.
 
 ---
 
@@ -137,6 +143,9 @@ model itself is at fault.
 | 2026-05-13 | Pick `daulet/tokenizers` for tokenization | Loads `tokenizer.json` directly; matches HuggingFace exactly so future model swaps are token-faithful |
 | 2026-05-13 | Defer Python subprocess fallback | Adds a foreign runtime to CKS's single-binary story; revisit only if onnxruntime install proves painful on user machines |
 | 2026-05-13 | Ship scaffolding + report, defer end-to-end inference | Honest about session constraints (no 520 MB download in tool calls); leaves a follow-up that any contributor can execute in 30 min |
+| 2026-05-18 | **Pivot bge-code-v1 → bge-large-en-v1.5** | Model card audit (post-download) revealed bge-code-v1 is actually Qwen2 1.5B with last-token pooling + 32k context — completely different from our BERT/mean assumptions. bge-large-en-v1.5 matches the existing scaffold (BERT, 1024d, but CLS pooling not mean). 30 min PoC pivot vs writing a Qwen2 adapter from scratch. |
+| 2026-05-18 | **Keep meanPoolNormalize alongside clsPoolNormalize** | bge-code-v1 (last-token) and bge-m3 (mean) both plausible future additions; deleting mean would require rewriting it later. Strategy pattern overkill for now — two pure functions cost ~50 LOC and zero runtime overhead. |
+| 2026-05-18 | **Hardcode token_type_ids = zeros for bge-large-en-v1.5** | BERT ONNX export requires the input even for single-sequence embedders. All-zero tensor is the correct value (segment A). Future non-BERT models will need a different input signature; gate on ModelName then. |
 
 ---
 
@@ -162,11 +171,14 @@ model itself is at fault.
 
 | ID | Status | Task | Notes |
 |---|---|---|---|
-| D1-FU-1 | **done** (commit `3405124`) | Wire `yalue/onnxruntime_go` Session in `session_impl.go` | Gated by `-tags bgeonnx`. Masked mean pool + L2 normalize extracted to `pooling.go` and unit-tested without ORT. |
+| D1-FU-1 | **done** (commit `3405124`) | Wire `yalue/onnxruntime_go` Session in `session_impl.go` | Gated by `-tags bgeonnx`. macOS dylib lookup needs `SetSharedLibraryPath` — not in the README, easy to miss. `CKV_ONNXRUNTIME_LIB` env overrides. |
 | D1-FU-2 | **done** (commit `98dd373`) | Wire `daulet/tokenizers` in `tokenizer_impl.go` | Gated by `-tags bgeonnx`. Two-pass encode + pad-to-max-in-batch keeps inference cost proportional to actual sequence length. |
-| D1-FU-3 | open | Run the runbook end-to-end on M-series Mac, capture numbers | User installs deps per `docs/d1-installation-guide.md`, then `go test -tags 'bgeonnx bgeonnx_smoke' ./internal/embed/bgeonnx/` + `ckv eval --embedder=bgeonnx`. Update §3.3 Hypothesis → actuals. |
-| D1-FU-4 | open (D2 scope) | `ckv model fetch` command | Use HuggingFace CLI or direct CDN download with sha256 verify. Removes Python dependency from user workflow. |
+| D1-FU-3 | **done** (2026-05-18) | E2E measurement on M-series Mac | See §3.3. recall@5 met, MRR short, latency comfortable, build throughput miss. |
+| D1-FU-4 | open (D2 scope) | `ckv model fetch` command | Use `hf download` (CLI) or direct CDN download with sha256 verify. Removes Python dependency from user workflow. bge-large-en-v1.5 ships ONNX in-repo so no convert step needed for it. |
 | D1-FU-5 | open | linux/amd64 + linux/arm64 CI build matrix | Cross-build with appropriate `libonnxruntime` + `libtokenizers`. |
+| D1-FU-6 | open (D2 scope) | **bge-code-v1 Qwen2 adapter** | Reuse existing 5.8GB download at `~/.cache/ckv/models/bge-code-v1/`. Needs: ModelDim=1536, ModelMaxInput=32k, last-token pooling, Qwen2 ONNX export (optimum-cli + ~5GB extra disk), per-model strategy dispatch in factory_on.go. |
+| D1-FU-7 | open | Expand eval fixture to ≥ 50 queries | N=10 has weak signal. More queries + multiple languages would give better MRR / recall confidence intervals. |
+| D1-FU-8 | open (perf) | Batch chunks per Embed() call | Index build is 1.6 chunks/s, 10× slower than naive guess. Batching ~32 chunks/Embed() + CoreML EP should close the gap to the 1M LOC scaling target. |
 
 ---
 

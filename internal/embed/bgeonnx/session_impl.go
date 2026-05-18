@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -32,17 +33,29 @@ var (
 
 func initORT() error {
 	ortInitOnce.Do(func() {
+		// yalue/onnxruntime_go's default lookup is "onnxruntime.so" —
+		// only matches Linux. macOS/Windows need an explicit dylib/dll
+		// path. Allow user override via env so unusual install
+		// locations work without a recompile.
+		if libPath := os.Getenv("CKV_ONNXRUNTIME_LIB"); libPath != "" {
+			ort.SetSharedLibraryPath(libPath)
+		} else if runtime.GOOS == "darwin" {
+			// brew's standard location on Apple Silicon. Intel Macs
+			// would set CKV_ONNXRUNTIME_LIB=/usr/local/lib/libonnxruntime.dylib.
+			ort.SetSharedLibraryPath("/opt/homebrew/lib/libonnxruntime.dylib")
+		}
 		ortInitErr = ort.InitializeEnvironment()
 	})
 	return ortInitErr
 }
 
-// Input/output names emitted by `optimum-cli export onnx --task
-// feature-extraction` for BERT-family encoders (which bge-code-v1 is).
-// If the export pipeline ever renames these, Open() will fail at
-// session construction with a clear "input not found" error from ORT.
+// Input/output names emitted by HuggingFace's BERT ONNX export.
+// bge-large-en-v1.5 requires token_type_ids (BERT inherits the
+// next-sentence-prediction architecture even though we only embed
+// single sequences — all zeros is the right value). Future non-BERT
+// models will need a different signature; gate on ModelName then.
 var (
-	onnxInputNames  = []string{"input_ids", "attention_mask"}
+	onnxInputNames  = []string{"input_ids", "attention_mask", "token_type_ids"}
 	onnxOutputNames = []string{"last_hidden_state"}
 )
 
@@ -117,9 +130,17 @@ func (s *onnxSession) Run(ctx context.Context, tokens TokenizedBatch) ([][]float
 		return nil, fmt.Errorf("attention_mask tensor: %w", err)
 	}
 	defer maskTensor.Destroy()
+	// bge-large-en-v1.5 is a single-sequence embedder so every token
+	// belongs to segment 0. The BERT ONNX graph still requires the
+	// input, so allocate a zero tensor of the matching shape.
+	typeIDsTensor, err := ort.NewTensor[int64](shape, make([]int64, batch*seqLen))
+	if err != nil {
+		return nil, fmt.Errorf("token_type_ids tensor: %w", err)
+	}
+	defer typeIDsTensor.Destroy()
 
 	outputs := []ort.Value{nil} // nil → ORT auto-allocates; we free below.
-	if err := s.sess.Run([]ort.Value{idsTensor, maskTensor}, outputs); err != nil {
+	if err := s.sess.Run([]ort.Value{idsTensor, maskTensor, typeIDsTensor}, outputs); err != nil {
 		return nil, fmt.Errorf("ONNX run: %w", err)
 	}
 	defer func() {
@@ -137,7 +158,9 @@ func (s *onnxSession) Run(ctx context.Context, tokens TokenizedBatch) ([][]float
 		return nil, fmt.Errorf("bgeonnx: output shape %v, want [%d,%d,%d]", outShape, batch, seqLen, ModelDim)
 	}
 
-	return meanPoolNormalize(hidden.GetData(), tokens.AttentionMask, batch, seqLen, ModelDim)
+	// bge-large-en-v1.5 → CLS pooling (mask is unused here; [CLS] is
+	// always at position 0 and always attended in BERT encoders).
+	return clsPoolNormalize(hidden.GetData(), batch, seqLen, ModelDim)
 }
 
 func (s *onnxSession) Close() error {

@@ -9,23 +9,43 @@ import (
 )
 
 // fakeModelDir writes the bare-minimum files Open() validates.
-// Contents are irrelevant — Open only stats the paths.
+// Contents are irrelevant — Open only stats the paths. Creates any
+// parent directories needed (e.g. `onnx/` for fileModel).
 func fakeModelDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, f := range []string{fileModel, fileTokenizer} {
-		if err := os.WriteFile(filepath.Join(dir, f), []byte("stub"), 0o644); err != nil {
+		full := filepath.Join(dir, f)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("stub"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	return dir
 }
 
-func TestIdentityConstants(t *testing.T) {
-	a, err := Open(Options{ModelDir: fakeModelDir(t)})
+// openWithStubs constructs an Adapter that bypasses the default
+// factory. Tests use this when they want to exercise Adapter wiring
+// without spinning up real CGO libraries — the `-tags bgeonnx` build
+// otherwise calls hfTokenizer/onnxSession, which would fail on the
+// stub files written by fakeModelDir.
+func openWithStubs(t *testing.T) *Adapter {
+	t.Helper()
+	a, err := Open(Options{
+		ModelDir:  fakeModelDir(t),
+		Tokenizer: stubTokenizer{},
+		Session:   stubSession{},
+	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	return a
+}
+
+func TestIdentityConstants(t *testing.T) {
+	a := openWithStubs(t)
 	defer a.Close()
 	if a.Name() != ModelName {
 		t.Errorf("Name = %q, want %q", a.Name(), ModelName)
@@ -45,12 +65,9 @@ func TestOpenRejectsMissingModelFiles(t *testing.T) {
 }
 
 func TestEmbedReturnsErrNotImplementedWithStubs(t *testing.T) {
-	a, err := Open(Options{ModelDir: fakeModelDir(t)})
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	a := openWithStubs(t)
 	defer a.Close()
-	_, err = a.Embed(context.Background(), []string{"hello"})
+	_, err := a.Embed(context.Background(), []string{"hello"})
 	if !errors.Is(err, ErrNotImplemented) {
 		t.Fatalf("expected ErrNotImplemented, got %v", err)
 	}
@@ -120,7 +137,7 @@ func TestEmbedOrchestratesTokenizerAndSession(t *testing.T) {
 }
 
 func TestEmbedEmptyBatchIsCheap(t *testing.T) {
-	a, _ := Open(Options{ModelDir: fakeModelDir(t)})
+	a := openWithStubs(t)
 	defer a.Close()
 	vecs, err := a.Embed(context.Background(), nil)
 	if err != nil {

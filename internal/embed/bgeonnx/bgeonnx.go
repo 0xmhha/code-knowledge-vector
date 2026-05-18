@@ -38,19 +38,21 @@ import (
 var ErrNotImplemented = errors.New("bgeonnx: ONNX runtime not wired yet — see docs/d1-onnx-poc.md §3.2")
 
 // Model identity. Stable across the runtime wiring swap so manifest
-// schemas stay backward-compatible.
+// schemas stay backward-compatible. Values reflect bge-large-en-v1.5
+// (BertModel, 24 layers, 335M params); see docs/d1-onnx-poc.md.
 const (
-	ModelName      = "bge-code-v1"
+	ModelName      = "bge-large-en-v1.5"
 	ModelDim       = 1024
-	ModelMaxInput  = 8192
+	ModelMaxInput  = 512
 	ModelNormalize = "l2"
 )
 
-// Files we expect at ModelDir. Mirror docs/d1-onnx-poc.md §2.3.
-// `config.json` is also part of the model bundle but Open() doesn't
-// require it — the tokenizer + ONNX runtime read it lazily if present.
+// Files we expect at ModelDir. The HuggingFace repo for
+// bge-large-en-v1.5 ships the ONNX export under `onnx/model.onnx`
+// alongside the PyTorch weights, so we point straight at it instead
+// of requiring an `optimum-cli` conversion step.
 const (
-	fileModel     = "model.onnx"
+	fileModel     = "onnx/model.onnx"
 	fileTokenizer = "tokenizer.json"
 )
 

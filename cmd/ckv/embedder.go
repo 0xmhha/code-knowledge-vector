@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/bgeonnx"
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
@@ -28,12 +27,6 @@ func resolveEmbedder(name, modelDir string) (types.Embedder, func(), error) {
 		if err != nil {
 			return nil, noop, fmt.Errorf("embedder bgeonnx: %w", err)
 		}
-		// bgeonnx today returns ErrNotImplemented from Embed(); let
-		// the caller see that as a runtime error rather than failing
-		// at Open. Tell the user once so they can prepare.
-		fmt.Fprintln(os.Stderr, "ckv: --embedder=bgeonnx is scaffolded; "+
-			"Embed() will fail until D1-FU-1/-2 wires the ONNX runtime. "+
-			"See docs/d1-onnx-poc.md §3.2.")
 		return a, func() { _ = a.Close() }, nil
 	default:
 		return nil, noop, errors.New("unknown --embedder " + name + " (supported: mock, bgeonnx)")

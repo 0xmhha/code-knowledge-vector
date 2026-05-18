@@ -90,3 +90,66 @@ func TestMeanPoolNormalize_ShapeMismatchRejected(t *testing.T) {
 		t.Fatal("expected size mismatch error")
 	}
 }
+
+func TestCLSPoolNormalize_TakesFirstTokenAndNormalizes(t *testing.T) {
+	// 2 rows × 3 tokens × 2 hidden dims. Only token 0 ([CLS]) should
+	// matter; the 99s at later positions exist purely to fail loud if
+	// the implementation accidentally averages or sums anything past
+	// position 0.
+	raw := []float32{
+		// row 0: CLS=(3,4) → normalized = (0.6, 0.8)
+		3, 4,
+		99, 99,
+		99, 99,
+		// row 1: CLS=(1,0) → already unit length
+		1, 0,
+		99, 99,
+		99, 99,
+	}
+	vecs, err := clsPoolNormalize(raw, 2, 3, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vecs) != 2 {
+		t.Fatalf("got %d rows, want 2", len(vecs))
+	}
+	wantRow0 := [2]float32{0.6, 0.8}
+	for i, v := range vecs[0] {
+		if math.Abs(float64(v-wantRow0[i])) > 1e-5 {
+			t.Errorf("row 0 dim %d: got %f, want %f", i, v, wantRow0[i])
+		}
+	}
+	wantRow1 := [2]float32{1.0, 0.0}
+	for i, v := range vecs[1] {
+		if math.Abs(float64(v-wantRow1[i])) > 1e-5 {
+			t.Errorf("row 1 dim %d: got %f, want %f", i, v, wantRow1[i])
+		}
+	}
+}
+
+func TestCLSPoolNormalize_UnitNorm(t *testing.T) {
+	// Any non-zero CLS hidden state must produce a unit-norm output.
+	raw := []float32{
+		0.3, -0.4, 0.7, 0.1, // CLS of row 0
+		77, 77, 77, 77, // ignored
+	}
+	vecs, err := clsPoolNormalize(raw, 1, 2, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum float64
+	for _, v := range vecs[0] {
+		sum += float64(v) * float64(v)
+	}
+	if diff := math.Abs(sum - 1.0); diff > 1e-5 {
+		t.Errorf("L2 norm² = %f, want 1.0 (diff %g)", sum, diff)
+	}
+}
+
+func TestCLSPoolNormalize_ShapeMismatchRejected(t *testing.T) {
+	raw := []float32{1, 2, 3} // 3 floats, but [1, 2, 2] requires 4
+	_, err := clsPoolNormalize(raw, 1, 2, 2)
+	if err == nil {
+		t.Fatal("expected size mismatch error")
+	}
+}
