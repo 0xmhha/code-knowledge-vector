@@ -1,0 +1,34 @@
+# CKV PR-regression fixture — schema v1
+#
+# Each entry points at a real, already-merged PR. `ckv eval --pr-fixture`
+# does the following for every entry:
+#
+#   1. git worktree checkout at base_sha (the commit immediately before
+#      the PR landed — the world the agent sees has the problem but not
+#      the fix).
+#   2. ckv build over that worktree (Go/TS/Sol/etc. as the corpus permits).
+#   3. Send the PR's Background section (Solution + Changes are stripped)
+#      to a Claude Code CLI agent and ask it to produce a plan markdown.
+#   4. Compare the agent's plan against the actual PR diff:
+#        - LLM-as-judge: semantic similarity (0-1 score, plan vs diff)
+#        - File-set F1:  changed files in plan vs changed files in PR
+#   5. Threshold gate per entry (default 0.80).
+#
+# Fields:
+#   id          stable identifier used in logs/reports
+#   repo        owner/name on GitHub (gh CLI reads PR metadata from here)
+#   pr_number   the PR number (1.., as in github.com/<repo>/pull/<n>)
+#   source_path local clone path (worktree gets created next to it)
+#   base_sha    full SHA of the commit before the PR landed
+#   threshold   minimum acceptable similarity score (LLM-judge primary)
+#   notes       free-form description; not used by the harness
+schema_version: "1"
+
+prs:
+  - id: pr70
+    repo: stable-net/go-stablenet
+    pr_number: 70
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: aa28927fb12048a59ac34608702eef5e1be90931
+    threshold: 0.80
+    notes: "fix: fill missing effectiveGasPrice in receipts on derivation"
