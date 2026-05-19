@@ -65,6 +65,33 @@ func FetchMeta(ctx context.Context, e Entry) (Meta, error) {
 	}, nil
 }
 
+// FetchDiff pulls the PR's unified diff via `gh pr diff`. This is the
+// "actual code change" the judge compares the agent's plan against.
+//
+// gh returns the diff as one large text blob (all files concatenated,
+// standard git diff format). The score layer caps how much of this
+// gets embedded in the judge prompt, so callers don't need to chunk
+// upstream.
+func FetchDiff(ctx context.Context, e Entry) (string, error) {
+	if err := requireGH(ctx); err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, "gh", "pr", "diff",
+		fmt.Sprintf("%d", e.PRNumber),
+		"--repo", e.Repo,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		stderr := ""
+		if ee, ok := err.(*exec.ExitError); ok {
+			stderr = strings.TrimSpace(string(ee.Stderr))
+		}
+		return "", fmt.Errorf("gh pr diff %s#%d: %w (stderr: %s)",
+			e.Repo, e.PRNumber, err, stderr)
+	}
+	return string(out), nil
+}
+
 // requireGH fails fast with an actionable message if `gh` is missing
 // or not authenticated. Without auth gh returns a confusing 401 deep
 // in the JSON path; checking up front is friendlier.
