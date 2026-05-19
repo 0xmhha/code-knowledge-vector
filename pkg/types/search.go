@@ -6,7 +6,7 @@ import "slices"
 // empty field is treated as "any". Filters are AND-combined.
 //
 // Plan §6.3:
-//   - Language: "go" | "typescript" | "solidity"
+//   - Language: "go" | "typescript" | "solidity" | "markdown"
 //   - PathGlob: filepath.Match-style glob (e.g. "cmd/**/*.go" support via
 //     doublestar lands later; for W1/W2 plain filepath.Match suffices)
 //   - SymbolKinds: e.g. {Function, Method}

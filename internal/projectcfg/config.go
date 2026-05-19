@@ -6,7 +6,7 @@
 // Today's fields:
 //
 //	schema_version: "1"
-//	languages: [go, typescript, solidity]   # subset to index; empty → all
+//	languages: [go, typescript, solidity, markdown]  # subset to index; empty → all
 //	ignore: ["vendor/**", "**/*_test.go"]    # extra .ckvignore patterns
 //	chunking:
 //	  file_header_lines: 30                  # override default 50
@@ -128,7 +128,7 @@ func parse(data []byte, path string) (*Config, error) {
 	// check against the documented allow-list.
 	for _, lang := range c.Languages {
 		if _, ok := knownLanguages[lang]; !ok {
-			return nil, fmt.Errorf("%s: unknown language %q (supported: go, typescript, solidity)", path, lang)
+			return nil, fmt.Errorf("%s: unknown language %q (supported: go, typescript, solidity, markdown)", path, lang)
 		}
 	}
 	if c.Chunking.FileHeaderLines < 0 {
@@ -187,4 +187,5 @@ var knownLanguages = map[string]struct{}{
 	"go":         {},
 	"typescript": {},
 	"solidity":   {},
+	"markdown":   {},
 }

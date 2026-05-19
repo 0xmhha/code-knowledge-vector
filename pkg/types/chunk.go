@@ -16,15 +16,21 @@ import (
 type SymbolKind string
 
 const (
-	KindFunction  SymbolKind = "Function"
-	KindMethod    SymbolKind = "Method"
-	KindType      SymbolKind = "Type"
-	KindStruct    SymbolKind = "Struct"
-	KindInterface SymbolKind = "Interface"
-	KindContract  SymbolKind = "Contract"  // Solidity
-	KindEvent     SymbolKind = "Event"     // Solidity (TBD)
-	KindModifier  SymbolKind = "Modifier"  // Solidity (TBD)
+	KindFunction   SymbolKind = "Function"
+	KindMethod     SymbolKind = "Method"
+	KindType       SymbolKind = "Type"
+	KindStruct     SymbolKind = "Struct"
+	KindInterface  SymbolKind = "Interface"
+	KindContract   SymbolKind = "Contract"   // Solidity
+	KindEvent      SymbolKind = "Event"      // Solidity (TBD)
+	KindModifier   SymbolKind = "Modifier"   // Solidity (TBD)
 	KindFileHeader SymbolKind = "FileHeader"
+	// Markdown indexing kinds (review-direction-2026-05-18.md Appendix B.1.b).
+	// Each heading-bounded section in a *.md / *.markdown file becomes one
+	// SymbolSpan; the chunker emits a chunk per span so "왜 X 결정했나" style
+	// queries can hit a specific decision section.
+	KindDocSection SymbolKind = "DocSection" // markdown heading section
+	KindADRSection SymbolKind = "ADRSection" // ADR-* / docs/adr/* markdown sections
 )
 
 // ChunkKind classifies the chunking strategy that produced the chunk.
@@ -56,7 +62,7 @@ type Chunk struct {
 	File          string     `json:"file"`
 	StartLine     int        `json:"start_line"`
 	EndLine       int        `json:"end_line"`
-	Language      string     `json:"language"`        // "go" | "typescript" | "solidity"
+	Language      string     `json:"language"`        // "go" | "typescript" | "solidity" | "markdown"
 	IsTest        bool       `json:"is_test,omitempty"` // _test.go, *.test.ts, *.spec.ts, *.t.sol, test/... — populated by IsTestPath
 	SymbolName    string     `json:"symbol_name,omitempty"`
 	SymbolKind    SymbolKind `json:"symbol_kind,omitempty"`

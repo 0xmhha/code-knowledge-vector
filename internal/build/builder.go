@@ -20,6 +20,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
+	"github.com/0xmhha/code-knowledge-vector/internal/parse/markdown"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/solidity"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/typescript"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
@@ -163,6 +164,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		"go":         golang.New(),
 		"typescript": typescript.New(),
 		"solidity":   solidity.New(),
+		"markdown":   markdown.New(),
 	}
 
 	totalStats := chunk.Stats{}

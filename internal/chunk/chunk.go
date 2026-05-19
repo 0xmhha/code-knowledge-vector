@@ -54,7 +54,7 @@ type Options struct {
 // Input is everything the chunker needs about one file.
 type Input struct {
 	File       string           // repo-relative path
-	Language   string           // "go" | "typescript" | "solidity"
+	Language   string           // "go" | "typescript" | "solidity" | "markdown"
 	CommitHash string           // built-time git HEAD
 	Source     []byte           // full file contents
 	Spans      []parse.SymbolSpan
@@ -84,7 +84,12 @@ func New(opts Options) *Chunker {
 func (c *Chunker) Chunk(in Input) []types.Chunk {
 	out := make([]types.Chunk, 0, len(in.Spans)+1)
 
-	if c.opts.IncludeFileHeader {
+	// Skip the file_header chunk for markdown inputs: every heading
+	// section is already its own chunk, so the leading-N-lines slice
+	// would duplicate the first section. Source-code languages keep
+	// the header because their span coverage is sparse (no chunks for
+	// imports/consts) — markdown's is dense.
+	if c.opts.IncludeFileHeader && in.Language != "markdown" {
 		if hdr := c.fileHeaderChunk(in); hdr != nil {
 			out = append(out, *hdr)
 		}

@@ -93,3 +93,29 @@ func TestEmptyFileNoHeader(t *testing.T) {
 		t.Errorf("empty file should produce no chunks, got %d", len(chunks))
 	}
 }
+
+// Markdown inputs skip the file_header chunk because every heading
+// section is already its own chunk — emitting a leading-N-lines chunk
+// on top would duplicate the first section verbatim and inflate
+// retrieval noise.
+func TestMarkdownSkipsFileHeader(t *testing.T) {
+	src := []byte("# Title\n\nbody\n\n## Sub\n\nmore\n")
+	in := Input{
+		File:       "x.md",
+		Language:   "markdown",
+		CommitHash: "abc",
+		Source:     src,
+		Spans: []parse.SymbolSpan{
+			{Name: "title", Kind: types.KindDocSection, StartLine: 1, EndLine: 4, Text: "# Title\n\nbody\n\n"},
+			{Name: "sub", Kind: types.KindDocSection, StartLine: 5, EndLine: 7, Text: "## Sub\n\nmore\n"},
+		},
+	}
+	chunks := New(Options{}).Chunk(in)
+	stats := Summarize(chunks)
+	if stats.FileHeader != 0 {
+		t.Errorf("markdown should not produce file_header chunks, got %d", stats.FileHeader)
+	}
+	if stats.Symbol != 2 {
+		t.Errorf("expected 2 symbol chunks, got %d", stats.Symbol)
+	}
+}

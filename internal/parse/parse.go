@@ -24,7 +24,7 @@ type SymbolSpan struct {
 // Parser is the contract every per-language parser fulfills.
 type Parser interface {
 	// Language returns the CKV language tag this parser handles
-	// ("go" | "typescript" | "solidity").
+	// ("go" | "typescript" | "solidity" | "markdown").
 	Language() string
 	// Parse takes the full source text and returns the symbol spans
 	// found within. The file argument is informational (used in

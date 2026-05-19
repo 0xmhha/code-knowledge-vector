@@ -23,7 +23,7 @@ func TestWalkBasic(t *testing.T) {
 	dir := t.TempDir()
 	mkfile(t, dir, "main.go", "package main")
 	mkfile(t, dir, "internal/x.go", "package internal")
-	mkfile(t, dir, "README.md", "# readme") // unknown lang → skipped
+	mkfile(t, dir, "README.md", "# readme") // markdown is indexed (Appendix B.1.b)
 	mkfile(t, dir, "ui.tsx", "export {}")
 	mkfile(t, dir, "Token.sol", "pragma solidity ^0.8.0;")
 
@@ -35,10 +35,29 @@ func TestWalkBasic(t *testing.T) {
 		t.Errorf("unexpected per-file errors: %v", errs)
 	}
 	got := relPaths(files)
-	want := []string{"Token.sol", "internal/x.go", "main.go", "ui.tsx"}
+	want := []string{"README.md", "Token.sol", "internal/x.go", "main.go", "ui.tsx"}
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestWalkIndexesMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	mkfile(t, dir, "docs/plan.md", "# Plan\n\nbody")
+	mkfile(t, dir, "docs/adr/001-store.markdown", "# Decision\n\ntext")
+	mkfile(t, dir, "notes.txt", "skipped") // not markdown ext
+
+	files, _, _ := Walk(dir, Options{})
+	got := relPaths(files)
+	want := []string{"docs/adr/001-store.markdown", "docs/plan.md"}
+	if !slices.Equal(got, want) {
+		t.Errorf("markdown walk: got %v, want %v", got, want)
+	}
+	for _, f := range files {
+		if f.Language != "markdown" {
+			t.Errorf("expected markdown language tag, got %q for %s", f.Language, f.RelPath)
+		}
 	}
 }
 

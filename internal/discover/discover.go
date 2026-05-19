@@ -66,7 +66,7 @@ type File struct {
 	AbsPath  string
 	RelPath  string
 	Size     int64
-	Language string // "go" | "typescript" | "solidity" | "" (unknown)
+	Language string // "go" | "typescript" | "solidity" | "markdown" | "" (unknown)
 }
 
 // Walk scans srcRoot and returns the list of files CKV should process.
@@ -202,6 +202,11 @@ func isIgnored(rel string, patterns []string) bool {
 // string means "we don't index this file type today" (W1+W2 ships
 // Go-first; TS/Solidity parsers land in W2 too but discovery has the
 // classification ready).
+//
+// Markdown (`*.md`, `*.markdown`) is indexed as "markdown" so docs/ADR
+// corpora (plan-S1, featurelist, ADR-*.md) become searchable — see
+// review-direction-2026-05-18.md Appendix B for the design rationale.
+// Extension-less doc files (README, CHANGELOG) are deferred to S2.
 func classifyLanguage(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -211,6 +216,8 @@ func classifyLanguage(path string) string {
 		return "typescript"
 	case ".sol":
 		return "solidity"
+	case ".md", ".markdown":
+		return "markdown"
 	}
 	return ""
 }

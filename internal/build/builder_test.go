@@ -41,22 +41,23 @@ func TestRunIndexesSample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	// testdata/sample currently has 3 source files (server.go, cache.go,
-	// handler.ts). Add one to the lower bound here every time a fixture
-	// file lands. We check ≥ rather than == so adding more fixtures
-	// doesn't churn the test.
-	if res.FilesIndexed < 3 {
-		t.Errorf("expected ≥3 files indexed, got %d", res.FilesIndexed)
+	// testdata/sample currently has 4 indexable files (server.go,
+	// cache.go, handler.ts, docs/decisions.md). Add one to the lower
+	// bound here every time a fixture file lands. We check ≥ rather
+	// than == so adding more fixtures doesn't churn the test.
+	if res.FilesIndexed < 4 {
+		t.Errorf("expected ≥4 files indexed, got %d", res.FilesIndexed)
 	}
 	// Symbols per current fixtures: Go (NewServer, Listen, Close, Server,
 	// NewCache, Set, Get, Cache) = 8; TS (Request, Response, Handler,
-	// Handler.register, Handler.dispatch, notFound) = 6. + one file_header
-	// per file. Treat as a lower bound.
-	if res.Chunks.Total < 14 {
-		t.Errorf("expected ≥14 chunks, got %d (%+v)", res.Chunks.Total, res.Chunks)
+	// Handler.register, Handler.dispatch, notFound) = 6; markdown
+	// (4 heading sections in decisions.md) = 4. + one file_header per
+	// SOURCE file (markdown skips it). Treat as a lower bound.
+	if res.Chunks.Total < 18 {
+		t.Errorf("expected ≥18 chunks, got %d (%+v)", res.Chunks.Total, res.Chunks)
 	}
 	if res.Chunks.FileHeader < 3 {
-		t.Errorf("expected ≥3 file_header chunks (one per file), got %d", res.Chunks.FileHeader)
+		t.Errorf("expected ≥3 file_header chunks (one per source file), got %d", res.Chunks.FileHeader)
 	}
 
 	// manifest.json round-trips
@@ -90,6 +91,45 @@ func TestRunIndexesSample(t *testing.T) {
 	gotFile := hits[0].Chunk.File
 	if gotFile != "server.go" && gotFile != "cache.go" {
 		t.Errorf("top hit file unexpected: %q (raw=%+v)", gotFile, hits[0].Chunk)
+	}
+}
+
+func TestRunIndexesMarkdownSections(t *testing.T) {
+	src := resolveTestdataSample(t)
+	out := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	store, err := sqlitevec.Open(filepath.Join(out, "vector.db"), mock.Default().Dimension())
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer store.Close()
+
+	// Filter by language="markdown" — must include the sample doc with
+	// at least 4 sections (sample-decisions + 3 ## headings).
+	q, _ := mock.Default().Embed(context.Background(), []string{"why sqlite-vec was chosen"})
+	hits, err := store.Search(context.Background(), q[0], 20, types.Filter{Language: "markdown"})
+	if err != nil {
+		t.Fatalf("Search markdown: %v", err)
+	}
+	if len(hits) < 4 {
+		t.Fatalf("expected ≥4 markdown hits (one per heading section), got %d", len(hits))
+	}
+	for _, h := range hits {
+		if h.Chunk.Language != "markdown" {
+			t.Errorf("language filter leaked non-markdown chunk: %+v", h.Chunk)
+		}
+		if h.Chunk.SymbolKind != types.KindDocSection && h.Chunk.SymbolKind != types.KindADRSection {
+			t.Errorf("expected DocSection/ADRSection, got %q for %s", h.Chunk.SymbolKind, h.Chunk.File)
+		}
 	}
 }
 
