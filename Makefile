@@ -9,6 +9,16 @@ PKG_LIST := ./...
 # sqlite-vec amalgamation, so no external shared library is needed.
 export CGO_ENABLED ?= 1
 
+# macOS only: silence the sqlite3_auto_extension / sqlite3_cancel_auto_extension
+# deprecation warnings emitted from sqlite-vec-go-bindings/cgo/lib.go. Apple's
+# System SDK marks those symbols deprecated because process-global state
+# conflicts with sandboxing, but they still link and run. We do not call them
+# directly — only via the upstream binding. A real fix would require the
+# upstream library to switch to per-connection extension registration.
+ifeq ($(shell uname),Darwin)
+export CGO_CFLAGS := -Wno-deprecated-declarations $(CGO_CFLAGS)
+endif
+
 all: build ## Default: build the ckv binary
 
 build: ## Build bin/ckv
