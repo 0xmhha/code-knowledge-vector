@@ -108,6 +108,54 @@ Run 3의 0 overlap + agent의 plan 본문에서 직접 발화:
 
 ---
 
+## 7. PRR-1 첫 시도 결과 (2026-05-19 cancel)
+
+`./bin/ckv eval --pr-fixture --embedder=bgeonnx --judge=claude` 실행 → **3시간 33분 진행 후 cancel** (사용자 결정).
+
+### 시도 데이터
+
+| 측정 | 값 |
+|---|---|
+| 시작 → cancel | 15:34 → 19:08 KST |
+| 진행 시간 | **3시간 33분 (12,807 s)** |
+| chunks 인덱싱 | **10,212** |
+| files 인덱싱 | 753 / 1,295 (**58%**) |
+| chunks/file 평균 | **13.56** (testdata 6.5의 2.1×) |
+| Throughput | **0.797 chunks/s** (8회 측정 σ ±3%) |
+| **추정 끝까지 시간** | **~6.1 시간** (남은 542 파일 × 13.56 / 0.797) |
+| Index DB | 63 MB (10K chunks의 vector + meta) |
+
+### 원인 분석
+
+ckv discover의 default ignore가 정상 작동 (vendor 0 파일, generated 0). 시간 부풀림의 진짜 원인은 **stablenet (go-ethereum fork) 함수 평균 크기**:
+- testdata/sample: chunks/file ≈ 6.5 (작은 demo)
+- stablenet 753 indexed: chunks/file ≈ 13.56 (EVM bytecode 처리, state transition, crypto 등 large algorithmic functions)
+
+### 학습
+
+- **chunks/file 추정은 corpus마다 크게 다름** — testdata 기준 외삽이 위험.
+- **PR-eval 6.1h × 임의 PR**: 일일 회귀 워크플로우엔 명백히 부적합.
+- Pipeline 자체는 robust (3.5h 일관, errors 0). 1차 병목은 **임베딩 throughput**.
+
+### 다음 step — D1-FU-8 우선
+
+PRR-1 (bgeonnx baseline)은 보류. 먼저 throughput 가속:
+
+| 변수 | 현재 | 목표 (D1-FU-8) |
+|---|---|---|
+| Throughput | 0.797 chunks/s | **30+ chunks/s** (38× 가속) |
+| stablenet 1.3K files / 17.5K chunks | **6.1 시간** | **~10 분** |
+| 1M LOC (50K chunks) | 17.5 시간 | **~28 분** |
+
+D1-FU-8 접근:
+1. **Batch**: 단일 chunk per ONNX call → 32 chunks/batch. tokenize + forward pass overhead 분산. 이론적 5-10× 가속.
+2. **CoreML EP**: Apple Silicon GPU/ANE 활용 (`SessionOptions.AppendExecutionProviderCoreML()`). 추가 5-10×.
+3. 합쳐서 **~38× 도달** 가능.
+
+PRR-1 재개는 FU-8 완료 후.
+
+---
+
 ## 6. Related
 
 - 평가 방법론: [`eval-metrics.md`](./eval-metrics.md)
