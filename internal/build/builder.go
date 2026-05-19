@@ -7,6 +7,7 @@ package build
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,11 @@ type Options struct {
 	BatchSize int                // embedding batch size; 0 → 32
 	Now       func() time.Time
 	Footprint *footprint.Logger // optional; nil → no logging
+	// ProgressOut receives human-readable per-file progress lines.
+	// nil disables progress entirely (the library-mode default so
+	// embedded callers don't get surprise stderr writes). The CLI
+	// sets this to os.Stderr; tests can inject a bytes.Buffer.
+	ProgressOut io.Writer
 }
 
 // Result is what Run returns to the CLI for the summary log.
@@ -158,44 +164,61 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	chunker := chunk.New(chunkOpts)
 
-	for _, f := range files {
-		p, ok := parsers[f.Language]
-		if !ok {
-			continue // language parser not implemented yet
+	// progress writes a throttled stderr-side status line so the user
+	// can watch ckv build advance. Library callers leave ProgressOut
+	// nil and get a silent no-op.
+	prog := newProgress(o.ProgressOut, len(files), o.Now)
+
+	for i, f := range files {
+		// Closure scope so `defer prog.Tick(i+1)` fires once per
+		// iteration regardless of which `continue` was taken — keeps
+		// the progress denominator honest even when files are skipped
+		// for parser/language/read/parse reasons.
+		var perFileErr error
+		func() {
+			defer prog.Tick(i + 1)
+			p, ok := parsers[f.Language]
+			if !ok {
+				return // language parser not implemented yet
+			}
+			if !cfg.LanguageAllowed(f.Language) {
+				return // project ckv.yaml disabled this language
+			}
+			src, err := os.ReadFile(f.AbsPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ckv: read %s: %v\n", f.RelPath, err)
+				return
+			}
+			spans, err := p.Parse(f.RelPath, src)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ckv: parse %s: %v\n", f.RelPath, err)
+				return
+			}
+			chunks := chunker.Chunk(chunk.Input{
+				File:       f.RelPath,
+				Language:   f.Language,
+				CommitHash: commit,
+				Source:     src,
+				Spans:      spans,
+			})
+			if len(chunks) == 0 {
+				return
+			}
+			if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize); err != nil {
+				perFileErr = fmt.Errorf("embed/upsert %s: %w", f.RelPath, err)
+				return
+			}
+			indexedFiles++
+			languageCounts[f.Language] += len(chunks)
+			s := chunk.Summarize(chunks)
+			totalStats.Total += s.Total
+			totalStats.Symbol += s.Symbol
+			totalStats.FileHeader += s.FileHeader
+			totalStats.Truncated += s.Truncated
+		}()
+		if perFileErr != nil {
+			return nil, perFileErr
 		}
-		if !cfg.LanguageAllowed(f.Language) {
-			continue // project ckv.yaml disabled this language
-		}
-		src, err := os.ReadFile(f.AbsPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ckv: read %s: %v\n", f.RelPath, err)
-			continue
-		}
-		spans, err := p.Parse(f.RelPath, src)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ckv: parse %s: %v\n", f.RelPath, err)
-			continue
-		}
-		chunks := chunker.Chunk(chunk.Input{
-			File:       f.RelPath,
-			Language:   f.Language,
-			CommitHash: commit,
-			Source:     src,
-			Spans:      spans,
-		})
-		if len(chunks) == 0 {
-			continue
-		}
-		if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize); err != nil {
-			return nil, fmt.Errorf("embed/upsert %s: %w", f.RelPath, err)
-		}
-		indexedFiles++
-		languageCounts[f.Language] += len(chunks)
-		s := chunk.Summarize(chunks)
-		totalStats.Total += s.Total
-		totalStats.Symbol += s.Symbol
-		totalStats.FileHeader += s.FileHeader
-		totalStats.Truncated += s.Truncated
 	}
 
 	builtAt := o.Now().UTC().Format(time.RFC3339)

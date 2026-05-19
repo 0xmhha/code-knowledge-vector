@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -61,10 +62,11 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 	defer fp.Close()
 
 	res, err := build.Run(ctx, build.Options{
-		SrcRoot:   opts.src,
-		OutDir:    opts.out,
-		Embedder:  emb,
-		Footprint: fp,
+		SrcRoot:     opts.src,
+		OutDir:      opts.out,
+		Embedder:    emb,
+		Footprint:   fp,
+		ProgressOut: os.Stderr,
 	})
 	if err != nil {
 		return err

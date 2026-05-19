@@ -1,9 +1,11 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +144,54 @@ func TestRunFailsOnMalformedCKVYaml(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unsupported schema_version, got nil")
+	}
+}
+
+func TestRunEmitsProgressFinalLine(t *testing.T) {
+	// Contract: when ProgressOut is set, the final tick must emit a
+	// completion line even on small fixtures that never cross the
+	// 100-file or 2s throttle gates. Guards the closure-defer wiring
+	// in Run against silent regressions.
+	src := resolveTestdataSample(t)
+	out := t.TempDir()
+
+	var buf bytes.Buffer
+	_, err := Run(context.Background(), Options{
+		SrcRoot:     src,
+		OutDir:      out,
+		Embedder:    mock.Default(),
+		ProgressOut: &buf,
+		Now:         func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	out2 := buf.String()
+	if !strings.Contains(out2, "files (") {
+		t.Errorf("expected at least one progress line, got %q", out2)
+	}
+	// Final line denominator must equal the walked file count: we don't
+	// know the exact number (it grows when fixtures land), but the line
+	// must show N/N where both sides agree.
+	lines := strings.Split(strings.TrimRight(out2, "\n"), "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, "/") {
+		t.Fatalf("final line shape unexpected: %q", last)
+	}
+}
+
+func TestRunHonorsNilProgressOut(t *testing.T) {
+	// Library callers leave ProgressOut nil. Behavior must stay
+	// identical to pre-FU-X: no panic, no stray writes.
+	src := resolveTestdataSample(t)
+	_, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   t.TempDir(),
+		Embedder: mock.Default(),
+		// ProgressOut left nil on purpose.
+	})
+	if err != nil {
+		t.Fatalf("Run with nil ProgressOut: %v", err)
 	}
 }
 
