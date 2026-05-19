@@ -118,9 +118,11 @@ CGO_LDFLAGS="-L$HOME/lib" go test \
     -tags 'bgeonnx bgeonnx_smoke' ./internal/embed/bgeonnx/
 ```
 
-### 3.3 Measured outcomes (2026-05-18, bge-large-en-v1.5)
+### 3.3 Measured outcomes
 
-| Metric | mock baseline | bge-large-en-v1.5 | D1 hypothesis | Met? |
+**N=10 (2026-05-18, bge-large-en-v1.5 + CoreML EP)** — initial baseline:
+
+| Metric | mock | bge-large-en-v1.5 | D1 hypothesis | Met? |
 |---|---|---|---|---|
 | recall@5 | 0.900 | **1.000** | 1.0 | ✅ |
 | recall@3 | — | 0.900 | — | — |
@@ -130,10 +132,30 @@ CGO_LDFLAGS="-L$HOME/lib" go test \
 | citation@1 | — | 1.000 | — | — |
 | Index build | — | 26 chunks / 16 s ≈ **1.6 chunks/s** | ≈ 17 chunks/s | ❌ 10× slower than guess |
 
-Notes:
+Notes (N=10):
 - **MRR shortfall**: q5 (`retrieve value by key; report whether it was found`) lands at rank 5; top hit is `handler.ts` instead of `cache.go`. bge-large-en-v1.5 is general-text, not code-trained. A bge-code-v1 adapter would likely lift MRR but needs the Qwen2 path (deferred, see §6).
 - **Build throughput miss**: 1.6 chunks/s on M-series CPU. The 17 chunks/s guess was naive — didn't account for the per-chunk ORT cold-call cost + L2 normalize CPU work. 1M LOC scaling needs (a) batching chunks per Embed() call or (b) onnxruntime CoreML execution provider.
 - **N=10**: statistically weak. Expand fixture to ≥ 50 queries for a robust signal.
+
+**N=34 (2026-05-19, bge-large-en-v1.5 + CPU-only; markdown corpus added)** — Phase 0a baseline (`docs/retrieval-quality-roadmap.md` §10):
+
+| Metric | mock | bge-large-en-v1.5 | Δ vs N=10 (bgeonnx) |
+|---|---|---|---|
+| total | 34 | 34 | +24 |
+| found | 25 | 33 | +23 (1 miss = q5) |
+| recall@1 | 0.294 | **0.529** | −0.07 |
+| recall@3 | 0.676 | 0.912 | +0.01 |
+| recall@5 | 0.735 | **0.971** | −0.03 (ceiling 해소) |
+| MRR | 0.485 | **0.725** | −0.05 |
+| citation@1 | 1.000 | **1.000** | unchanged |
+| Index build | instant | 37 chunks / 35.7 s ≈ **1.0 chunks/s** | CoreML disabled |
+
+Notes (N=34):
+- **Ceiling 해소**: recall@5 1.000 → 0.971 — Phase B/C/D 효과를 처음으로 측정 가능한 공간 확보.
+- **Persistent miss**: q5 (`retrieve value by key; report whether it was found`) 여전히 miss. N=34에서는 top=`handler.ts` (cache.go의 `Get` 못 찾음). markdown corpus 4 chunks가 retrieval noise — mock에서도 같은 query miss (top=`docs/decisions.md`).
+- **CoreML compile I/O error**: `Error compiling model: ... I/O error` — `CKV_DISABLE_COREML=1` 로 CPU fallback. Phase 0b로 분리.
+- **Throughput regression**: 1.6 → 1.0 c/s — CoreML EP 부재. Phase 0b 정상화 시 회복 기대.
+- **통계적 신뢰도 ↑**: N=34는 99% CI로 실제 recall ≥ 0.84 (vs N=10의 ≥ 0.69).
 
 ---
 

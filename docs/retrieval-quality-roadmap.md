@@ -453,9 +453,10 @@ Phase B/C/D 적용 + throughput 0.2~0.4 c/s
 
 | Phase | 측정일 | fixture | recall@1 | recall@5 | MRR | throughput | go/no-go | 비고 |
 |---|---|---|---|---|---|---|---|---|
-| baseline | 2026-05-18 | queries.yaml N=10 | 0.600 | 1.000 | 0.770 | 1.6 c/s | — | bge-large-en-v1.5, testdata/sample |
-| Phase 0a (fixture 확장) | TBD | queries.yaml N=50+ | TBD | TBD | TBD | — | — | 측정 인프라 |
-| Phase 0b (batch+CoreML) | TBD | 동일 | 동일 | 동일 | 동일 | TBD | — | throughput buffer |
+| baseline | 2026-05-18 | queries.yaml N=10 | 0.600 | 1.000 | 0.770 | 1.6 c/s | — | bge-large-en-v1.5 + CoreML EP, testdata/sample |
+| Phase 0a (fixture N=34 + markdown corpus) — mock | 2026-05-19 | queries.yaml N=34 | 0.294 | 0.735 | 0.485 | instant | — | mock embedder; markdown chunks 4개가 noise로 작용 |
+| **Phase 0a (fixture N=34 + markdown corpus) — bgeonnx** | **2026-05-19** | **queries.yaml N=34** | **0.529** | **0.971** | **0.725** | **~1.0 c/s** | ✅ baseline | bge-large-en-v1.5 + **CPU-only** (CoreML compile I/O error → CKV_DISABLE_COREML=1). 1 miss = q5 "retrieve value by key" → top=handler.ts (cache.go 못 찾음). ceiling 해소 — recall@1·MRR 측정 공간 확보 |
+| Phase 0b (batch+CoreML 정상화) | TBD | queries.yaml N=34 | 0.529 (동일) | 0.971 (동일) | 0.725 (동일) | TBD (50× 기대) | — | CoreML EP I/O error 원인 분석 + 해결 후 throughput 재측정 |
 | Phase A | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | sliding split |
 | Phase B | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | multi-granularity |
 | Phase C | TBD | + why-queries.yaml | TBD | TBD | TBD | TBD | TBD | PR/commit corpus |
