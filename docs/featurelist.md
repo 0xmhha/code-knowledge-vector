@@ -62,7 +62,7 @@
 | §5.2 | 인용 실재성 cheap check | P0 | ⚠️ | file existence만, commit_hash 매칭 미구현 |
 | §5.3 | Citation test suite | P1 | ✅ | `internal/eval` citation accuracy |
 | §6.1 | 변경 감지 (git diff) | P0 | ⚠️ | freshness check만, fsnotify 미구현 |
-| §6.2 | `ckv reindex` (UC-V2) | P0 | ❌-S2 | plan §13 명시 |
+| §6.2 | `ckv reindex` (UC-V2) | P0 | ❌-S1.5 | **S1.5 승격** (사용자 결정 2026-05-19). Phase B (multi-granularity) 도입 전 architectural 전제 — retrieval-quality-roadmap.md §7.5 |
 | §6.3 | `cks.ops.get_freshness` | P0 | ✅ | `internal/freshness` |
 | §6.3 | `cks.ops.request_refresh` | P0 | ❌-S2 | |
 | §6.4 | Stale 정책 (auto_refresh / warn_only / block) | P1 | ❌-S2 | |
@@ -390,7 +390,7 @@ type VectorStore interface {
 | `ckv model fetch <name>` | 모델 다운로드 + sha256 검증 | ⚠️ stub (D1-FU-4 open, D2 scope) |
 | `ckv model list` | 캐시된 모델 list | ⚠️ stub |
 | `ckv footprint` | footprint event log 조회 (W3-T14) | ✅ |
-| `ckv reindex` | 변경분만 재인덱싱 (UC-V2) | ❌-S2 |
+| `ckv reindex` | 변경분만 재인덱싱 (UC-V2) | ❌-S1.5 (사용자 결정 2026-05-19) |
 | `ckv serve` | HTTP API 서버 | ❌-S2 |
 | `ckv bootstrap --report` | systemization 리포트 (UC-V12) | ❌-S4 |
 
@@ -609,3 +609,4 @@ type VectorStore interface {
 |---|---|---|
 | 2026-05-05 | 1.0 | 초안 — UC-V1~V15 대응 모듈/컴포넌트 분해, P0/P1/P2 마킹 |
 | 2026-05-19 | 1.1 | **광범위 정정** — (a) §0.1 **구현 상태 마스터 테이블** 신설 (60+ sub-section 실측 상태). (b) §1.2 언어 list: "Go/TS/Sol 구현, JS/Bash S2 이관" (사용자 결정). (c) §11.1 명령표: stale `reindex/serve/bootstrap` 표기 + `freshness/eval/model/footprint` 실측 명령 추가 + 상태 column. (d) §17.1 Makefile: `make eval` 제거 + `test-race`/`audit` 실측 추가. (e) §21 결정 사항 6건(q1/**q2**/q4/JS-Bash/BM25/PR#70 target) 정리. q3/q5는 미해결 유지. |
+| 2026-05-19 | 1.2 | **`ckv reindex` S2 → S1.5 승격** (사용자 결정). retrieval-quality-roadmap.md §7.5의 architectural 의존성 — Phase B (multi-granularity) 적용 시 throughput 0.5 chunks/s 까지 악화되면 full rebuild가 비현실적 → incremental indexing이 *S1.5 마일스톤 entry condition*. §0.1 master table §6.2 + §11.1 명령표 정정. |

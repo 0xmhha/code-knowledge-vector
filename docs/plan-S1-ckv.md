@@ -37,7 +37,7 @@
 | **M1 — Indexer α** | tree-sitter + chunking + 더미 임베딩 | ✅ S1 필수 | UC-V1 |
 | **M2 — Vector Store** | embedded backend + 영속화 | ✅ S1 필수 | persistent index |
 | **M3 — Query α** | `semantic_search` + citation | ✅ S1 필수 | acceptance #2 |
-| **M4 — Incremental** | UC-V2/V11 | ⚠️ S1 후보 | 첫 출시는 full rebuild 허용 (UC-V2는 S2에서 강화) |
+| **M4 — Incremental** | UC-V2/V11 | ⚠️ **S1.5 승격** (사용자 결정 2026-05-19) | 첫 출시는 full rebuild 허용. `ckv reindex` 는 S1.5 마일스톤 entry condition — retrieval-quality-roadmap.md §7.5 의존 |
 | **M5 — MCP / Working Memory** | MCP 서버, `query_code` | ✅ S1 필수 | acceptance #1 |
 | **M6 — Sanitize + Hybrid hooks** | UC-V13/V8 | 🔸 부분 | hybrid hook(rank·score 노출)만 S1, sanitize는 S2 (S1 LLM caller는 신뢰됨) |
 | **M7 — Eval & Report** | UC-V12, KPI | ❌ S2+ | S4 (regression scoring harness)에서 다룸 |
@@ -657,7 +657,7 @@ S0의 8080 vs 현재 8787 정합 — 별도 작은 fix.
 | UC-V8 Hybrid | §10, §4 | W4 | acceptance #3 (hybrid > BM25-only) |
 | UC-V10 Citation | §5 | W3 | acceptance #2 (100% accuracy) |
 | UC-V15 Local-First | §2, §15 | W2 | airgap test |
-| UC-V2 Incremental | §6 | (S2) | — |
+| UC-V2 Incremental | §6 | **(S1.5)** | retrieval-quality-roadmap.md §7.5 / §12 #8 — multi-granularity 도입 전 architectural 전제 |
 | UC-V13 Sanitize | §9 | (S2) | — |
 
 ---
