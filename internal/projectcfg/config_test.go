@@ -132,3 +132,64 @@ func TestNilReceiverIsNilSafe(t *testing.T) {
 		t.Error("nil receiver must report no matches")
 	}
 }
+
+func TestBuildRootsParsesAndNormalizes(t *testing.T) {
+	dir := t.TempDir()
+	writeYAML(t, dir, `schema_version: "1"
+build_roots:
+  - ./cmd/ckv
+  - ./internal/build
+`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.BuildRoots) != 2 {
+		t.Fatalf("BuildRoots = %v, want 2 entries", cfg.BuildRoots)
+	}
+	// Entries are kept as-written so the build layer can pass them
+	// straight to `go list` (which accepts ./relative or import paths).
+	if cfg.BuildRoots[0] != "./cmd/ckv" {
+		t.Errorf("BuildRoots[0] = %q, want %q", cfg.BuildRoots[0], "./cmd/ckv")
+	}
+}
+
+func TestBuildRootsAbsentMeansFullCorpus(t *testing.T) {
+	// Absent build_roots: the build layer must walk every file under
+	// srcRoot — same behavior as before FU-9 landed.
+	dir := t.TempDir()
+	writeYAML(t, dir, `schema_version: "1"`)
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.BuildRoots) != 0 {
+		t.Errorf("BuildRoots = %v, want empty", cfg.BuildRoots)
+	}
+}
+
+func TestBuildRootsRejectsEmptyEntry(t *testing.T) {
+	// Empty / whitespace-only entries are typos. Fail loud at load.
+	dir := t.TempDir()
+	writeYAML(t, dir, `schema_version: "1"
+build_roots:
+  - ./cmd/ckv
+  - ""
+`)
+	if _, err := Load(dir); err == nil {
+		t.Error("expected error for empty build_roots entry")
+	}
+}
+
+func TestBuildRootsRejectsAbsolutePath(t *testing.T) {
+	// Absolute paths defeat the "package relative to srcRoot" contract
+	// and make ckv.yaml non-portable across machines / CI checkouts.
+	dir := t.TempDir()
+	writeYAML(t, dir, `schema_version: "1"
+build_roots:
+  - /home/user/code/foo
+`)
+	if _, err := Load(dir); err == nil {
+		t.Error("expected error for absolute build_roots entry")
+	}
+}

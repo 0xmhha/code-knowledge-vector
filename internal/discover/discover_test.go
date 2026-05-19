@@ -95,6 +95,74 @@ func TestBinaryDetected(t *testing.T) {
 	}
 }
 
+func TestGoBuildFilesFilter_OnlyKeepsListedGoFiles(t *testing.T) {
+	dir := t.TempDir()
+	// Three Go files; the filter pre-selects two. The third must NOT
+	// appear in Walk output — that's the whole point of build_roots
+	// (cmd/foo includes pkg/a but not pkg/b, so pkg/b stays out).
+	mkfile(t, dir, "cmd/main.go", "package main")
+	mkfile(t, dir, "pkg/a/a.go", "package a")
+	mkfile(t, dir, "pkg/b/b.go", "package b")
+
+	keep := map[string]struct{}{
+		filepath.Join(dir, "cmd", "main.go"): {},
+		filepath.Join(dir, "pkg", "a", "a.go"): {},
+	}
+	files, _, err := Walk(dir, Options{GoBuildFiles: keep})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	got := relPaths(files)
+	want := []string{"cmd/main.go", "pkg/a/a.go"}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestGoBuildFilesFilter_DoesNotAffectOtherLanguages(t *testing.T) {
+	dir := t.TempDir()
+	// Go file NOT in the filter → must be excluded.
+	// TS / Solidity files → must pass through (filter is Go-only).
+	mkfile(t, dir, "excluded.go", "package main")
+	mkfile(t, dir, "kept.ts", "export {}")
+	mkfile(t, dir, "kept.sol", "pragma solidity ^0.8.0;")
+
+	files, _, err := Walk(dir, Options{
+		GoBuildFiles: map[string]struct{}{
+			// Empty Go set on purpose: every Go file should be dropped,
+			// every non-Go file should survive.
+			filepath.Join(dir, "this-file-does-not-exist.go"): {},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	got := relPaths(files)
+	want := []string{"kept.sol", "kept.ts"}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v (Go filter must not drop non-Go files)", got, want)
+	}
+}
+
+func TestGoBuildFilesFilter_NilMapMeansNoFilter(t *testing.T) {
+	dir := t.TempDir()
+	mkfile(t, dir, "a.go", "package main")
+	mkfile(t, dir, "b.go", "package main")
+
+	files, _, err := Walk(dir, Options{GoBuildFiles: nil})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	got := relPaths(files)
+	want := []string{"a.go", "b.go"}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v (nil map = pre-FU-9 behavior)", got, want)
+	}
+}
+
 func relPaths(fs []File) []string {
 	out := make([]string, 0, len(fs))
 	for _, f := range fs {

@@ -105,7 +105,27 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// the CLI flag wins when there is overlap (CLI is more proximate).
 	mergedIgnore := append([]string{}, cfg.Ignore...)
 	mergedIgnore = append(mergedIgnore, o.CKVIgnore...)
-	files, walkErrs, err := discover.Walk(o.SrcRoot, discover.Options{Extra: mergedIgnore})
+
+	// Resolve `build_roots` (ckv.yaml FU-9): turn the listed Go entry
+	// packages into a file-set the walker uses as a filter. When
+	// build_roots is empty, the filter stays nil and the walk yields
+	// every Go file under srcRoot, just like before.
+	var goBuildFiles map[string]struct{}
+	if len(cfg.BuildRoots) > 0 {
+		resolved, resolveErr := discover.ResolveGoBuildRoots(ctx, o.SrcRoot, cfg.BuildRoots, discover.DefaultGoListOptions())
+		if resolveErr != nil {
+			return nil, fmt.Errorf("build_roots: %w", resolveErr)
+		}
+		goBuildFiles = resolved
+		fp.Emit("build_roots.resolved",
+			"roots", cfg.BuildRoots,
+			"file_count", len(resolved),
+		)
+	}
+	files, walkErrs, err := discover.Walk(o.SrcRoot, discover.Options{
+		Extra:        mergedIgnore,
+		GoBuildFiles: goBuildFiles,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("walk: %w", err)
 	}

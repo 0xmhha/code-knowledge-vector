@@ -3,13 +3,17 @@
 // absent file resolves to a zero-value Config that the build layer
 // treats as "use defaults everywhere".
 //
-// Today's fields (W3-T15 MVP):
+// Today's fields:
 //
 //	schema_version: "1"
 //	languages: [go, typescript, solidity]   # subset to index; empty → all
 //	ignore: ["vendor/**", "**/*_test.go"]    # extra .ckvignore patterns
 //	chunking:
 //	  file_header_lines: 30                  # override default 50
+//	build_roots: [./cmd/ckv]                 # Go entry packages; index
+//	                                          # only files reachable from these
+//	                                          # via `go list -deps`. Empty →
+//	                                          # walk the whole srcRoot. (FU-9)
 //
 // Reserved-for-future (no-op today; documented to stabilize the schema):
 //
@@ -29,6 +33,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -48,6 +53,19 @@ type Config struct {
 	Chunking         ChunkingOptions `yaml:"chunking,omitempty"`
 	ImportantSymbols []string        `yaml:"important_symbols,omitempty"`
 	SkillsDir        string          `yaml:"skills_dir,omitempty"`
+
+	// BuildRoots is a list of Go entry packages (e.g. ./cmd/ckv) whose
+	// transitive dependency closure defines the corpus to index. Empty
+	// means "walk the whole srcRoot" — the original behavior. The build
+	// layer resolves each entry via `go list -json -deps`, collects the
+	// .go files those packages own, and uses that file set as a filter
+	// when walking. Entries must be repo-relative paths so ckv.yaml
+	// stays portable across checkouts.
+	//
+	// Today BuildRoots filters Go files only; other languages (TS, Sol)
+	// fall through unaffected. A multi-language analog (TS via tsconfig,
+	// etc.) is a future-work item.
+	BuildRoots []string `yaml:"build_roots,omitempty"`
 
 	// importantRE is the compiled regex form of ImportantSymbols.
 	// Populated by Load after schema validation. Not yaml-tagged.
@@ -115,6 +133,16 @@ func parse(data []byte, path string) (*Config, error) {
 	}
 	if c.Chunking.FileHeaderLines < 0 {
 		return nil, fmt.Errorf("%s: chunking.file_header_lines must be ≥ 0", path)
+	}
+	for i, root := range c.BuildRoots {
+		trimmed := strings.TrimSpace(root)
+		if trimmed == "" {
+			return nil, fmt.Errorf("%s: build_roots[%d] is empty — remove the entry or fill in a package path", path, i)
+		}
+		if filepath.IsAbs(trimmed) {
+			return nil, fmt.Errorf("%s: build_roots[%d] = %q must be repo-relative (e.g. ./cmd/ckv), not absolute", path, i, trimmed)
+		}
+		c.BuildRoots[i] = trimmed
 	}
 	// Compile importantSymbols up front so a bad regex fails the load.
 	c.importantRE = make([]*regexp.Regexp, 0, len(c.ImportantSymbols))

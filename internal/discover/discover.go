@@ -50,6 +50,15 @@ var DefaultIgnore = []string{
 type Options struct {
 	MaxBytes int64    // size cap; 0 → DefaultMaxBytes
 	Extra    []string // additional ignore patterns from CLI
+
+	// GoBuildFiles, when non-nil, restricts the walk's Go-language
+	// output to absolute paths that appear as keys in the map. Other
+	// languages (TypeScript, Solidity, etc.) are unaffected — they
+	// continue through the regular ignore-pattern path. Use this
+	// to honor `build_roots` from ckv.yaml (resolved upstream via
+	// ResolveGoBuildRoots). Nil/empty map means "no filter, walk
+	// every Go file" — the original behavior.
+	GoBuildFiles map[string]struct{}
 }
 
 // File is the result record. RelPath is forward-slash, repo-relative.
@@ -116,6 +125,14 @@ func Walk(srcRoot string, opts Options) (files []File, errs []error, err error) 
 		lang := classifyLanguage(rel)
 		if lang == "" {
 			return nil // unknown language → not indexable today
+		}
+		// build_roots filter: when GoBuildFiles is set, Go files must
+		// be in the resolved dependency closure. Non-Go files pass
+		// through — the filter is Go-only by design.
+		if lang == "go" && len(opts.GoBuildFiles) > 0 {
+			if _, ok := opts.GoBuildFiles[path]; !ok {
+				return nil
+			}
 		}
 		if isProbablyBinary(path) {
 			return nil
