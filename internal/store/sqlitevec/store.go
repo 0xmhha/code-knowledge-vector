@@ -103,6 +103,7 @@ func (s *Store) initSchema(dim int) error {
 		start_line      INTEGER NOT NULL,
 		end_line        INTEGER NOT NULL,
 		language        TEXT NOT NULL,
+		is_test         INTEGER NOT NULL DEFAULT 0,
 		symbol_name     TEXT,
 		symbol_kind     TEXT,
 		chunk_kind      TEXT NOT NULL,
@@ -114,11 +115,20 @@ func (s *Store) initSchema(dim int) error {
 		return fmt.Errorf("create chunks: %w", err)
 	}
 
+	// Migration: pre-FU-10 indexes lack the is_test column. SQLite
+	// doesn't support ADD COLUMN IF NOT EXISTS, so we probe and ALTER
+	// only on miss. Failure to migrate is fatal — silently running
+	// without is_test would return wrong is_test=false for every chunk.
+	if err := s.ensureColumn("chunks", "is_test", `ALTER TABLE chunks ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("migrate chunks.is_test: %w", err)
+	}
+
 	for _, idx := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_chunks_file     ON chunks(file)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_lang     ON chunks(language)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_symbol   ON chunks(symbol_name)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_ckg_node ON chunks(ckg_node_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_chunks_is_test  ON chunks(is_test)`,
 	} {
 		if _, err := s.db.Exec(idx); err != nil {
 			return fmt.Errorf("create index: %w", err)
@@ -144,6 +154,37 @@ func (s *Store) initSchema(dim int) error {
 		}); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ensureColumn runs alterDDL only if the column is missing. Idempotent:
+// safe to call on every Open() so older databases get migrated in
+// place without a separate "ckv migrate" step.
+func (s *Store) ensureColumn(table, column, alterDDL string) error {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return fmt.Errorf("pragma table_info(%s): %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			ctype   string
+			notnull int
+			dflt    sql.NullString
+			pk      int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return fmt.Errorf("scan table_info: %w", err)
+		}
+		if name == column {
+			return nil // column already present
+		}
+	}
+	if _, err := s.db.Exec(alterDDL); err != nil {
+		return fmt.Errorf("alter %s: %w", table, err)
 	}
 	return nil
 }
@@ -203,15 +244,16 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 	defer tx.Rollback()
 
 	insChunk, err := tx.PrepareContext(ctx, `INSERT INTO chunks (
-		id, file, start_line, end_line, language,
+		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
 		commit_hash, content_sha256, ckg_node_id, text
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
 		end_line = excluded.end_line,
 		language = excluded.language,
+		is_test = excluded.is_test,
 		symbol_name = excluded.symbol_name,
 		symbol_kind = excluded.symbol_kind,
 		chunk_kind = excluded.chunk_kind,
@@ -241,7 +283,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 			return fmt.Errorf("sqlitevec: chunk %s embedding dim %d != store dim %d", c.ID, got, s.dim)
 		}
 		if _, err := insChunk.ExecContext(ctx,
-			c.ID, c.File, c.StartLine, c.EndLine, c.Language,
+			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
 			c.CommitHash, c.ContentSHA256, c.CKGNodeID, c.Text,
 		); err != nil {
@@ -318,7 +360,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	// vec0 KNN: WHERE embedding MATCH ? AND k = N. The result includes
 	// a `distance` column. Join to chunks for metadata.
 	stmt := `SELECT
-			c.id, c.file, c.start_line, c.end_line, c.language,
+			c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
 			c.commit_hash, c.content_sha256, c.ckg_node_id, c.text,
 			v.distance
@@ -337,19 +379,21 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	for rows.Next() {
 		var (
 			c        types.Chunk
+			isTest   int
 			symKind  sql.NullString
 			chKind   string
 			ckgID    sql.NullString
 			distance float64
 		)
 		if err := rows.Scan(
-			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language,
+			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 			&c.SymbolName, &symKind, &chKind,
 			&c.CommitHash, &c.ContentSHA256, &ckgID, &c.Text,
 			&distance,
 		); err != nil {
 			return nil, fmt.Errorf("scan hit: %w", err)
 		}
+		c.IsTest = isTest != 0
 		c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
 		c.ChunkKind = types.ChunkKind(chKind)
 		c.CKGNodeID = ckgID.String
@@ -374,6 +418,16 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		return nil, err
 	}
 	return out, nil
+}
+
+// boolToInt converts a Go bool to SQLite's 0/1 integer convention.
+// SQLite has no native BOOLEAN type — integer columns + 0/1 values are
+// the universal pattern.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // normalize maps cosine distance [0,2] to a similarity score [0,1]

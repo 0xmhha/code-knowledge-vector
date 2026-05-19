@@ -55,6 +55,19 @@ type Options struct {
 	Threshold    float64      // min normalized score (0 → DefaultThreshold; <0 disables)
 	SrcRoot      string       // absolute path used by citation enforcement;
 	                          // when empty, the manifest's SrcRoot is used.
+
+	// ExamplesK splits test-file hits out of the main Hits slice into a
+	// separate Examples slice in the response. Up to ExamplesK test
+	// chunks pass through — distinct from K, which counts only the
+	// non-test (primary implementation) hits. Defaults to 0 → no
+	// separation, every hit goes through Hits as before.
+	//
+	// Why: an LLM coding agent gets cleaner signal when primary code
+	// (the actual implementation it should mimic) is separate from
+	// usage examples (tests that show how the code is called). With
+	// them mixed, top-5 can be diluted by 2-3 test results that compete
+	// for context window space.
+	ExamplesK int
 }
 
 // Hit is the response-shaped record: only what callers (LLM, CLI) need.
@@ -65,6 +78,7 @@ type Hit struct {
 	Snippet    string           `json:"snippet"`
 	Score      types.HitScore   `json:"score"`
 	Language   string           `json:"language"`
+	IsTest     bool             `json:"is_test,omitempty"`
 	Symbol     string           `json:"symbol,omitempty"`
 	SymbolKind types.SymbolKind `json:"symbol_kind,omitempty"`
 	CKGNodeID  string           `json:"ckg_node_id,omitempty"`
@@ -74,6 +88,11 @@ type Hit struct {
 // callers can report freshness/budget without an extra round trip.
 type Response struct {
 	Hits     []Hit            `json:"hits"`
+	// Examples holds test-file hits separated out from Hits when
+	// Options.ExamplesK > 0. Nil/empty otherwise. The ranking inside
+	// Examples follows the same score order as Hits — top of Examples
+	// is the most-similar test result.
+	Examples []Hit            `json:"examples,omitempty"`
 	Warnings []string         `json:"warnings,omitempty"`
 	Metadata ResponseMetadata `json:"metadata"`
 }
@@ -249,15 +268,35 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		warnings = append(warnings, fmt.Sprintf("dropped_%d_unverified_citations", droppedCitations))
 	}
 
-	// Step 5: snippet density under budget. We trim to k *before*
-	// budgeting so the budget only applies to the visible hits.
-	if len(enforced) > k {
-		enforced = enforced[:k]
+	// Step 5: split tests out of primary hits when ExamplesK > 0.
+	// We keep the same score-sorted order in both groups so the top of
+	// each is the highest-similarity result of its kind.
+	primary, examples := splitByTest(enforced, opts.ExamplesK > 0)
+
+	// Step 6: trim each group to its respective limit *before* density
+	// adjustment, so the budget only applies to the visible hits.
+	if len(primary) > k {
+		primary = primary[:k]
 	}
-	hits, tokensUsed := DensityAdjust(enforced, budget)
+	if opts.ExamplesK > 0 && len(examples) > opts.ExamplesK {
+		examples = examples[:opts.ExamplesK]
+	}
+
+	// Step 7: snippet density. Combine primary + examples into a single
+	// DensityAdjust call so the token budget is shared across both
+	// groups (primary downgrades last because it's earlier in the slice).
+	combined := append(append([]types.Hit{}, primary...), examples...)
+	combinedHits, tokensUsed := DensityAdjust(combined, budget)
+
+	hits := combinedHits[:len(primary)]
+	var exampleHits []Hit
+	if opts.ExamplesK > 0 {
+		exampleHits = combinedHits[len(primary):]
+	}
 
 	response := &Response{
 		Hits:     hits,
+		Examples: exampleHits,
 		Warnings: warnings,
 		Metadata: ResponseMetadata{
 			TokensUsed:     tokensUsed,
@@ -267,12 +306,31 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	}
 	doneSearch(
 		"hits", len(hits),
+		"examples", len(exampleHits),
 		"citation_drops", droppedCitations,
 		"warnings", warnings,
 		"tokens_used", tokensUsed,
 		"top_file", topFile(hits),
 	)
 	return response, nil
+}
+
+// splitByTest partitions hits into (primary, examples) by IsTest. When
+// separateTests is false, every hit lands in primary and examples is
+// nil — preserving the pre-FU-10 single-list behavior for callers that
+// haven't opted in via Options.ExamplesK.
+func splitByTest(hits []types.Hit, separateTests bool) (primary, examples []types.Hit) {
+	if !separateTests {
+		return hits, nil
+	}
+	for _, h := range hits {
+		if h.Chunk.IsTest {
+			examples = append(examples, h)
+		} else {
+			primary = append(primary, h)
+		}
+	}
+	return primary, examples
 }
 
 // intentHash is the SHA256 prefix of the intent string. Stable across

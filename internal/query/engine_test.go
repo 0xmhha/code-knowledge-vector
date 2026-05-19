@@ -139,3 +139,74 @@ func TestThresholdDropEmitsWarning(t *testing.T) {
 		t.Errorf("expected all_results_below_threshold warning, got %v", res.Warnings)
 	}
 }
+
+func TestSplitByTest_NoSeparationReturnsAllAsPrimary(t *testing.T) {
+	// ExamplesK=0 → separateTests=false: every hit stays in primary,
+	// examples stays nil. Preserves pre-FU-10 single-list behavior.
+	hits := []types.Hit{
+		{Chunk: types.Chunk{File: "a.go", IsTest: false}},
+		{Chunk: types.Chunk{File: "a_test.go", IsTest: true}},
+		{Chunk: types.Chunk{File: "b.go", IsTest: false}},
+	}
+	primary, examples := splitByTest(hits, false)
+	if len(primary) != 3 {
+		t.Errorf("primary len = %d, want 3", len(primary))
+	}
+	if examples != nil {
+		t.Errorf("examples = %v, want nil", examples)
+	}
+}
+
+func TestSplitByTest_SeparatesByIsTestFlag(t *testing.T) {
+	// separateTests=true → IsTest chunks land in examples, others in
+	// primary. Score order is preserved within each group (the helper
+	// is order-preserving; we don't sort).
+	hits := []types.Hit{
+		{Chunk: types.Chunk{File: "a.go", IsTest: false}},
+		{Chunk: types.Chunk{File: "a_test.go", IsTest: true}},
+		{Chunk: types.Chunk{File: "b.go", IsTest: false}},
+		{Chunk: types.Chunk{File: "b_test.go", IsTest: true}},
+	}
+	primary, examples := splitByTest(hits, true)
+	if len(primary) != 2 || primary[0].Chunk.File != "a.go" || primary[1].Chunk.File != "b.go" {
+		t.Errorf("primary = %v, want [a.go, b.go]", filesOf(primary))
+	}
+	if len(examples) != 2 || examples[0].Chunk.File != "a_test.go" || examples[1].Chunk.File != "b_test.go" {
+		t.Errorf("examples = %v, want [a_test.go, b_test.go]", filesOf(examples))
+	}
+}
+
+func TestSplitByTest_EmptyInput(t *testing.T) {
+	primary, examples := splitByTest(nil, true)
+	if primary != nil || examples != nil {
+		t.Errorf("empty input: primary=%v, examples=%v, want both nil", primary, examples)
+	}
+}
+
+func TestSplitByTest_AllPrimaryOrAllExamples(t *testing.T) {
+	allCode := []types.Hit{
+		{Chunk: types.Chunk{File: "a.go", IsTest: false}},
+		{Chunk: types.Chunk{File: "b.go", IsTest: false}},
+	}
+	primary, examples := splitByTest(allCode, true)
+	if len(primary) != 2 || len(examples) != 0 {
+		t.Errorf("all-code: primary=%d examples=%d, want 2/0", len(primary), len(examples))
+	}
+
+	allTest := []types.Hit{
+		{Chunk: types.Chunk{File: "a_test.go", IsTest: true}},
+		{Chunk: types.Chunk{File: "b_test.go", IsTest: true}},
+	}
+	primary, examples = splitByTest(allTest, true)
+	if len(primary) != 0 || len(examples) != 2 {
+		t.Errorf("all-test: primary=%d examples=%d, want 0/2", len(primary), len(examples))
+	}
+}
+
+func filesOf(hits []types.Hit) []string {
+	out := make([]string, len(hits))
+	for i, h := range hits {
+		out[i] = h.Chunk.File
+	}
+	return out
+}

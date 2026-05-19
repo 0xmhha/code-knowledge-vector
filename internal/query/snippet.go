@@ -63,6 +63,7 @@ func toResponseHit(h types.Hit, snippet string) Hit {
 		Snippet:    snippet,
 		Score:      h.Score,
 		Language:   c.Language,
+		IsTest:     c.IsTest,
 		Symbol:     c.SymbolName,
 		SymbolKind: c.SymbolKind,
 		CKGNodeID:  c.CKGNodeID,

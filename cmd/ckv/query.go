@@ -16,6 +16,7 @@ import (
 type queryOpts struct {
 	out          string
 	k            int
+	examplesK    int
 	lang         string
 	pathGlob     string
 	symbolKind   string
@@ -39,7 +40,8 @@ func newQueryCmd() *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&opts.out, "out", "./ckv-data", "data directory (vector.db, manifest.json)")
-	f.IntVarP(&opts.k, "top", "k", query.DefaultK, "top-K results")
+	f.IntVarP(&opts.k, "top", "k", query.DefaultK, "top-K primary (non-test) results")
+	f.IntVar(&opts.examplesK, "examples", 0, "split out up to N test-file hits as Examples (0 = no separation; tests intermix with primary)")
 	f.StringVar(&opts.lang, "lang", "", "filter by language (go|typescript|solidity)")
 	f.StringVar(&opts.pathGlob, "path", "", "filter by path glob (filepath.Match, single-star)")
 	f.StringVar(&opts.symbolKind, "kind", "", "filter by symbol kind (Function|Method|Type|Struct|Interface)")
@@ -83,6 +85,7 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 
 	res, err := eng.Search(ctx, intent, query.Options{
 		K:            opts.k,
+		ExamplesK:    opts.examplesK,
 		Filter:       filter,
 		BudgetTokens: opts.budgetTokens,
 		Threshold:    opts.threshold,
@@ -102,15 +105,33 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 
 // renderHuman prints a compact tabular view that's still scannable
 // in a terminal — one block per hit with citation, score, and snippet.
+// When Examples are present (--examples > 0), they render as a second
+// section so the reader can see "primary code" vs "usage examples" at
+// a glance.
 func renderHuman(res *query.Response) error {
 	for _, w := range res.Warnings {
 		fmt.Fprintln(os.Stderr, "ckv: warning:", w)
 	}
-	if len(res.Hits) == 0 {
+	if len(res.Hits) == 0 && len(res.Examples) == 0 {
 		fmt.Println("(no hits)")
 		return nil
 	}
-	for i, h := range res.Hits {
+	if len(res.Examples) > 0 {
+		fmt.Println("Primary:")
+	}
+	renderHits(res.Hits)
+	if len(res.Examples) > 0 {
+		fmt.Println()
+		fmt.Println("Examples (test files showing usage):")
+		renderHits(res.Examples)
+	}
+	fmt.Fprintf(os.Stderr, "ckv: tokens_used=%d indexed_head=%s\n",
+		res.Metadata.TokensUsed, res.Metadata.IndexedHeadCKV)
+	return nil
+}
+
+func renderHits(hits []query.Hit) {
+	for i, h := range hits {
 		symbol := h.Symbol
 		if symbol == "" {
 			symbol = "(no symbol)"
@@ -123,13 +144,10 @@ func renderHuman(res *query.Response) error {
 		for _, line := range splitLines(h.Snippet) {
 			fmt.Println("    " + line)
 		}
-		if i < len(res.Hits)-1 {
+		if i < len(hits)-1 {
 			fmt.Println()
 		}
 	}
-	fmt.Fprintf(os.Stderr, "ckv: tokens_used=%d indexed_head=%s\n",
-		res.Metadata.TokensUsed, res.Metadata.IndexedHeadCKV)
-	return nil
 }
 
 func splitLines(s string) []string {

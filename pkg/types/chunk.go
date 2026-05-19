@@ -57,6 +57,7 @@ type Chunk struct {
 	StartLine     int        `json:"start_line"`
 	EndLine       int        `json:"end_line"`
 	Language      string     `json:"language"`        // "go" | "typescript" | "solidity"
+	IsTest        bool       `json:"is_test,omitempty"` // _test.go, *.test.ts, *.spec.ts, *.t.sol, test/... — populated by IsTestPath
 	SymbolName    string     `json:"symbol_name,omitempty"`
 	SymbolKind    SymbolKind `json:"symbol_kind,omitempty"`
 	ChunkKind     ChunkKind  `json:"chunk_kind"`

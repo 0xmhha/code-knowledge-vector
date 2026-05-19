@@ -113,6 +113,9 @@ func (s *Server) registerTools() {
 		mcpgo.WithNumber("threshold",
 			mcpgo.Description("Minimum normalized score [0,1]; <0 disables."),
 		),
+		mcpgo.WithNumber("examples_k",
+			mcpgo.Description("Split up to N test-file hits out of the main result list into a separate Examples slice. 0 (default) intermixes tests with primary hits. Use when the caller wants implementation code and usage examples reported as distinct groups."),
+		),
 	), s.handleSemanticSearch)
 
 	s.mcp.AddTool(mcpgo.NewTool("cks.ops.get_freshness",
@@ -140,6 +143,9 @@ func (s *Server) handleSemanticSearch(ctx context.Context, req mcpgo.CallToolReq
 	opts := query.Options{}
 	if v, ok := args["k"].(float64); ok && v > 0 {
 		opts.K = int(v)
+	}
+	if v, ok := args["examples_k"].(float64); ok && v > 0 {
+		opts.ExamplesK = int(v)
 	}
 	if v, ok := args["budget_tokens"].(float64); ok && v > 0 {
 		opts.BudgetTokens = int(v)
