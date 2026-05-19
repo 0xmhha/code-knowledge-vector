@@ -17,9 +17,11 @@ package bgeonnx
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -54,8 +56,57 @@ func initORT() error {
 }
 
 type onnxSession struct {
-	sess *ort.DynamicAdvancedSession
-	cfg  ModelConfig
+	sess     *ort.DynamicAdvancedSession
+	cfg      ModelConfig
+	provider string
+}
+
+// coreMLDisabled returns true when the user wants ORT to skip CoreML
+// attach (e.g. when debugging an operator mismatch). Recognized truthy
+// tokens match Go's stdlib (strconv.ParseBool) so "1", "true", "TRUE"
+// all work; everything else (including empty) is false.
+func coreMLDisabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("CKV_DISABLE_COREML")))
+	switch v {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// attachCoreML tries to bind CoreML EP V2 onto opts. Returns the
+// provider tag to record:
+//
+//   - "coreml"                 — attach succeeded.
+//   - "coreml-fallback-to-cpu" — attach errored; ORT will use CPU. We
+//                                deliberately do NOT propagate the
+//                                error: a missing/broken CoreML stack
+//                                must not block index builds, only
+//                                slow them.
+//
+// MLComputeUnits=ALL lets ORT pick CPU/GPU/ANE per op; safest default
+// for BERT-class graphs where many ops only run on CPU anyway.
+func attachCoreML(opts *ort.SessionOptions, w io.Writer) string {
+	coreMLOpts := map[string]string{"MLComputeUnits": "ALL"}
+	if err := opts.AppendExecutionProviderCoreMLV2(coreMLOpts); err != nil {
+		if w != nil {
+			fmt.Fprintf(w, "bgeonnx: CoreML attach failed (%v), falling back to CPU\n", err)
+		}
+		return "coreml-fallback-to-cpu"
+	}
+	return "coreml"
+}
+
+// chooseProvider decides which EP to attach based on platform + env.
+// Pulled out so it's unit-testable without touching ORT. The returned
+// closure is what session creation calls; it returns the resolved
+// provider tag.
+func chooseProvider(goos string, disabled bool) func(*ort.SessionOptions, io.Writer) string {
+	if goos != "darwin" || disabled {
+		return func(_ *ort.SessionOptions, _ io.Writer) string { return "cpu" }
+	}
+	return attachCoreML
 }
 
 func newONNXSession(modelDir string, cfg ModelConfig) (*onnxSession, error) {
@@ -73,11 +124,22 @@ func newONNXSession(modelDir string, cfg ModelConfig) (*onnxSession, error) {
 	}
 	defer opts.Destroy()
 
+	provider := chooseProvider(runtime.GOOS, coreMLDisabled())(opts, os.Stderr)
+
 	sess, err := ort.NewDynamicAdvancedSession(modelPath, cfg.InputOrder, cfg.Outputs, opts)
 	if err != nil {
 		return nil, fmt.Errorf("create ONNX session: %w", err)
 	}
-	return &onnxSession{sess: sess, cfg: cfg}, nil
+	return &onnxSession{sess: sess, cfg: cfg, provider: provider}, nil
+}
+
+// Provider reports which execution backend was attached. See the
+// Session interface doc for the value set.
+func (s *onnxSession) Provider() string {
+	if s == nil {
+		return ""
+	}
+	return s.provider
 }
 
 // Run executes one batch and applies pooling per ModelConfig.Pooling

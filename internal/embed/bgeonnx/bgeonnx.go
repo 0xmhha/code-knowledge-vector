@@ -146,6 +146,18 @@ func (a *Adapter) Name() string        { return a.modelCfg.Name }
 func (a *Adapter) Dimension() int      { return a.modelCfg.Dim }
 func (a *Adapter) MaxInputTokens() int { return a.modelCfg.MaxInput }
 
+// Provider reports the underlying session's execution backend
+// ("cpu", "coreml", "coreml-fallback-to-cpu", "stub"). The build
+// pipeline uses this to label footprint events so a slow run can be
+// diagnosed against the backend that produced it. Returns empty when
+// the adapter or its session is nil.
+func (a *Adapter) Provider() string {
+	if a == nil || a.session == nil {
+		return ""
+	}
+	return a.session.Provider()
+}
+
 // Embed orchestrates tokenizer → session. Pooling and normalization
 // happen inside Session per the model's ModelConfig.Pooling.
 func (a *Adapter) Embed(ctx context.Context, batch []string) ([][]float32, error) {

@@ -17,6 +17,18 @@ type Session interface {
 	// len(batch) × ModelDim float32 vectors, already L2-normalized.
 	Run(ctx context.Context, tokens TokenizedBatch) ([][]float32, error)
 
+	// Provider names the execution backend the session ended up using.
+	// Values are short tokens suitable for log fields:
+	//   "cpu"      — default ORT CPU EP, no acceleration attached.
+	//   "coreml"   — CoreML EP V2 attached and accepted on Apple
+	//                hardware.
+	//   "coreml-fallback-to-cpu" — CoreML attach attempted but failed
+	//                at session creation; ORT silently uses CPU.
+	//   "stub"     — non-bgeonnx build; no real session.
+	// Surfaced via Adapter.Provider() so the build footprint records
+	// which backend ran an index.
+	Provider() string
+
 	// Close releases the underlying ONNX session + environment.
 	// Idempotent.
 	Close() error
@@ -28,5 +40,7 @@ type stubSession struct{}
 func (stubSession) Run(_ context.Context, _ TokenizedBatch) ([][]float32, error) {
 	return nil, ErrNotImplemented
 }
+
+func (stubSession) Provider() string { return "stub" }
 
 func (stubSession) Close() error { return nil }

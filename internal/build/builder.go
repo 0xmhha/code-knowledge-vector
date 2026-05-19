@@ -105,7 +105,20 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		"important_symbol_count", len(cfg.ImportantSymbols),
 	)
 
-	doneBuild := fp.Span("build", "src_root", o.SrcRoot, "out_dir", o.OutDir, "embedder", o.Embedder.Name())
+	// embedderProvider is optional metadata: bgeonnx exposes Provider()
+	// so we can record whether CoreML or CPU ran the workload; the mock
+	// embedder doesn't implement it and falls through to "" — kept off
+	// the structured log when empty so noise doesn't accumulate.
+	embedderProvider := ""
+	if p, ok := o.Embedder.(interface{ Provider() string }); ok {
+		embedderProvider = p.Provider()
+	}
+	doneBuild := fp.Span("build",
+		"src_root", o.SrcRoot,
+		"out_dir", o.OutDir,
+		"embedder", o.Embedder.Name(),
+		"embedder_provider", embedderProvider,
+	)
 
 	// Merge config-supplied ignore patterns under CLI-supplied ones so
 	// the CLI flag wins when there is overlap (CLI is more proximate).

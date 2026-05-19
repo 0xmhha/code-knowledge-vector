@@ -111,6 +111,7 @@ func (f *fakeTokenizer) Tokenize(_ context.Context, batch []string, _ int) (Toke
 type fakeSession struct {
 	received int
 	dim      int
+	provider string
 }
 
 func (f *fakeSession) Run(_ context.Context, tokens TokenizedBatch) ([][]float32, error) {
@@ -122,6 +123,8 @@ func (f *fakeSession) Run(_ context.Context, tokens TokenizedBatch) ([][]float32
 	}
 	return out, nil
 }
+
+func (f *fakeSession) Provider() string { return f.provider }
 
 func (f *fakeSession) Close() error { return nil }
 
@@ -166,5 +169,50 @@ func TestEmbedEmptyBatchIsCheap(t *testing.T) {
 	}
 	if len(vecs) != 0 {
 		t.Errorf("nil batch should return no vectors, got %d", len(vecs))
+	}
+}
+
+func TestAdapterProviderReportsStubByDefault(t *testing.T) {
+	// stubSession.Provider() == "stub" — verifies the pass-through wires
+	// the session's tag into the public Adapter API. Builds without
+	// -tags bgeonnx exercise exactly this path, so it acts as the
+	// safety net guaranteeing the footprint logs "stub" rather than
+	// silently falling back to an empty string.
+	a := openWithStubs(t)
+	defer a.Close()
+	if got := a.Provider(); got != "stub" {
+		t.Errorf("Provider() = %q, want %q", got, "stub")
+	}
+}
+
+func TestAdapterProviderPassThroughInjectedSession(t *testing.T) {
+	// Injecting a fakeSession with provider="custom" must surface
+	// verbatim. Locks in that Adapter.Provider does not normalize or
+	// rewrite the value — important so log filters can distinguish
+	// e.g. "coreml" from "coreml-fallback-to-cpu".
+	a, err := Open(Options{
+		ModelDir:  fakeModelDir(t),
+		Tokenizer: stubTokenizer{},
+		Session:   &fakeSession{provider: "custom"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	if got := a.Provider(); got != "custom" {
+		t.Errorf("Provider() = %q, want %q", got, "custom")
+	}
+}
+
+func TestAdapterProviderEmptyOnNil(t *testing.T) {
+	// nil receiver and nil session must not panic — defensive contract
+	// for callers that hold an Adapter pointer that might be closed.
+	var a *Adapter
+	if got := a.Provider(); got != "" {
+		t.Errorf("nil receiver Provider() = %q, want empty", got)
+	}
+	a2 := &Adapter{}
+	if got := a2.Provider(); got != "" {
+		t.Errorf("empty Adapter Provider() = %q, want empty", got)
 	}
 }
