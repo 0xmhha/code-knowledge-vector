@@ -9,9 +9,32 @@
 # may emit either a tight symbol chunk or a file_header — either
 # bracketing the expected lines counts).
 #
-# corpus: ./testdata/sample (server.go + cache.go).
-# Note these intents are deliberately varied (verbs, synonyms, vague
-# phrasing) so mock-embedder regression detection has signal.
+# corpus: ./testdata/sample (server.go + cache.go + handler.ts + token.sol).
+#
+# Note these intents are deliberately varied across query *types* so the
+# fixture exercises retrieval beyond the original q1..q10 set:
+#
+#   - paraphrased intent     (different surface form, same target)
+#   - exact-symbol lookup    (the user pastes the qualified name)
+#   - vague intent           (one-liner with little technical wording)
+#   - error-message search   (string copied from a stack trace / log)
+#   - short keyword          (1-3 tokens, no sentence)
+#   - cross-file relationship (target's docstring mentions another file)
+#
+# Per-language balance (post-expansion, N=34):
+#   Go (server.go=7 + cache.go=10)  = 17 queries
+#   TypeScript (handler.ts)         =  7 queries
+#   Solidity   (token.sol)          = 10 queries
+#
+# Adding more queries — checklist:
+#   1. Pick a real symbol (run `ckv build` and confirm the chunk exists).
+#   2. Set line_range to the symbol's body OR a superset (a file_header
+#      chunk that covers it also counts as a hit — see scorer overlap).
+#   3. Keep intent in *English* so the bge embedder family can compare
+#      with the embedded code text. Korean intents are valid only when
+#      the embedder is multilingual.
+#   4. If you append to testdata/sample, do so AT END OF FILE so existing
+#      q1..q10 line_ranges stay valid.
 schema_version: "1"
 
 queries:
@@ -99,3 +122,232 @@ queries:
       symbol: Token.Transfer
       kind: Event
       line_range: [13, 13]
+
+  # ---- N=10→N=34 expansion (FU-7 / Roadmap §12 #1) ----
+  # The blocks below cover new query *types* so retrieval improvements
+  # in Phase B/C/D have measurement headroom on recall@1 + MRR.
+
+  # ---- Exact-symbol lookups (user pastes a fully-qualified name) ----
+  - id: q11
+    intent: "Server.Listen"
+    expected:
+      file: server.go
+      symbol: Server.Listen
+      kind: Method
+      line_range: [22, 29]
+    notes: "exact-symbol — keyword-only query; tests symbol embedding"
+
+  - id: q12
+    intent: "Cache.Get"
+    expected:
+      file: cache.go
+      symbol: Cache.Get
+      kind: Method
+      line_range: [25, 30]
+    notes: "exact-symbol Go"
+
+  - id: q13
+    intent: "Handler.dispatch"
+    expected:
+      file: handler.ts
+      symbol: Handler.dispatch
+      kind: Method
+      line_range: [24, 30]
+    notes: "exact-symbol TS"
+
+  - id: q14
+    intent: "Token.transfer"
+    expected:
+      file: token.sol
+      symbol: Token.transfer
+      kind: Method
+      line_range: [35, 46]
+    notes: "exact-symbol Solidity"
+
+  # ---- Paraphrased intents (same target as q1..q10, different wording) ----
+  - id: q15
+    intent: "open a network listener on the configured address"
+    expected:
+      file: server.go
+      symbol: Server.Listen
+      kind: Method
+      line_range: [22, 29]
+    notes: "paraphrase of q1 — different verbs/nouns, same target"
+
+  - id: q16
+    intent: "look up an existing entry by its key"
+    expected:
+      file: cache.go
+      symbol: Cache.Get
+      kind: Method
+      line_range: [25, 30]
+    notes: "paraphrase of q5 — softer wording"
+
+  - id: q17
+    intent: "send tokens between two accounts"
+    expected:
+      file: token.sol
+      symbol: Token.transfer
+      kind: Method
+      line_range: [35, 46]
+    notes: "paraphrase of q8 — domain-language form"
+
+  # ---- Vague intent (short, light technical content) ----
+  - id: q18
+    intent: "code that initializes networking"
+    expected:
+      file: server.go
+      symbol: Server.Listen
+      kind: Method
+      line_range: [22, 29]
+    notes: "vague intent — challenges semantic retrieval; either Listen or NewServer counts but only Listen is in line_range"
+
+  - id: q19
+    intent: "where state gets cleared"
+    expected:
+      file: cache.go
+      symbol: Cache.EvictAll
+      kind: Method
+      line_range: [46, 55]
+    notes: "vague intent — EvictAll is the only sample that 'clears state'"
+
+  # ---- Error-message search (string copied from a log / stack trace) ----
+  - id: q20
+    intent: 'server: not listening'
+    expected:
+      file: server.go
+      symbol: Server.Close
+      kind: Method
+      line_range: [32, 37]
+    notes: "error-message search — exact string lives only in Close()"
+
+  - id: q21
+    intent: "insufficient balance"
+    expected:
+      file: token.sol
+      symbol: Token.transfer
+      kind: Method
+      line_range: [35, 46]
+    notes: "error-message search — require() string lives in transfer()"
+
+  - id: q22
+    intent: "amount must be positive"
+    expected:
+      file: token.sol
+      symbol: Token.onlyPositive
+      kind: Modifier
+      line_range: [19, 22]
+    notes: "error-message search — modifier require() string"
+
+  - id: q23
+    intent: "404 not found"
+    expected:
+      file: handler.ts
+      symbol: Handler.dispatch
+      kind: Method
+      line_range: [24, 30]
+    notes: "error-message search — 'not found' appears in dispatch and notFound; dispatch is canonical site"
+
+  # ---- Short keyword (1-3 tokens) ----
+  - id: q24
+    intent: "ERC20 transfer"
+    expected:
+      file: token.sol
+      symbol: Token.transfer
+      kind: Method
+      line_range: [35, 46]
+    notes: "short keyword — domain + verb"
+
+  - id: q25
+    intent: "RWMutex"
+    expected:
+      file: cache.go
+      symbol: Cache
+      kind: Struct
+      line_range: [7, 15]
+    notes: "short keyword — Go primitive name; sync.RWMutex only used in Cache"
+
+  - id: q26
+    intent: "delete cache entry"
+    expected:
+      file: cache.go
+      symbol: Cache.Delete
+      kind: Method
+      line_range: [32, 37]
+    notes: "short keyword — added with N=34 expansion"
+
+  # ---- Cross-file relationship (target's docstring references other file) ----
+  - id: q27
+    intent: "where cache eviction is triggered on shutdown"
+    expected:
+      file: cache.go
+      symbol: Cache.EvictAll
+      kind: Method
+      line_range: [46, 55]
+    notes: "cross-file — EvictAll docstring mentions Server.Close; tests whether retrieval picks the eviction site, not the Close site"
+
+  - id: q28
+    intent: "default response body for missing routes"
+    expected:
+      file: handler.ts
+      symbol: notFound
+      kind: Function
+      line_range: [35, 35]
+    notes: "vague intent → exported constant; uses Function as the closest SymbolKind"
+
+  # ---- New TS coverage (added with N=34 expansion) ----
+  - id: q29
+    intent: "500 internal server error response"
+    expected:
+      file: handler.ts
+      symbol: serverError
+      kind: Function
+      line_range: [39, 42]
+    notes: "exact intent — serverError builder (declaration body, excluding leading comments)"
+
+  - id: q30
+    intent: "reject empty or unsafe paths before registering them"
+    expected:
+      file: handler.ts
+      symbol: validatePath
+      kind: Function
+      line_range: [46, 51]
+    notes: "vague→specific intent — validatePath gate (function declaration body)"
+
+  # ---- New Solidity coverage ----
+  - id: q31
+    intent: "read the balance for an address"
+    expected:
+      file: token.sol
+      symbol: Token.balanceOf
+      kind: Method
+      line_range: [30, 32]
+    notes: "exact intent — balanceOf view function"
+
+  - id: q32
+    intent: "initialize total supply on contract deployment"
+    expected:
+      file: token.sol
+      symbol: Token.constructor
+      kind: Method
+      line_range: [25, 28]
+    notes: "Solidity constructor — Token.constructor span; contract body span (12,47) also overlaps"
+
+  # ---- Symbol-level Go additions ----
+  - id: q33
+    intent: "report whether the server has an open listener"
+    expected:
+      file: server.go
+      symbol: Server.IsListening
+      kind: Method
+      line_range: [45, 49]
+    notes: "exact intent — IsListening predicate"
+
+  - id: q34
+    intent: "current number of entries in the cache"
+    expected:
+      file: cache.go
+      symbol: Cache.Len
+      kind: Method
+      line_range: [39, 44]
+    notes: "exact intent — Len getter"

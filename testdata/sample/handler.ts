@@ -33,3 +33,19 @@ export class Handler {
 
 // notFound is the default 404 response builder.
 export const notFound = (): Response => ({ status: 404, body: "not found" });
+
+// serverError builds a generic 500 Internal Server Error response.
+// Centralizing this here keeps the error body consistent across routes.
+export const serverError = (): Response => ({
+  status: 500,
+  body: "internal server error",
+});
+
+// validatePath rejects empty paths and paths that contain a NUL byte,
+// returning true when the path is safe to register.
+export function validatePath(path: string): boolean {
+  if (path.length === 0) {
+    return false;
+  }
+  return !path.includes(" ");
+}

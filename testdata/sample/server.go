@@ -35,3 +35,15 @@ func (s *Server) Close() error {
 	}
 	return s.listener.Close()
 }
+
+// Addr returns the configured bind address. Useful for tests that need
+// to confirm which port the server was constructed against.
+func (s *Server) Addr() string {
+	return s.addr
+}
+
+// IsListening reports whether the underlying TCP listener has been
+// opened. Returns false both before Listen() and after Close().
+func (s *Server) IsListening() bool {
+	return s.listener != nil
+}

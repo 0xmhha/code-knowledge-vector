@@ -28,3 +28,28 @@ func (c *Cache) Get(key string) (string, bool) {
 	v, ok := c.data[key]
 	return v, ok
 }
+
+// Delete removes key from the cache. No-op if key is absent.
+func (c *Cache) Delete(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.data, key)
+}
+
+// Len returns the current number of entries in the cache.
+func (c *Cache) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.data)
+}
+
+// EvictAll triggers eviction of every entry currently in the cache.
+// Used by the Server.Close path to drop in-memory state when shutting
+// the network listener down.
+func (c *Cache) EvictAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.data {
+		delete(c.data, k)
+	}
+}

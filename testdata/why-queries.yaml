@@ -1,0 +1,160 @@
+# CKV "why?" eval fixture — schema v1
+#
+# Parallel fixture to queries.yaml for the *why* dimension of retrieval.
+# These queries ask about *intent / decision / history* rather than *what
+# the code does*. Their ground truth lives in:
+#
+#   - docs/*.md             (architectural decisions, plan, roadmap)
+#   - PR titles + bodies    (added by Roadmap Phase C, not built yet)
+#   - commit messages       (added by Roadmap Phase C, not built yet)
+#
+# Status (2026-05-19): every entry below is `pending: true` because the
+# default ckv build over testdata/sample/ indexes *code only*. Once
+# Challenge 2's docs walker lands (internal/parse/markdown/) and Phase C's
+# PR/commit corpus is built (internal/discover/gitlog/), these entries
+# become measurable.
+#
+# Schema additions over queries.yaml:
+#   pending: bool                           — corpus to answer not built yet
+#   expected.section: string (optional)     — markdown heading anchor in File
+#   expected.expected_kind: string          — pr_summary | commit_message | doc_section
+#
+# Reference: docs/retrieval-quality-roadmap.md §3.4 (PR/commit corpus),
+# §12 #1 (this fixture's slot), eval-metrics.md §4.1 (CI bounds on N).
+#
+# Per-source breakdown (current 12 entries):
+#   doc_section     — 8  (queries against docs/*.md)
+#   pr_summary      — 2  (queries against future PR corpus)
+#   commit_message  — 2  (queries against future commit corpus)
+#
+# Adding more entries — checklist:
+#   1. Identify a real anchor in docs/*.md (heading + paragraph), or a
+#      real PR/commit (URL + sha) once those corpora exist.
+#   2. Set expected.file relative to the repo root (the docs walker is
+#      expected to emit citations the same way the code chunker does).
+#   3. Set expected_kind to one of pr_summary | commit_message | doc_section
+#      so Phase C eval can filter on chunk_kind.
+#   4. For unbuilt corpora, set pending: true. Loader will skip
+#      line_range validation; Score() will simply miss until the corpus
+#      ships.
+schema_version: "1"
+
+queries:
+  # ---- Architectural decisions (ground truth: docs/plan-S1-ckv.md) ----
+  - id: wq1
+    intent: "왜 sqlite-vec를 default vector store로 선택했나"
+    pending: true
+    expected:
+      file: docs/plan-S1-ckv.md
+      section: "§4 Vector store — decision matrix"
+      expected_kind: doc_section
+      line_range: [106, 145]
+    notes: "doc_section — CKG와 idiom 일관, ATTACH join, embedded이라는 결정 근거"
+
+  - id: wq2
+    intent: "why bge-large-en-v1.5 instead of bge-code-v1"
+    pending: true
+    expected:
+      file: docs/plan-S1-ckv.md
+      section: "§3 Embedding model — decision matrix"
+      expected_kind: doc_section
+      line_range: [49, 104]
+    notes: "doc_section — D1 PoC pivot for adapter/size reasons"
+
+  - id: wq3
+    intent: "왜 hybrid retrieval (BM25 + vector)을 CKV에서 직접 구현하지 않나"
+    pending: true
+    expected:
+      file: docs/retrieval-quality-roadmap.md
+      section: "§3.5 패턴 5 — Hybrid retrieval at query time (RRF)"
+      expected_kind: doc_section
+      line_range: [174, 198]
+    notes: "doc_section — CKS의 책임, RRF는 query-time fusion"
+
+  - id: wq4
+    intent: "쿼리당 ground truth 한 개로 측정하는 한계는 무엇인가"
+    pending: true
+    expected:
+      file: docs/eval-metrics.md
+      section: "§4 평가 방법론 한계"
+      expected_kind: doc_section
+      line_range: [239, 265]
+    notes: "doc_section — N=10 CI bound + fixture coverage limits"
+
+  - id: wq5
+    intent: "why does the chunker emit a 50-line file_header"
+    pending: true
+    expected:
+      file: docs/plan-S1-ckv.md
+      section: "§5.4 Chunking"
+      expected_kind: doc_section
+      line_range: [220, 244]
+    notes: "doc_section — fallback for module imports / globals"
+
+  - id: wq6
+    intent: "왜 chunk_id를 sha256(file + lines + content) 로 정의했나"
+    pending: true
+    expected:
+      file: docs/plan-S1-ckv.md
+      section: "§5.4 chunk_id 결정성"
+      expected_kind: doc_section
+      line_range: [234, 244]
+    notes: "doc_section — 재인덱싱 안정성, 파일 이동 시 의도적 변경"
+
+  - id: wq7
+    intent: "build throughput 악화는 어떤 가정 하에 허용되는가"
+    pending: true
+    expected:
+      file: docs/retrieval-quality-roadmap.md
+      section: "§7 Build throughput 트레이드오프"
+      expected_kind: doc_section
+      line_range: [266, 303]
+    notes: "doc_section — incremental ckv reindex(S2) 의존; one-time cost 가정"
+
+  - id: wq8
+    intent: "왜 PR/commit history를 별도 corpus로 인덱싱하는가"
+    pending: true
+    expected:
+      file: docs/retrieval-quality-roadmap.md
+      section: "§3.4 패턴 4 — PR/commit history as separate corpus"
+      expected_kind: doc_section
+      line_range: [141, 171]
+    notes: "doc_section — 코드엔 'what'만, 'why'는 PR/commit에 있음"
+
+  # ---- PR-history queries (ground truth: future Phase C PR corpus) ----
+  - id: wq9
+    intent: "이 receipt에 effectiveGasPrice를 채우는 이유가 뭐였지"
+    pending: true
+    expected:
+      file: stable-net/go-stablenet#70
+      expected_kind: pr_summary
+      line_range: [1, 1]
+    notes: "pr_summary — Appendix C target PR #70. Once Phase C corpus is built, expected.file will reference the indexed PR body."
+
+  - id: wq10
+    intent: "지난번에 비슷한 race condition 어떻게 해결했지"
+    pending: true
+    expected:
+      file: TBD/pr-search
+      expected_kind: pr_summary
+      line_range: [1, 1]
+    notes: "pr_summary — generic past-PR retrieval; file path is a placeholder until Phase C lands and we pick a real PR"
+
+  # ---- Commit-message queries (ground truth: future commit corpus) ----
+  - id: wq11
+    intent: "왜 이 함수의 시그니처가 마지막으로 변경됐는가"
+    pending: true
+    expected:
+      file: TBD/commit-blame
+      expected_kind: commit_message
+      line_range: [1, 1]
+    notes: "commit_message — needs file:line→commit mapping (git log -L); placeholder until that lands"
+
+  - id: wq12
+    intent: "이 에러 메시지 문구를 누가 언제 도입했는가"
+    pending: true
+    expected:
+      file: TBD/commit-blame
+      expected_kind: commit_message
+      line_range: [1, 1]
+    notes: "commit_message — blame-style query against commit corpus"

@@ -16,6 +16,17 @@
 //
 // A query passes when at least one hit in top-K (default K=5) cites
 // the expected file and the hit's line range overlaps the expected one.
+//
+// "Why-queries" fixtures (testdata/why-queries.yaml) share the same
+// schema with two extra fields per entry:
+//
+//   - pending: true       — the corpus does not yet index the answer
+//     (e.g. docs corpus or PR/commit corpus not built). Loader allows
+//     missing/zero line_range for these entries. They still execute in
+//     Run() — they just typically miss until the corpus catches up.
+//   - expected_kind: pr_summary | commit_message | doc_section — the
+//     chunk type that should answer the query (informational; the scorer
+//     does not enforce it).
 package eval
 
 import (
@@ -44,6 +55,13 @@ type Query struct {
 	Intent   string   `yaml:"intent"`
 	Expected Expected `yaml:"expected"`
 	Notes    string   `yaml:"notes,omitempty"`
+
+	// Pending marks entries whose ground-truth corpus is not yet indexed
+	// (e.g. docs/PR/commit corpora pending Phase B/C). The loader relaxes
+	// line_range validation for these; Run() still executes them so misses
+	// are counted in the aggregate, and Score() treats them like any other
+	// query (typically reporting a miss until the corpus lands).
+	Pending bool `yaml:"pending,omitempty"`
 }
 
 // Expected describes the correct retrieval target. LineRange is
@@ -54,6 +72,15 @@ type Expected struct {
 	Symbol    string           `yaml:"symbol,omitempty"`
 	Kind      types.SymbolKind `yaml:"kind,omitempty"`
 	LineRange [2]int           `yaml:"line_range"`
+	// Section is an optional human-readable anchor inside File (e.g. a
+	// markdown heading like "§4 Vector store — decision matrix") used by
+	// why-queries fixtures. Purely informational — Score() does not match
+	// on it.
+	Section string `yaml:"section,omitempty"`
+	// ExpectedKind hints which chunk_kind should answer the query.
+	// Values: pr_summary | commit_message | doc_section. Informational
+	// only — used by future Phase C eval to filter retrieval by kind.
+	ExpectedKind string `yaml:"expected_kind,omitempty"`
 }
 
 // LoadFixture reads and validates a YAML fixture from path. Validation
@@ -92,9 +119,14 @@ func LoadFixture(path string) (*Fixture, error) {
 		if q.Expected.File == "" {
 			return nil, fmt.Errorf("fixture: query %q missing expected.file", q.ID)
 		}
-		if q.Expected.LineRange[0] < 1 || q.Expected.LineRange[1] < q.Expected.LineRange[0] {
-			return nil, fmt.Errorf("fixture: query %q has invalid line_range %v",
-				q.ID, q.Expected.LineRange)
+		// Pending entries are allowed to omit line_range (or use zeroes) —
+		// the corpus that would answer them isn't built yet. Non-pending
+		// entries must have a sane range so Score() can detect a real hit.
+		if !q.Pending {
+			if q.Expected.LineRange[0] < 1 || q.Expected.LineRange[1] < q.Expected.LineRange[0] {
+				return nil, fmt.Errorf("fixture: query %q has invalid line_range %v",
+					q.ID, q.Expected.LineRange)
+			}
 		}
 	}
 	return &f, nil

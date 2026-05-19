@@ -71,6 +71,80 @@ func TestLoadFixtureRejectsBadInputs(t *testing.T) {
 	}
 }
 
+// TestLoadFixtureAllowsPendingWithoutLineRange verifies that the loader
+// accepts entries flagged `pending: true` even when line_range is
+// missing or zero — those entries target corpora (docs, PR/commit) that
+// are not yet indexed but should round-trip from YAML for future use.
+func TestLoadFixtureAllowsPendingWithoutLineRange(t *testing.T) {
+	body := `schema_version: "1"
+queries:
+  - id: wq1
+    intent: "why was X chosen"
+    pending: true
+    expected:
+      file: docs/plan.md
+      expected_kind: doc_section
+      line_range: [0, 0]
+`
+	path := filepath.Join(t.TempDir(), "why.yaml")
+	if err := writeFile(t, path, body); err != nil {
+		t.Fatal(err)
+	}
+	fx, err := LoadFixture(path)
+	if err != nil {
+		t.Fatalf("LoadFixture: %v", err)
+	}
+	if len(fx.Queries) != 1 {
+		t.Fatalf("expected 1 query, got %d", len(fx.Queries))
+	}
+	q := fx.Queries[0]
+	if !q.Pending {
+		t.Errorf("expected Pending=true, got %+v", q)
+	}
+	if q.Expected.ExpectedKind != "doc_section" {
+		t.Errorf("expected ExpectedKind=doc_section, got %q", q.Expected.ExpectedKind)
+	}
+	// Non-pending entry with the same zero line_range must still fail —
+	// loader should only relax for pending=true.
+	bad := `schema_version: "1"
+queries:
+  - id: q1
+    intent: "x"
+    expected:
+      file: f
+      line_range: [0, 0]
+`
+	badPath := filepath.Join(t.TempDir(), "bad.yaml")
+	if err := writeFile(t, badPath, bad); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFixture(badPath); err == nil {
+		t.Error("expected non-pending entry with zero line_range to be rejected")
+	}
+}
+
+// TestLoadWhyQueriesFixture covers the on-disk testdata/why-queries.yaml
+// scaffold: parses, has the expected count, and every entry is pending
+// (until docs / PR / commit corpora are indexed in later phases).
+func TestLoadWhyQueriesFixture(t *testing.T) {
+	path, _ := filepath.Abs(filepath.Join("..", "..", "testdata", "why-queries.yaml"))
+	fx, err := LoadFixture(path)
+	if err != nil {
+		t.Fatalf("LoadFixture: %v", err)
+	}
+	if len(fx.Queries) < 10 {
+		t.Fatalf("expected ≥10 why-queries, got %d", len(fx.Queries))
+	}
+	for _, q := range fx.Queries {
+		if !q.Pending {
+			t.Errorf("query %q: expected Pending=true (no corpus indexed yet) — saw Pending=false", q.ID)
+		}
+		if q.Expected.ExpectedKind == "" {
+			t.Errorf("query %q: missing expected_kind", q.ID)
+		}
+	}
+}
+
 func TestRunComputesMetricsAgainstSample(t *testing.T) {
 	eng, _ := newSampleEngine(t)
 	path, _ := filepath.Abs(filepath.Join("..", "..", "testdata", "queries.yaml"))
