@@ -68,26 +68,28 @@
 - **Privacy**: stablenet 같은 기업 코드는 외부 API 전송 회피가 default.
 - **Throughput**: M-series Mac에서 ONNX BGE-M3 ≈ 200 chunks/s (실측 필요). 1M LOC ≈ 200K chunks → 약 17분 — featurelist UC-V1 success criteria(< 10분)와 충돌. **mitigation**: GPU 가속 ON 시 30s 내 완료, 또는 chunk 수 축소 (function-only).
 
-### 권장 (S1 default)
+### 권장 (S1 default) — **결정됨 2026-05-18**
 
-**`bge-code-v1` 또는 `BGE-M3` 둘 중 하나로 사용자 결정** — `featurelist §21 q2`의 미해결 사항. plan에서는 둘 다 지원 가능한 인터페이스(`Embedder`)를 우선 정의하고, 기본값을 선택. 
+**default = `bge-large-en-v1.5`** (BERT, 1024d, CLS pooling). 이전 권고였던 `bge-code-v1`(Qwen2 1.5B, 1024d, last-token pooling)은 D1 PoC 단계 (2026-05-18) 에서 어댑터 정합성·다운로드 크기(5.8GB) 사유로 pivot. 자세한 결정 근거는 [`d1-onnx-poc.md §4 Decision Log`](./d1-onnx-poc.md) (2026-05-18 row).
 
-**구체 권고**:
-1. **default = `bge-code-v1`** (코드 retrieval 정확도 우위, 실측 결과로 q2 결정).
-2. fallback = `BGE-M3` (multilingual 필요 시 — 한국어 주석 등).
-3. `Embedder` 인터페이스(featurelist §2.1)로 추후 교체 가능.
+| 항목 | 채택 | 사유 |
+|---|---|---|
+| default | **bge-large-en-v1.5** (~2.5GB, ONNX in-repo) | BERT/CLS 어댑터 기존 scaffold와 정합, ONNX export 사전 포함 |
+| fallback | `BGE-M3` (multilingual 필요 시) | 한국어 주석 등 |
+| 향후 (D2) | `bge-code-v1` Qwen2 adapter | code retrieval 정확도 잠재 우위, D1-FU-6 open |
+| 인터페이스 | featurelist §2.1 `Embedder` | 추후 교체 가능 |
 
 ```go
 type Embedder interface {
-    Name() string                                          // "bge-code-v1"
+    Name() string                                          // "bge-large-en-v1.5"
     Dimension() int                                        // 1024
-    MaxInputTokens() int                                   // 8192
+    MaxInputTokens() int                                   // 512 (bge-large) — bge-code-v1로 교체 시 8192
     Embed(ctx context.Context, batch []string) ([][]float32, error)
 }
 ```
 
 ### 메타 키 (featurelist §1.6)
-- `embedding_model = "bge-code-v1"`
+- `embedding_model = "bge-large-en-v1.5"`
 - `embedding_dim = 1024`
 - `embedding_checksum = "<onnx file sha256>"` (모델 파일 무결성)
 - `embedding_normalize = "l2"` (cosine similarity 사용)
@@ -526,10 +528,11 @@ featurelist §21의 q1~q5 + 추가:
 - **권고**: 분리. event는 ABI 검색에 별도 의미. modifier는 함수 wrapping이라 별도.
 - **확정 시점**: M1.
 
-### q2: 임베딩 모델 — 코드 특화 vs 범용
-- **권고 (S1 default)**: `bge-code-v1`. eval 결과로 q2 결정.
-- **fallback**: BGE-M3 (multilingual 필요 시).
-- **확정 시점**: M2 직후 eval harness로 결정.
+### q2: 임베딩 모델 — 코드 특화 vs 범용 — **결정됨 2026-05-18**
+- **확정**: `bge-large-en-v1.5` (BERT, 1024d, CLS pooling, ~2.5GB). 어댑터 정합성 + ONNX in-repo + 다운로드 크기 우위로 D1 PoC pivot.
+- **이전 권고였던 `bge-code-v1`(Qwen2)** 은 D1-FU-6 (open, D2 scope) 으로 이관. recall@5=1.0 / MRR=0.77 (N=10) baseline 측정 완료.
+- **fallback**: BGE-M3 (multilingual 필요 시 — 한국어 주석 등).
+- 자세히: [`d1-onnx-poc.md §4 Decision Log`](./d1-onnx-poc.md) 2026-05-18 row.
 
 ### q3: sqlite-vec ANN 성능
 - **검증 필요**: 1M chunk 환경에서 latency p95 측정.
@@ -665,3 +668,4 @@ S0의 8080 vs 현재 8787 정합 — 별도 작은 fix.
 |---|---|---|
 | 2026-05-08 | 0.1 | 초안 작성 (CKG b60a50f 기준, EXECUTION-GUIDE 2026-05-06 기준) |
 | 2026-05-12 | 0.2 | **방향 정정**: CKV는 CKG를 import하지 않음. `cks-mcp` 빌드 + RRF fusion + `query_code` tool은 별도 CKS repo의 책임. CKV는 `pkg/mcp.Server.Underlying()`로 read-only 표면만 노출. **Two-MCP 아키텍처** 추가 (read-only context / read-write memory). §7·§8·§12·§13 정정, W3-T9/T10 (TS/Sol parser) + W3-T14 (footprint) + W3-T15 (skill hook) + W4-T1/T2/T3 (eval + cli-wrapper judge) 명시. |
+| 2026-05-19 | 0.3 | **§3 + §10 q2 정정**: 기본 임베딩 모델을 `bge-code-v1`에서 **`bge-large-en-v1.5`**로 변경 (D1 PoC pivot 2026-05-18). 메타 키 (embedding_model, MaxInputTokens) 갱신. `bge-code-v1` Qwen2 어댑터는 D1-FU-6 (D2 scope) 으로 이관 표기. q2는 "미해결"에서 "결정됨"으로. |

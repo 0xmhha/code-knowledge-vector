@@ -49,23 +49,25 @@ bge-code-v1 uses the same BertTokenizer family as bge-base. Options:
 
 **Decision**: `daulet/tokenizers` for production; defer pure-Go migration to a follow-up once we have a known-good reference output to test against.
 
-### 2.3 Model artifact
+### 2.3 Model artifact — **bge-large-en-v1.5** (pivot 2026-05-18)
 
-`BAAI/bge-code-v1` ships PyTorch weights upstream. ONNX export
-(via `optimum-cli`) produces `model.onnx` (~520 MB FP32, ~270 MB FP16).
-For first cut, FP32 keeps numerics exactly matching the reference
-implementation; FP16 is a follow-up optimization.
+> **2026-05-18 pivot**: 원안의 `BAAI/bge-code-v1`(Qwen2 1.5B, 5.8GB, last-token pooling, 32k ctx)에서 **`BAAI/bge-large-en-v1.5`**(BERT, 1024d, CLS pooling, 512 ctx, ~2.5GB)로 전환. 결정 근거는 §4 Decision Log 2026-05-18 row. 이전 모델은 D1-FU-6(D2 scope)로 이관. 본 절은 현재 default 모델 기준으로 기술.
 
-Files we expect in `~/.cache/ckv/models/bge-code-v1/`:
+`BAAI/bge-large-en-v1.5`는 HuggingFace repo에 **ONNX 파일이 사전 포함**되어 있어 Python `optimum-cli` 변환 단계가 불필요. `onnx/model.onnx` ~1.3GB FP32.
+
+Files we expect in `~/.cache/ckv/models/bge-large-en-v1.5/`:
 
 ```
 config.json
 tokenizer.json
 tokenizer_config.json
 special_tokens_map.json
-model.onnx                         ~520 MB FP32
-model.onnx.sha256                  # checksum, manifest-verified at load
+1_Pooling/config.json              # CLS pooling 설정
+onnx/model.onnx                    ~1.3 GB FP32  (HF repo 사전 포함)
+onnx/model.onnx.sha256             # checksum, manifest-verified at load
 ```
+
+> (참고) bge-code-v1 어댑터 작업 시 별도 디렉토리 `~/.cache/ckv/models/bge-code-v1/`. ModelDim=1536, ModelMaxInput=32k, last-token pooling, Qwen2 ONNX export(optimum-cli + ~5GB extra disk) 필요. 자세히 D1-FU-6.
 
 ---
 

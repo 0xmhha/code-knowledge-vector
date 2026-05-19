@@ -26,6 +26,98 @@
 
 ---
 
+## 0.1 구현 상태 마스터 테이블 (2026-05-19)
+
+> **목적**: 본 문서의 P0/P1/P2 항목 대비 S1 진행 시점의 실제 구현 상태를 한 화면에 집약. 본문 sub-section의 stale claim은 본 표가 SoT. 코드 inventory 기준.
+>
+> **범례**: ✅ 구현 완료 · ⚠️ 부분 구현 · ❌-S2 S2 이관 결정 · ❌-CKS CKS 책임으로 이관 · ❌-제거 영구 제거 · ❌-planned 예정 (이관 미결정)
+
+| 섹션 | 항목 | P? | 상태 | 실 구현 위치 / 비고 |
+|---|---|---|---|---|
+| §1.1 | 파일 디스커버리 (gitignore + .ckvignore + 메타) | P0 | ✅ | `internal/discover` |
+| §1.2 | Go / TypeScript / Solidity parser | P0 | ✅ | `internal/parse/{golang,typescript,solidity}` |
+| §1.2 | JavaScript parser | P0 | ❌-S2 | 사용자 결정 2026-05-19 (S2 이관) |
+| §1.2 | Bash parser | P0 | ❌-S2 | 사용자 결정 2026-05-19 (S2 이관) |
+| §1.3 | Chunking — symbol + file_header | P0 | ✅ | `internal/chunk` |
+| §1.3 | Chunking — 큰 함수 sliding window | P0 | ⚠️ | head-truncate만 (sliding split deferred to W3 enhancement) |
+| §1.4 | Compiler/LSP hook | P1 | ❌-S3+ | 인터페이스 미정의 |
+| §1.5 | `ckv build` CLI | P0 | ✅ | `cmd/ckv/build.go` |
+| §1.6 | manifest 메타 저장 | P0 | ✅ | `internal/manifest` |
+| §2.1 | Embedder 인터페이스 | P0 | ✅ | `pkg/types/Embedder` |
+| §2.2 | 기본 로컬 모델 (**bge-large-en-v1.5**) | P0 | ✅ | D1 PoC pivot 2026-05-18 (이전: bge-code-v1) |
+| §2.3 | 배치 임베딩 | P0 | ⚠️ | 단건 처리만, D1-FU-8 open (배치 + CoreML EP) |
+| §2.4 | 임베딩 캐시 (per-text) | P1 | ❌-S2 | |
+| §2.5 | 모델 버전 변경 감지 | P1 | ✅ | manifest mismatch → `IndexUnavailable` |
+| §3.1 | VectorStore 인터페이스 | P0 | ✅ | |
+| §3.2 | sqlite-vec 기본 백엔드 | P0 | ✅ | `internal/store/sqlitevec` |
+| §3.4 | Filter (lang/path/symbol_kind) | P0 | ✅ | |
+| §3.4 | Filter — commit_hash | P0 | ⚠️ | metadata만 저장, 필터링 미연결 |
+| §3.5 | 영속화 (atomic rename + manifest) | P0 | ✅ | |
+| §4.1 | Semantic search | P0 | ✅ | `internal/query/engine.go` |
+| §4.2 | Code-as-Query mode (UC-V4) | P1 | ❌-S2 | |
+| §4.3 | Snippet density 3-tier | P0 | ⚠️ | `budget_tokens`만 적용 (full/sig+5/sig ladder 미구현) |
+| §4.4 | Score 정규화 (0~1) + raw distance | P0 | ✅ | `Hit.Score.Normalized` |
+| §4.5 | Query plan (intent classification) | P1 | ❌-S2 | |
+| §5.1 | 인용 강제 부착 | P0 | ✅ | |
+| §5.2 | 인용 실재성 cheap check | P0 | ⚠️ | file existence만, commit_hash 매칭 미구현 |
+| §5.3 | Citation test suite | P1 | ✅ | `internal/eval` citation accuracy |
+| §6.1 | 변경 감지 (git diff) | P0 | ⚠️ | freshness check만, fsnotify 미구현 |
+| §6.2 | `ckv reindex` (UC-V2) | P0 | ❌-S2 | plan §13 명시 |
+| §6.3 | `cks.ops.get_freshness` | P0 | ✅ | `internal/freshness` |
+| §6.3 | `cks.ops.request_refresh` | P0 | ❌-S2 | |
+| §6.4 | Stale 정책 (auto_refresh / warn_only / block) | P1 | ❌-S2 | |
+| §7 | Working Memory (run/cache/writeback/recall) — 전체 | P0/P1 | ❌-planned | plan §8.2 read-write MCP planned, S2 |
+| §8.1 | `cks.context.semantic_search` | P0 | ✅ | `pkg/mcp` |
+| §8.1 | `cks.context.get_context_for_task` | P0 | ❌-S2 | sanitize 의존 |
+| §8.1 | `cks.memory.*` (3종) | P0 | ❌-planned | |
+| §8.1 | `cks.ops.health` (실측 추가) | — | ✅ | featurelist 누락 항목, 코드에 존재 |
+| §8.2 | Envelope/Budget 검증 (trace_id/dry_run) | P0 | ⚠️ | `budget_tokens`만, trace_id/dry_run 미구현 |
+| §8.3 | mTLS auth | P1 | ❌-S6 | plan §8.4 |
+| §8.4 | Error model (FreshnessStale, BudgetExceeded, CitationNotFound, SanitizeFailed, IndexUnavailable, PolicyError) | P0 | ⚠️ | `IndexUnavailable`만 구현, 나머지 미구현 |
+| §8.5 | Health (실측) | P1 | ✅ | `cks.ops.health` |
+| §8.5 | `cks.ops.stats` | P1 | ❌-S2 | |
+| §9 | Sanitize (5 sub-section) — 전체 | P0 | ❌-S2 | plan §13 명시 |
+| §10.1 | 공통 citation 포맷 (CKG 정합) | P0 | ✅ | |
+| §10.2 | Symbol id 호환 | P0 | ⚠️ | `ckg_node_id` 필드만, 정규화 규칙 미합의 |
+| §10.3 | RRF 입력용 score 노출 | P0 | ✅ | rank+normalized score 노출 |
+| §10.4 | 공유 Working Memory 스키마 | P1 | ❌-planned | |
+| §10.5 | Single binary (CKV/CKG/CKS 통합) | P2 | ❌-CKS | plan §7 — CKS repo 책임 |
+| §11.1 | `ckv build`, `ckv query`, `ckv mcp` | P0 | ✅ | |
+| §11.1 | `ckv reindex` | P0 | ❌-S2 | |
+| §11.1 | `ckv serve` (HTTP) | (옵션) | ❌-S2 | |
+| §11.1 | `ckv freshness` (실측 추가) | — | ✅ | featurelist 누락 항목 |
+| §11.1 | `ckv eval` (실측 추가) | — | ✅ | featurelist 누락 항목 |
+| §11.1 | `ckv model fetch/list` | — | ⚠️ | stub만 (D1-FU-4 open, D2 scope) |
+| §11.1 | `ckv bootstrap --report` (UC-V12) | P0 | ❌-S4 | plan M7 |
+| §11.2 | 공통 플래그 (--json, --log-level, --profile) | P0 | ⚠️ | `--json` 일부만 |
+| §11.3 | Configuration (`ckv.yaml`) | P0 | ✅ | `internal/projectcfg` (W3-T15) |
+| §12 | HTTP API 전체 | P1 | ❌-S2 | |
+| §13 | Bootstrap & Systemization Report | P0/P2 | ❌-S4 | |
+| §14.1 | Structured logging (slog) | P0 | ✅ | |
+| §14.1 | **Footprint logging** (실측 추가) | — | ✅ | `internal/footprint` (W3-T14), featurelist 누락 |
+| §14.2 | Prometheus metrics | P1 | ❌-S2 | |
+| §14.3 | OpenTelemetry tracing | P2 | ❌ | |
+| §15.1 | Read-only source | P0 | ✅ | |
+| §15.2 | Secret 회피 (.env/*.pem 패턴) | P0 | ⚠️ | gitignore 호환만, 별도 secret 패턴 미구현 |
+| §15.3 | Output audit (sanitize pass) | P0 | ❌-S2 | §9 의존 |
+| §16.1 | 단위 테스트 | P0 | ✅ | 25개 test 파일 |
+| §16.2 | 통합 테스트 | P0 | ✅ | `testdata/sample` |
+| §16.3 | Eval harness | P1 | ✅ | `internal/eval` + `internal/judge` |
+| §16.4 | Fuzz/property tests | P2 | ❌ | |
+| §17.1 | Makefile (build/test/lint/fmt/tidy/clean) | P0 | ✅ | |
+| §17.1 | `make eval` | P0 | ❌-제거 | 실측 부재 (cli `ckv eval`만 사용) |
+| §17.1 | `make test-race`, `make audit` (실측 추가) | — | ✅ | featurelist 누락 |
+| §17.2 | 멀티-OS 빌드 | P1 | ❌ | D1-FU-5 open |
+| §17.3 | Release (`make release` + CI matrix) | P2 | ❌ | |
+| §18.1 | README | P0 | ✅ | |
+| §18.2 | ARCHITECTURE.md | P1 | ❌ | (`plan-S1-ckv.md` 일부 역할) |
+| §18.3 | SCHEMA.md | P1 | ❌ | d1-onnx-poc + plan 분산 |
+| §18.4 | CKS integration guide | P2 | ❌-CKS | CKS repo 책임 |
+
+**S1 진행 요약**: P0 항목 중 ✅ = 35%, ⚠️ = 15%, ❌-S2 이관 결정 = 30%, ❌-planned/CKS = 20%. 본문 sub-section의 미구현 claim은 본 표의 "❌-..." 분류로 해석.
+
+---
+
 ## 1. 인덱싱 파이프라인 (Indexer)
 
 ### 1.1 파일 디스커버리 (P0)
@@ -35,10 +127,11 @@
 - 심볼릭 링크 / 매우 큰 파일 / 바이너리 자동 스킵
 
 ### 1.2 멀티언어 파서 (Tree-sitter Level 1) (P0)
-- 언어 지원: Go, Solidity, JavaScript, TypeScript, Bash
-- tree-sitter grammar wrapper (`go-tree-sitter` 등)
+- **S1 구현 (2026-05-19 기준)**: Go, TypeScript (`.ts`/`.tsx`), Solidity — `internal/parse/{golang,typescript,solidity}`
+- **S2 이관 (사용자 결정 2026-05-19)**: JavaScript (`.js`/`.jsx`), Bash
+- tree-sitter grammar wrapper (`go-tree-sitter`; Solidity는 vendored grammar)
 - 파일별 AST 추출, 함수/메서드/타입/contract 노드 위치 식별
-- 파서 결과 캐시 (key: `{commit_hash, file_path, content_hash}`)
+- 파서 결과 캐시 (key: `{commit_hash, file_path, content_hash}`) — 현재 미구현 (P1)
 
 ### 1.3 Chunking 전략 (P0)
 - 1차 단위: function / method / type / contract 선언
@@ -287,16 +380,19 @@ type VectorStore interface {
 ## 11. CLI / 실행 표면
 
 ### 11.1 명령어 (P0)
-| 명령 | 설명 |
-|---|---|
-| `ckv build` | 전체 인덱스 구축 (UC-V1) |
-| `ckv reindex` | 변경분만 재인덱싱 (UC-V2) |
-| `ckv query <text>` | semantic search (UC-V3/V4) |
-| `ckv mcp` | MCP 서버 실행 (UC-V6) |
-| `ckv serve` | HTTP API 서버 (옵션) |
-| `ckv freshness` | 인덱스 신선도 출력 (UC-V11) |
-| `ckv bootstrap --report` | systemization 리포트 (UC-V12) |
-| `ckv eval` | KPI 측정 (UC-V12) |
+| 명령 | 설명 | 상태 |
+|---|---|---|
+| `ckv build` | 전체 인덱스 구축 (UC-V1) | ✅ |
+| `ckv query <text>` | semantic search (UC-V3) | ✅ |
+| `ckv mcp` | MCP 서버 실행 (UC-V6) | ✅ |
+| `ckv freshness` | 인덱스 신선도 출력 (UC-V11) | ✅ |
+| `ckv eval` | KPI 측정 (recall@k/MRR/citation accuracy, optional LLM judge) | ✅ |
+| `ckv model fetch <name>` | 모델 다운로드 + sha256 검증 | ⚠️ stub (D1-FU-4 open, D2 scope) |
+| `ckv model list` | 캐시된 모델 list | ⚠️ stub |
+| `ckv footprint` | footprint event log 조회 (W3-T14) | ✅ |
+| `ckv reindex` | 변경분만 재인덱싱 (UC-V2) | ❌-S2 |
+| `ckv serve` | HTTP API 서버 | ❌-S2 |
+| `ckv bootstrap --report` | systemization 리포트 (UC-V12) | ❌-S4 |
 
 ### 11.2 공통 플래그 (P0)
 - `--graph=<dir>` (기존 ckg 와 일관)
@@ -409,15 +505,17 @@ type VectorStore interface {
 ## 17. 빌드 & 배포 (Make 기반)
 
 ### 17.1 Makefile 타겟 (P0)
-| Target | 동작 |
-|---|---|
-| `make build` | `go build -o bin/ckv ./cmd/ckv` |
-| `make test` | `go test ./...` |
-| `make lint` | `golangci-lint run` |
-| `make fmt` | `gofmt -s -w .` + `goimports` |
-| `make tidy` | `go mod tidy` |
-| `make eval` | `bin/ckv eval` 호출 |
-| `make clean` | `rm -rf bin/ data/ /tmp/ckv-*` |
+| Target | 동작 | 상태 |
+|---|---|---|
+| `make build` | `go build -o bin/ckv ./cmd/ckv` | ✅ |
+| `make test` | `go test ./...` | ✅ |
+| `make test-race` | race detector + coverage | ✅ (featurelist v1.0에 누락이었음) |
+| `make lint` | `go vet` (golangci-lint optional) | ✅ |
+| `make fmt` | `gofmt -s -w .` + `goimports` | ✅ |
+| `make tidy` | `go mod tidy` | ✅ |
+| `make audit` | `govulncheck` (call-graph reachable vulns) | ✅ (featurelist v1.0에 누락이었음) |
+| `make clean` | build artifact 제거 | ✅ |
+| ~~`make eval`~~ | (제거됨 — `bin/ckv eval`을 직접 호출) | ❌-제거 |
 
 ### 17.2 멀티-OS 빌드 (P1)
 - linux/amd64, linux/arm64, darwin/arm64
@@ -485,12 +583,29 @@ type VectorStore interface {
 
 ---
 
-## 21. 미해결 / 결정 필요 사항
+## 21. 결정 사항 + 미해결
 
-- **q1**: chunk 단위로 Solidity 의 `event`/`modifier` 를 별도 chunk_kind 로 분리할지, function 과 묶을지
-- **q2**: 기본 임베딩 모델: 코드 특화(`bge-code`) vs 범용(`bge-small`) — eval 결과로 결정
-- **q3**: Vector store 기본: sqlite-vec 의 ANN 성능이 1M+ chunk 에서 충분한지 측정 필요
-- **q4**: MCP 라이브러리: CKG 가 사용하는 라이브러리와 일치시킬지 별도 채택할지
-- **q5**: Working memory 의 다중 프로세스 동시성 (CKV+CKG 가 같은 run_id 에 동시 write 시) — file lock vs SQLite WAL
+### 21.1 결정 완료
 
-(위 항목은 M1–M3 진행 중 결정. 결정 시 본 문서 §21 에 기록 후 해당 feature 항목을 갱신.)
+| ID | 항목 | 결정 | 결정일 | 근거 |
+|---|---|---|---|---|
+| q1 | Solidity event/modifier chunk_kind | 별도 분리 (event/modifier 독립) | W3-T10 | plan §10 q1 |
+| **q2** | 기본 임베딩 모델 | **bge-large-en-v1.5** (1024d BERT, CLS pooling) | 2026-05-18 | D1 PoC pivot — bge-code-v1(Qwen2 5.8GB) 가설 검증 후 BERT 어댑터 정합성 우위로 전환. d1-onnx-poc.md §4 |
+| q4 | MCP 라이브러리 | `mark3labs/mcp-go` (CKG와 일치) | M5 | plan §10 q4 |
+| **JS/Bash parser** | `*.js`/`*.jsx`/Bash 인덱싱 | **S2 이관** (S1 범위 밖) | 2026-05-19 | review-direction §6.1 사용자 결정 |
+| **BM25 위치** | CKV·CKG 양쪽 BM25 dual-track | 개발 단계 유지, 동작 검증 후 수렴 결정 | 2026-05-18 | review-direction §6.1 Challenge 1 |
+| **PR-regression target** | `stable-net/go-stablenet#70` | base SHA `aa28927fb1...` + plan↔diff LLM-judge similarity | 2026-05-18 | review-direction Appendix C |
+
+### 21.2 미해결
+
+- **q3**: sqlite-vec ANN 성능 — 1M+ chunk 환경 latency p95 측정 필요. fallback = LanceDB. 측정 시점: 첫 1M LOC 인덱스 직후.
+- **q5**: Working memory 의 다중 프로세스 동시성 (CKV+CKG 같은 run_id 동시 write) — file lock vs SQLite WAL. S2 working memory 도입 시 결정.
+
+---
+
+## 22. 변경 이력
+
+| 일자 | 버전 | 변경 |
+|---|---|---|
+| 2026-05-05 | 1.0 | 초안 — UC-V1~V15 대응 모듈/컴포넌트 분해, P0/P1/P2 마킹 |
+| 2026-05-19 | 1.1 | **광범위 정정** — (a) §0.1 **구현 상태 마스터 테이블** 신설 (60+ sub-section 실측 상태). (b) §1.2 언어 list: "Go/TS/Sol 구현, JS/Bash S2 이관" (사용자 결정). (c) §11.1 명령표: stale `reindex/serve/bootstrap` 표기 + `freshness/eval/model/footprint` 실측 명령 추가 + 상태 column. (d) §17.1 Makefile: `make eval` 제거 + `test-race`/`audit` 실측 추가. (e) §21 결정 사항 6건(q1/**q2**/q4/JS-Bash/BM25/PR#70 target) 정리. q3/q5는 미해결 유지. |

@@ -46,23 +46,25 @@ CKV의 책임 경계:
 
 ## 2. 핵심 사용 시나리오 요약
 
-| ID | 이름 | 1줄 설명 | 우선순위 |
-|---|---|---|:---:|
-| **UC-V1** | Bootstrap Indexing | 코드 경로를 받아 전체 임베딩 벡터 DB를 처음 구축 | P0 |
-| **UC-V2** | Incremental Update | 파일 변경 시 영향 chunk 만 재임베딩 | P0 |
-| **UC-V3** | Semantic Search (NL → Code) | 자연어 질의로 의미적으로 유사한 코드 위치 반환 | P0 |
-| **UC-V4** | Pattern Similarity Search | 특정 함수/스니펫과 유사한 구현 패턴 탐색 | P0 |
-| **UC-V5** | Evidence Pack Assembly | task_type + token budget 기반 Evidence Pack 일부 생성 | P0 |
-| **UC-V6** | MCP Tool Exposure to LLM | LLM이 도구로 직접 호출 가능 (`cks.context.*`) | P0 |
-| **UC-V7** | Cross-Language Semantic Discovery | Go/Solidity/TS/Shell 횡단 의미 검색 | P1 |
-| **UC-V8** | Hybrid Query w/ Graph DB | CKG 의 graph 결과와 RRF·교차 인용으로 결합 | P0 |
-| **UC-V9** | Working Memory Cache | 동일 세션 내 중복 질의 캐싱 + writeback | P1 |
-| **UC-V10** | Citation Enforcement | 모든 결과에 `file:line` 강제, 환각 차단 | P0 |
-| **UC-V11** | Freshness & Stale Warning | 인덱스 신선도 체크, 오래된 결과 경고 | P1 |
-| **UC-V12** | Bootstrap / Systemization Report | 신규 프로젝트의 의미 클러스터·온보딩 정보 출력 | P2 |
-| **UC-V13** | Sanitize Evidence (default-deny) | 외부 caller 노출 전 prompt-injection 차단 | P0 |
-| **UC-V14** | Resume from Working Memory | 이전 run_id 복원해 동일 컨텍스트로 재개 | P2 |
-| **UC-V15** | Local-First Embedding | 외부 API 의존 없이 로컬 모델로 동작 | P0 |
+| ID | 이름 | 1줄 설명 | 우선순위 | S1 충족도 (2026-05-19) |
+|---|---|---|:---:|---|
+| **UC-V1** | Bootstrap Indexing | 코드 경로를 받아 전체 임베딩 벡터 DB를 처음 구축 | P0 | ✅ `ckv build` |
+| **UC-V2** | Incremental Update | 파일 변경 시 영향 chunk 만 재임베딩 | P0 | ❌ S2 이관 (`ckv reindex` 미구현) |
+| **UC-V3** | Semantic Search (NL → Code) | 자연어 질의로 의미적으로 유사한 코드 위치 반환 | P0 | ✅ `ckv query` / `cks.context.semantic_search` |
+| **UC-V4** | Pattern Similarity Search | 특정 함수/스니펫과 유사한 구현 패턴 탐색 | P0 | ❌ S2 이관 (code-as-query 모드 미구현) |
+| **UC-V5** | Evidence Pack Assembly | task_type + token budget 기반 Evidence Pack 일부 생성 | P0 | ⚠️ 부분 (`semantic_search`만, `get_context_for_task` 미구현) |
+| **UC-V6** | MCP Tool Exposure to LLM | LLM이 도구로 직접 호출 가능 (`cks.context.*`) | P0 | ✅ read-only 3 tool (`semantic_search`, `ops.get_freshness`, `ops.health`) |
+| **UC-V7** | Cross-Language Semantic Discovery | Go/Solidity/TS/Shell 횡단 의미 검색 | P1 | ⚠️ 부분 — Go/TS/Sol만 (JS/Bash S2 이관) |
+| **UC-V8** | Hybrid Query w/ Graph DB | CKG 의 graph 결과와 RRF·교차 인용으로 결합 | P0 | ❌ CKS 책임으로 이관 (plan §7) |
+| **UC-V9** | Working Memory Cache | 동일 세션 내 중복 질의 캐싱 + writeback | P1 | ❌ planned (`cks.memory.*` 미구현) |
+| **UC-V10** | Citation Enforcement | 모든 결과에 `file:line` 강제, 환각 차단 | P0 | ✅ citation accuracy 100% |
+| **UC-V11** | Freshness & Stale Warning | 인덱스 신선도 체크, 오래된 결과 경고 | P1 | ✅ `ckv freshness` / `cks.ops.get_freshness` |
+| **UC-V12** | Bootstrap / Systemization Report | 신규 프로젝트의 의미 클러스터·온보딩 정보 출력 | P2 | ❌ S4 (M7 eval & report) |
+| **UC-V13** | Sanitize Evidence (default-deny) | 외부 caller 노출 전 prompt-injection 차단 | P0 | ❌ S2 이관 (plan §13) |
+| **UC-V14** | Resume from Working Memory | 이전 run_id 복원해 동일 컨텍스트로 재개 | P2 | ❌ planned (UC-V9 의존) |
+| **UC-V15** | Local-First Embedding | 외부 API 의존 없이 로컬 모델로 동작 | P0 | ✅ mock + bgeonnx 모두 local |
+
+**S1 충족 요약**: ✅ 6/15 (UC-V1, V3, V6, V10, V11, V15), ⚠️ 2/15 (UC-V5, V7), ❌ 7/15 (S2/S4/CKS/planned 이관). UC-V8은 CKS repo 책임으로 별도 진행.
 
 > **출처 매핑**: UC 번호와 04-cks-deep-dive.md 의 §번호 대응은 각 시나리오 본문 *Source* 항목에 기재.
 
