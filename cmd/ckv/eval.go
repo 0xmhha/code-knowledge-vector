@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/eval"
+	"github.com/0xmhha/code-knowledge-vector/internal/eval/prregress"
 	"github.com/0xmhha/code-knowledge-vector/internal/judge"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 )
@@ -24,6 +25,10 @@ type evalOpts struct {
 	judgeCmd    string  // empty → no judge; "claude" → invoke Claude Code CLI
 	judgeModel  string  // optional --model passthrough
 	jsonOut     bool
+
+	// PR-regression mode (mutually exclusive with --fixture queries).
+	prFixturePath string // path to testdata/prs.yaml — switches eval into PR-regression mode
+	prTopK        int    // hints passed to the planning agent
 }
 
 func newEvalCmd() *cobra.Command {
@@ -50,12 +55,17 @@ Default fixture path: ./testdata/queries.yaml`,
 	f.StringVar(&opts.judgeCmd, "judge", "", "LLM-as-judge command (empty=disabled; e.g. 'claude' for Claude Code CLI)")
 	f.StringVar(&opts.judgeModel, "judge-model", "", "model passed to the judge CLI (--model)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable output")
+	f.StringVar(&opts.prFixturePath, "pr-fixture", "", "path to PR fixture YAML (switches into PR-regression mode; mutually exclusive with --fixture)")
+	f.IntVar(&opts.prTopK, "pr-top", 10, "top-K hints passed to the planning agent in PR-regression mode")
 	return cmd
 }
 
 func runEval(ctx context.Context, opts *evalOpts) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if opts.prFixturePath != "" {
+		return runPREval(ctx, opts)
 	}
 	fx, err := eval.LoadFixture(opts.fixturePath)
 	if err != nil {
@@ -156,4 +166,109 @@ func truncOneLine(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// runPREval handles the --pr-fixture mode. Each fixture entry runs the
+// six-stage prregress flow (fetch → worktree → build → query → agent →
+// score). Output mirrors the regular eval format: human-readable per-PR
+// table by default, --json emits the raw []Result slice.
+func runPREval(ctx context.Context, opts *evalOpts) error {
+	fx, err := prregress.LoadFixture(opts.prFixturePath)
+	if err != nil {
+		return err
+	}
+
+	emb, cleanup, err := resolveEmbedder(globalFlags.embedder, globalFlags.modelDir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	runOpts := &prregress.RunOptions{
+		Embedder: emb,
+		TopK:     opts.prTopK,
+	}
+	if opts.judgeCmd != "" {
+		// Reuse the same Claude binary for both the planner and judge.
+		// They are separate prompts but the auth / model selection
+		// pipeline should be identical.
+		runOpts.Agent = &prregress.ClaudePlanAgent{Binary: opts.judgeCmd, Model: opts.judgeModel}
+		runOpts.Scorer = &prregress.ClaudeJudgeScorer{Binary: opts.judgeCmd, Model: opts.judgeModel}
+	}
+
+	results, err := prregress.RunFixture(ctx, fx, runOpts)
+	if err != nil {
+		return err
+	}
+
+	// Determine the effective threshold for the CLI summary line. If
+	// every entry uses DefaultThreshold (0.80) we report that; otherwise
+	// we report -1 to indicate per-entry thresholds.
+	threshold := prregress.DefaultThreshold
+	for _, e := range fx.PRs {
+		if e.Threshold != threshold {
+			threshold = -1
+			break
+		}
+	}
+
+	if opts.jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(struct {
+			Summary string             `json:"summary"`
+			Results []prregress.Result `json:"results"`
+		}{
+			Summary: prregress.SummarizeResults(results, threshold),
+			Results: results,
+		})
+	}
+	renderPREvalHuman(results, threshold)
+
+	// CI gate: any errored or failing PR exits non-zero so build
+	// pipelines can fail on retrieval regression.
+	for _, r := range results {
+		if r.Error != "" || !r.Pass {
+			return fmt.Errorf("ckv pr-eval: %d/%d PR(s) failed threshold", failuresOnly(results), len(results))
+		}
+	}
+	return nil
+}
+
+func failuresOnly(rs []prregress.Result) int {
+	n := 0
+	for _, r := range rs {
+		if r.Error != "" || !r.Pass {
+			n++
+		}
+	}
+	return n
+}
+
+func renderPREvalHuman(results []prregress.Result, threshold float64) {
+	fmt.Printf("ckv pr-eval — entries=%d threshold=%.2f\n\n", len(results), threshold)
+	fmt.Println("Per-PR:")
+	for _, r := range results {
+		status := "PASS"
+		switch {
+		case r.Error != "":
+			status = "ERROR"
+		case !r.Pass:
+			status = "FAIL"
+		}
+		fmt.Printf("  %-10s %s  judge=%.2f  file_f1=%.2f  (P=%.2f R=%.2f)\n",
+			r.Entry.ID, status, r.Score.JudgeScore, r.Score.FileF1,
+			r.Score.FilePrecision, r.Score.FileRecall)
+		if r.Error != "" {
+			fmt.Printf("             error: %s\n", truncOneLine(r.Error, 100))
+		}
+		if r.Score.JudgeRaw != "" && r.Score.JudgeError == "" {
+			fmt.Printf("             %s\n", truncOneLine(r.Score.JudgeRaw, 110))
+		}
+		if r.Score.JudgeError != "" {
+			fmt.Printf("             judge error: %s\n", truncOneLine(r.Score.JudgeError, 100))
+		}
+	}
+	fmt.Println()
+	fmt.Println(prregress.SummarizeResults(results, threshold))
 }
