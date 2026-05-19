@@ -28,9 +28,10 @@
 | `*.go` | Go | ✅ 구현 (`internal/parse/golang/`) | S0/S1 1순위 |
 | `*.ts`, `*.tsx` | TypeScript | ✅ 구현 (`internal/parse/typescript/`, W3-T9) | |
 | `*.sol` | Solidity | ✅ 구현 (`internal/parse/solidity/`, W3-T10) | vendored tree-sitter |
-| `*.js`, `*.jsx` | JavaScript | ❌ **미구현 — 신설 필요** | `detectLanguage()`가 unknown 처리. parser 없음. |
+| `*.js`, `*.jsx` | JavaScript | ❌ **S2 이관** (사용자 결정 2026-05-19) | `detectLanguage()`가 unknown 처리. parser 없음. S2 milestone에서 신설. |
+| `*.sh`, `*.bash` | Bash | ❌ **S2 이관** (사용자 결정 2026-05-19) | featurelist §1.2에서 S2 이관으로 결정 (영구 제거 아님). |
 
-JavaScript 파서 신설은 본 문서 §3.4(Scope Expansion) + §Appendix B.1 (Corpus 확장)의 *언어 확장* 차원에 포함된다 (docs/ADR 확장과 별개 작업).
+JavaScript/Bash 파서 신설은 S2 milestone으로 이관된다 (사용자 결정 2026-05-19, featurelist §21.1). 본 문서 §3.4와 §Appendix B.1.a의 *언어 확장* 차원은 S2 작업으로 분류.
 
 ---
 
@@ -99,7 +100,7 @@ JavaScript 파서 신설은 본 문서 §3.4(Scope Expansion) + §Appendix B.1 (
 
 | 항목 | 원칙 | 결정 |
 |---|---|---|
-| **JS 파서 신설** (`*.js`/`*.jsx` corpus 추가, §0.1) | P1 + P2 (기존 TS parser 패턴 재사용, blast radius 안, ~4 파일) | **AUTO-APPROVE — 지원 대상 언어 정합 의무** |
+| **JS 파서 신설** (`*.js`/`*.jsx` corpus 추가, §0.1) | P1 + P2 (기존 TS parser 패턴 재사용, blast radius 안, ~4 파일) | **S2 이관** (사용자 결정 2026-05-19) |
 | docs corpus 추가 (`*.md`, ADR) | P1 + P2 (blast radius 안, ~5 파일) | **AUTO-APPROVE 권고** |
 | BM25 인덱스를 CKV 안에 추가 | P2 borderline (FTS5 + schema migration, ~5 파일) | **USER CHALLENGE** |
 | PR-regression harness (1.3) | P2 borderline (신규 모듈, ~6-8 파일) | **TASTE** |
@@ -115,7 +116,7 @@ JavaScript 파서 신설은 본 문서 §3.4(Scope Expansion) + §Appendix B.1 (
 
 | ID | Trigger | 영향 |
 |---|---|---|
-| FM-S0 | JS 파서 부재 → `*.js`/`*.jsx` 파일 unknown 분류·인덱싱 누락 → JS heavy repo 지원 불가 | **High** (지원 대상 언어와 정합 깨짐) |
+| FM-S0 | JS 파서 부재 → `*.js`/`*.jsx` 파일 unknown 분류·인덱싱 누락 → JS heavy repo는 S2 milestone까지 지원 불가 | Medium (S2 이관 결정으로 risk 격리됨) |
 | FM-S1 | docs corpus 부재 → "knowledge dataset" 명목상 충족, 실질 미충족 | Medium |
 | FM-S2 | 1.3 미구현 → "올바른 방향 검증" 불가 | **Critical** |
 | FM-S3 | BM25 없이 exact-symbol query 실패 (CKS 없는 단독 사용 시) | Medium |
@@ -223,7 +224,7 @@ bge-large-en-v1.5는 general-text 모델 (code-trained 아님). q5(`retrieve val
 
 | ID | Trigger | Severity | Mitigation |
 |---|---|---|---|
-| FM-E0 | JS 파서 미구현 → `*.js`/`*.jsx` 파일 인덱싱 누락 (지원 대상 언어와 정합 깨짐) | High | `internal/parse/javascript/` 신설 (Appendix B.1 §언어 확장) |
+| FM-E0 | JS 파서 미구현 → `*.js`/`*.jsx` 파일 인덱싱 누락 | Medium (S2 이관 결정으로 격리) | S2 milestone에서 `internal/parse/javascript/` 신설 (Appendix B.1.a §언어 확장) |
 | FM-E1 | 대형 repo 인덱싱 17h+ | High | D1-FU-8 batch + CoreML EP |
 | FM-E2 | exact-symbol query miss | Medium | EG-2 (B) FTS5 |
 | FM-E3 | 모델 파일 missing/checksum mismatch | High | `IndexUnavailable` + `ckv model fetch` (D1-FU-4) |
@@ -356,7 +357,7 @@ Primary persona = **coding agent (CKS Orchestrator)**, Secondary = **개발자/O
 
 | # | Phase | 결정 | 원칙 |
 |---|---|---|---|
-| A0 | Scope/Eng | **JS 파서 신설** (`internal/parse/javascript/`) — 지원 대상 언어 정합 의무 | P1 + P2 |
+| A0 | Scope/Eng | **JS/Bash 파서 S2 이관** — 사용자 결정 2026-05-19 (즉시 신설 reversal) | P6 (action 편향, S1 stable 우선) |
 | A1 | Eng | EG-1 (1.3 PR-regression)을 W4-T4 / S1.5에 즉시 배치 | P1 + P6 |
 | A2 | Eng | D1-FU-8 (batch + CoreML EP) priority 상향 | P1 + P2 |
 | A3 | DevEx | 라이브러리-wrap 에러 fix-hint 개선은 flag만, blocker 아님 | P6 |
@@ -389,7 +390,7 @@ Primary persona = **coding agent (CKS Orchestrator)**, Secondary = **개발자/O
 
 | # | Phase | Decision | Classification | Principle | Rationale | Rejected |
 |---|---|---|---|---|---|---|
-| 0 | Scope/Eng | **JS 파서 신설** (`internal/parse/javascript/`) | Mechanical | P1 + P2 | 지원 대상 언어(§0.1)와 정합 의무. TS parser 패턴 재사용, blast radius 안 | 현 3-language 상태 유지 |
+| 0 | Scope/Eng | **JS/Bash 파서 S2 이관** | User Decision (reversal 2026-05-19) | P6 | S1 stable 우선; JS는 S2 milestone에서 TS parser 패턴 재사용해 신설 예정 | 즉시 신설 (v1.2 결정) |
 | 1 | Scope | 전제 P1 (LLM context 부족) 채택 | Mechanical | P1 | use-cases.md 정합 + 업계 검증 | — |
 | 2 | Scope | 전제 P2 (설계원칙 corpus) → USER CHALLENGE | User Challenge | P1 | 현재 미구현, 사용자 의도와 갭 | corpus 확장 안 함 |
 | 3 | Scope | docs corpus 확장 → auto-approve 권고 | Mechanical (proposal) | P2 | ~5 파일, <1일 | — |
@@ -402,7 +403,7 @@ Primary persona = **coding agent (CKS Orchestrator)**, Secondary = **개발자/O
 | 10 | Gate | **APPROVED — Overall A) As-is 승인** (2026-05-19) | Mechanical (user gate) | — | 4개 즉시 결정 모두 확정. autoplan PROCEDURE 옵션 A 처리. | B/B2/C/D/E |
 | 11 | Scope | Challenge 2 docs corpus 추가 — **사용자 확정** (2026-05-19) | User Challenge → User Approved | P1 + P2 | 사용자 의도 정합 ("설계 원칙·결정사항 dataset 포함"). `chunk_kind="doc"` 신설. | corpus 확장 안 함 |
 | 12 | Scope/Eng | Challenge 3 메트릭 = LLM-judge primary + F1 secondary — **사용자 확정** (2026-05-19) | User Challenge → User Approved | P1 | plan↔diff 의미 평가가 사용자 의도와 가장 가까움 | F1 only / Jaccard only |
-| 13 | Scope/Eng | A0 JS 파서 — **사용자 시작 승인** (2026-05-19) | Mechanical → User Approved | P1 + P2 | 다음 작업으로 진행 | 후순위 / 평가 후 결정 |
+| 13 | Scope/Eng | A0 JS/Bash 파서 — **S2 이관 reversal** (2026-05-19 후속 결정) | User Decision (reversal) | P6 | S1 stable 유지 우선. featurelist §21.1에 결정 row 기록. JS는 S2 milestone에서 TS parser 패턴 재사용해 신설. | 즉시 시작 (#13 이전 안) |
 | 14 | Eng | Eng 점수 7→**7.5** (commit `6f4bf1e` refactor 반영) | Mechanical | P5 | 모델 추가 면적 5개→1개 파일로 집중 → architecture clean 강화 | 점수 유지 |
 
 ---
@@ -438,9 +439,9 @@ Primary persona = **coding agent (CKS Orchestrator)**, Secondary = **개발자/O
 - **D** Modify — plan 자체 변경 (영향받은 phase 재실행)
 - **E** Reject — 처음부터
 
-### 즉시 결정 필요 항목 (가장 중요)
+### 결정 완료 항목 (모두 확정됨)
 
-1. **JS 파서 신설 (§0.1, Appendix B.1.a)** — ✅ 사용자 결정 (2026-05-19): **다음 작업으로 시작**. TS parser 패턴 재사용 (vendor grammar 공유 여부) 사전 조사 필요.
+1. **JS/Bash 파서** — ✅ 사용자 결정 (2026-05-19 후속 reversal): **S2 이관**. featurelist §21.1 결정 row + §1.2 본문 정정 완료. (이전 v1.2 "즉시 신설" 결정 → v1.3에서 reversal)
 2. **Challenge 3 메트릭** — ✅ 사용자 결정 (2026-05-19): **LLM-judge primary + F1 secondary** (Appendix C §C.4).
 3. **Challenge 2 — docs corpus** — ✅ 사용자 결정 (2026-05-19): **`*.md`/ADR 인덱싱 추가** (Appendix B.1.b).
 4. **Challenge 1 — BM25** — ✅ 사용자 결정 (2026-05-18): 현 dual-track (CKV+CKG 모두 보유) 유지하다가 동작 검증 후 수렴 결정 재검토.
@@ -878,3 +879,5 @@ testdata/prs.yaml (S1.5 초기에는 1개 PR만)
 | 2026-05-18 | 1.0 | autoplan 4-phase 리뷰 초안 작성 (`[single-voice]`). 사용자 3개 요구사항 대비 현 구현 상태 평가, User Challenge 3건 + Taste 3건 + Auto-decision 3건 정리. |
 | 2026-05-18 | 1.1 | 사용자 피드백 반영: (1) Challenge 1 — dual-track 유지 + retrieval/fusion/rerank 분리 베스트 프랙티스 권고. (2) Challenge 2 — Appendix B로 corpus·ADR 상세 분리. (3) Challenge 3 — `stable-net/go-stablenet#70` 구체 타겟 + "plan ↔ actual diff 유사도" 새 평가 흐름 + Appendix C 신설. (4) Appendix A 용어집 (8 카테고리 ~50 용어) 추가. |
 | 2026-05-19 | 1.2 | 지원 대상 언어 정정: `*.js`/`*.jsx`가 corpus에 포함되어야 하나 JS 파서 미구현. §0.1 "지원 대상 언어" 신설, §3.4 Scope Expansion에 JS 파서 신설 auto-approve 추가, §4.5 FM-E0 + §3.6 FM-S0 (JS 부재) 추가, §6.3 Auto-Decided A0 추가, §7 Decision Audit Trail #0 추가, Appendix A.5 Tree-sitter 행 JS 미구현 명시, **Appendix B.1을 두 차원(언어 확장 / 모드 확장)으로 재구성**, Appendix B.3에 JS 파서 구현 스케치(차원 1) 추가. |
+| 2026-05-19 | 1.3 | **JS/Bash 파서 S2 이관 reversal** (사용자 결정 — docs 정리 세션). §0.1 JS/Bash 행을 "S2 이관"으로 정정 + Bash 행 신규 추가, §3.4 Scope Expansion 표의 JS auto-approve → "S2 이관", §3.6 FM-S0 / §4.5 FM-E0 severity High→Medium (S2 격리), §6.3 A0 reversal 표기, §7 Decision #0 / #13 reversal 기록, §9 결정 완료 1번 갱신. v1.2의 "지원 대상 언어 정합 의무" 결정을 사용자가 reversal — S1 stable 유지가 우선. |
+| 2026-05-19 | 1.4 | **PR-regression 구현 완료 + mock baseline 측정** (commits `fddecda` `ac5926a` `507172c` `c36a9fb`). 6단계 통합 (fetch / worktree / build / query / agent / score) + `ckv eval --pr-fixture` flag. PR #70 5-run baseline (mock embedder): judge mean 0.44±0.25, file F1 mean 0.37±0.23, threshold 0.80 통과 1/5. LLM noise band σ=0.25 정량화. 상세 결과: [`pr-regression-baseline-2026-05-19.md`](./pr-regression-baseline-2026-05-19.md). Follow-up: **PRR-1** bgeonnx 재측정 (별도 turn). |
