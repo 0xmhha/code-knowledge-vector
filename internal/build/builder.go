@@ -82,6 +82,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		fp = footprint.Discard()
 	}
 
+	// Memory guard: refuse to start the build when host RAM is below the
+	// embedder's documented headroom. Returns nil for embedders without
+	// an estimate (mock) or when CKV_MEM_GUARD=off. See memory.go.
+	if err := preCheckMemory(o.Embedder, o.ProgressOut); err != nil {
+		return nil, err
+	}
+
 	if err := os.MkdirAll(o.OutDir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir out: %w", err)
 	}
@@ -184,6 +191,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// nil and get a silent no-op.
 	prog := newProgress(o.ProgressOut, len(files), o.Now)
 
+	// Memory watchdog runs while the file loop progresses and flips a
+	// shared flag when free RAM drops below CKV_MEM_GUARD_LOW_MB.
+	// embedAndUpsert reads the flag and halves its working batch on
+	// the next iteration. nil sig means the guard is off — both calls
+	// are safe via underPressure()'s nil receiver check.
+	wdCtx, wdCancel := context.WithCancel(ctx)
+	defer wdCancel()
+	memSig := startMemWatchdog(wdCtx, o.ProgressOut)
+
 	for i, f := range files {
 		// Closure scope so `defer prog.Tick(i+1)` fires once per
 		// iteration regardless of which `continue` was taken — keeps
@@ -219,7 +235,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if len(chunks) == 0 {
 				return
 			}
-			if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize); err != nil {
+			if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, memSig); err != nil {
 				perFileErr = fmt.Errorf("embed/upsert %s: %w", f.RelPath, err)
 				return
 			}
@@ -289,9 +305,23 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 // embedAndUpsert batches the chunks' Text through the embedder and
 // upserts the resulting (chunk, vector) pairs into the store.
-func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embedder, chunks []types.Chunk, batch int) error {
-	for i := 0; i < len(chunks); i += batch {
-		end := min(i+batch, len(chunks))
+//
+// Adaptive batching: when sig reports memory pressure, the working
+// batch halves (floor 1) before the next embed call. Recovery is
+// implicit — effectiveBatch resets to `batch` on the next file via
+// fresh embedAndUpsert call, so transient pressure doesn't permanently
+// throttle the build. sig may be nil (guard disabled); underPressure()
+// handles that.
+func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embedder, chunks []types.Chunk, batch int, sig *memSignal) error {
+	effectiveBatch := batch
+	for i := 0; i < len(chunks); {
+		if sig.underPressure() && effectiveBatch > 1 {
+			effectiveBatch /= 2
+			if effectiveBatch < 1 {
+				effectiveBatch = 1
+			}
+		}
+		end := min(i+effectiveBatch, len(chunks))
 		texts := make([]string, end-i)
 		for j, c := range chunks[i:end] {
 			texts[j] = c.Text
@@ -303,6 +333,7 @@ func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embed
 		if err := store.Upsert(ctx, chunks[i:end], vecs); err != nil {
 			return fmt.Errorf("upsert batch: %w", err)
 		}
+		i = end
 	}
 	return nil
 }

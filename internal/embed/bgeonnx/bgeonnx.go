@@ -146,6 +146,18 @@ func (a *Adapter) Name() string        { return a.modelCfg.Name }
 func (a *Adapter) Dimension() int      { return a.modelCfg.Dim }
 func (a *Adapter) MaxInputTokens() int { return a.modelCfg.MaxInput }
 
+// EstimatedRAMMB exposes ModelConfig.EstimatedRAMMB to callers via duck
+// typing. The build pipeline's memory guard reads this through an
+// anonymous interface, so we deliberately don't widen the public
+// Embedder interface — embedders without an estimate (the mock) just
+// don't implement this method and the guard treats them as unknown.
+func (a *Adapter) EstimatedRAMMB() uint64 {
+	if a == nil {
+		return 0
+	}
+	return a.modelCfg.EstimatedRAMMB
+}
+
 // Provider reports the underlying session's execution backend
 // ("cpu", "coreml", "coreml-fallback-to-cpu", "stub"). The build
 // pipeline uses this to label footprint events so a slow run can be

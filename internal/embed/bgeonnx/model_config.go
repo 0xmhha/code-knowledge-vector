@@ -110,6 +110,14 @@ type ModelConfig struct {
 
 	// Pooling strategy
 	Pooling PoolingMode
+
+	// EstimatedRAMMB is the resident set the embedder needs to load and
+	// run a single batch on this model: weights + ORT runtime base +
+	// working set + CoreML compile headroom on macOS. The build
+	// pipeline's memory guard multiplies this by a 1.5× factor before
+	// comparing to host AvailableMB. 0 disables the pre-check for this
+	// model (treated as "unknown — proceed").
+	EstimatedRAMMB uint64
 }
 
 // registry holds every model the bgeonnx adapter supports.
@@ -128,6 +136,12 @@ var registry = map[string]ModelConfig{
 			"token_type_ids": ZeroExtraInput,
 		},
 		Pooling: PoolingCLS,
+		// 1.3 GB FP32 weights + ORT runtime (~300 MB) + working set
+		// (~500 MB for batch=32, seq=512) + CoreML compile spike
+		// (observed ~2 GB transient on Apple Silicon). Round up to
+		// 5000 MB. Conservative — the guard prefers refusing a job
+		// to OOM-killing the host.
+		EstimatedRAMMB: 5000,
 	},
 	// Future entries (each adds 15-25 lines, no other file changes):
 	// "bge-code-v1": {
