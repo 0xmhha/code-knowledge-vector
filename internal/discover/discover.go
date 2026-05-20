@@ -214,6 +214,8 @@ func classifyLanguage(path string) string {
 		return "go"
 	case ".ts", ".tsx":
 		return "typescript"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "javascript"
 	case ".sol":
 		return "solidity"
 	case ".md", ".markdown":

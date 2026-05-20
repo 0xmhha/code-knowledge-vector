@@ -20,6 +20,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
+	"github.com/0xmhha/code-knowledge-vector/internal/parse/javascript"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/markdown"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/solidity"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/typescript"
@@ -170,6 +171,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	parsers := map[string]cparse.Parser{
 		"go":         golang.New(),
 		"typescript": typescript.New(),
+		"javascript": javascript.New(),
 		"solidity":   solidity.New(),
 		"markdown":   markdown.New(),
 	}

@@ -173,10 +173,13 @@ func nameFromField(n *sitter.Node, fieldName string, src []byte) string {
 }
 
 // languageForExt picks TS vs TSX grammar. tree-sitter-typescript ships
-// both; TSX accepts JSX syntax while TS rejects it.
+// both; TSX accepts JSX syntax while TS rejects it. JS extensions piggy-back
+// on the TS grammars since TS is a JS superset — the type-free subset is
+// still valid TS at the syntactic level, and JSX needs the TSX grammar
+// the same way TSX does.
 func languageForExt(ext string) *sitter.Language {
 	switch ext {
-	case ".tsx":
+	case ".tsx", ".jsx":
 		return sitter.NewLanguage(unsafe.Pointer(tsbind.LanguageTSX()))
 	default:
 		return sitter.NewLanguage(unsafe.Pointer(tsbind.LanguageTypescript()))

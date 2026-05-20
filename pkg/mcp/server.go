@@ -99,7 +99,7 @@ func (s *Server) registerTools() {
 			mcpgo.Description("Top-K results (default 10)."),
 		),
 		mcpgo.WithString("language",
-			mcpgo.Description("Filter by language: go | typescript | solidity | markdown."),
+			mcpgo.Description("Filter by language: go | typescript | javascript | solidity | markdown."),
 		),
 		mcpgo.WithString("path",
 			mcpgo.Description("Filter by path glob (filepath.Match, single-star)."),
