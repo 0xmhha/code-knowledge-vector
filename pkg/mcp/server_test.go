@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +216,56 @@ func TestServerConstructs(t *testing.T) {
 	s := NewServer(eng)
 	if s == nil || s.Underlying() == nil {
 		t.Fatal("NewServer must produce a non-nil server with a non-nil MCPServer")
+	}
+}
+
+// CKV-4: a panic inside a tool handler must not crash the process.
+// Without WithRecovery, the panic would unwind past the MCP dispatcher
+// and ServeStdio, the OS would close stdout, and cks (subprocess
+// caller) would see "transport closed" mid-eval. With WithRecovery
+// installed in NewServer, the same panic surfaces as a normal MCP
+// error response and the server stays alive.
+func TestServerRecoversFromHandlerPanic(t *testing.T) {
+	eng := buildSample(t)
+	s := NewServer(eng)
+
+	// Register a tool that always panics. Uses Underlying() because
+	// ckv's own handlers do nil checks and won't panic on bad input —
+	// we need a deliberate panic to exercise the recovery path.
+	s.Underlying().AddTool(
+		mcpgo.NewTool("test.panic"),
+		func(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+			panic("intentional panic for CKV-4 verification")
+		},
+	)
+
+	resp := s.Underlying().HandleMessage(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 1,
+		"method": "tools/call",
+		"params": {"name": "test.panic"}
+	}`))
+
+	errResp, ok := resp.(mcpgo.JSONRPCError)
+	if !ok {
+		t.Fatalf("expected JSONRPCError on panicking handler, got %T (%v)", resp, resp)
+	}
+	if !strings.Contains(errResp.Error.Message, "panic recovered") {
+		t.Errorf("expected message to contain 'panic recovered', got %q", errResp.Error.Message)
+	}
+	if !strings.Contains(errResp.Error.Message, "intentional panic") {
+		t.Errorf("expected message to relay the panic value, got %q", errResp.Error.Message)
+	}
+
+	// Sanity: a second call (on an unrelated tool) should still work,
+	// confirming the server didn't terminate.
+	follow := s.Underlying().HandleMessage(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 2,
+		"method": "tools/call",
+		"params": {"name": "cks.ops.health"}
+	}`))
+	if _, isErr := follow.(mcpgo.JSONRPCError); isErr {
+		t.Errorf("post-panic health call returned error, server may have been disturbed: %v", follow)
 	}
 }

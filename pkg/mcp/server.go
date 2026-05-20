@@ -58,11 +58,21 @@ func WithFootprint(fp *footprint.Logger) Option {
 // NewServer constructs the MCP server bound to a pre-opened
 // query.Engine. The caller owns the engine and is responsible for
 // Close-ing it on shutdown.
+//
+// server.WithRecovery installs a panic-to-error middleware on every
+// tool handler. Without it, a panic in handleSemanticSearch (nil
+// engine, ranking math, snippet decode) would unwind past the MCP
+// server, terminate ckv mcp, close the stdio writer, and surface on
+// the cks side as "transport closed" — see CKV-4 in
+// docs/followups-from-cks-dogfood-2026-05-19.md. With recovery the
+// process stays alive and the panicking call returns a normal MCP
+// tool error so cks can continue using the same subprocess.
 func NewServer(eng *query.Engine, opts ...Option) *Server {
 	mcpSrv := server.NewMCPServer(
 		ServerName,
 		ServerVersion,
 		server.WithToolCapabilities(true),
+		server.WithRecovery(),
 	)
 	s := &Server{engine: eng, mcp: mcpSrv, fp: footprint.Discard()}
 	for _, opt := range opts {
