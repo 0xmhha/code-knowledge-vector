@@ -191,15 +191,60 @@ CKV_COREML_UNITS=ALL \
 - MLProgram format 은 Core ML 5+ (macOS 12+) 필요 — 사용자 환경 macOS 15.7 충족.
 - MLProgram + FP32 입력 → ORT 가 op 단위로 FP16 dispatch 결정. 순수 FP32 추론보다 약간의 numerical drift 가능 (recall 측정 필요).
 
-### 5.4 시도 timeline
+### 5.4 가설 (f) + (g) 통합 측정 (2026-05-20 14:10~14:20)
+
+**환경**: 모든 옵션 동시 활성, `CKV_MEM_GUARD=off` (pre-check 위치 버그 발견 — 별도 fix).
+
+```bash
+CKV_COREML_UNITS=ALL CKV_COREML_MODEL_FORMAT=MLProgram \
+  CKV_COREML_GPU_FP16=1 CKV_COREML_CACHE_DIR=$HOME/.cache/ckv/coreml-cache \
+  CKV_MEM_GUARD=off ./bin/ckv build --src=./testdata/sample --out=/tmp/ckv-r{N} --embedder=bgeonnx
+```
+
+**결과**:
+
+| 항목 | Round 1 (cold) | Round 2 (cache hit?) |
+|---|---|---|
+| exit | 0 ✅ | 0 ✅ |
+| I/O error | **사라짐** ✅ | 사라짐 ✅ |
+| provider tag | `coreml` ✅ | `coreml` ✅ |
+| Wall time | **3m 35s** | 4m 15s (오히려 느림 — system noise 추정) |
+| 1/5 files | 22s | 22s |
+| 5/5 files | 3m 35s | 4m 15s |
+| chunks/s | 0.17 | 0.15 |
+| Context leak 메시지 | 2회 | 2회 |
+| Cache subdir | 1개 hash (`13866292292557230837/`) | **동일 hash** (재사용) |
+| Cache 파일 수 | 78 | 76 (거의 동일) |
+| Cache 크기 | 2.5 GB | 2.5 GB |
+
+**해석**:
+- ✅ 가설 (g) `ModelFormat=MLProgram` **확정 적중** — silent FP32→FP16 cast 회피하니 ANE compile I/O error 완전 사라짐.
+- ✅ 가설 (f) `ModelCacheDirectory` **부분 적중** — ORT-level cache는 채워지고 hash 재사용되나, **second run throughput 개선 거의 없음**.
+- ❌ Throughput 0.15~0.17 chunks/s — CPU-only baseline (1.0 chunks/s)보다 6× 느림. D1-FU-8 목표 (30 chunks/s)와는 200× 거리.
+
+**왜 cache hit인데 빠르지 않나**:
+- Cache 파일 이름 `0_dynamic_mlprogram` ~ `77_dynamic_mlprogram` — **dynamic shape** 표시.
+- ORT cache는 *graph-level* (op fusion / partitioning). Apple ML compiler의 *shape-specific* ANE/GPU compile artifact는 별도 layer일 가능성.
+- 각 batch마다 다른 shape (batch size × seq length) → 매번 ANE compile re-trigger.
+
+### 5.5 가설 (h) — `RequireStaticInputShapes=1` + max-seq padding
+
+**가설**: ANE는 static-shape 친화 설계 (Apple ML research: "fixed-size neural network operations"). dynamic shape으로 매 batch마다 shape이 바뀌면 ANE compiler가 shape별로 재컴파일 → cache 효과 무력화.
+
+**시도 예정**: V2 EP 옵션에 `RequireStaticInputShapes=1` 추가, tokenizer가 모든 입력을 `MaxInput=512`로 padding (현재는 batch 내 최장 길이까지만).
+
+**리스크**: padding 비용 — 짧은 텍스트도 512 tokens 처리 → 메모리/compute 증가. 그러나 *compile cost가 dominant*인 현 상황에서는 한 번의 fixed-shape compile + 재사용이 매번의 dynamic compile보다 훨씬 유리할 가능성.
+
+### 5.6 시도 timeline
 
 | # | 일시 | 가설 | 시도 | 결과 |
 |---|---|---|---|---|
 | 1 | 2026-05-20 09:44~10:27 | (a) | `CKV_COREML_UNITS=CPUAndGPU` (ANE 우회) | ✅ I/O error 사라짐 / ❌ GPU compile cost로 hang. *반쪽 해결*. |
-| 2 | (사용자 실행) | (f) | `ModelCacheDirectory` 명시 (`CKV_COREML_CACHE_DIR`) | (commit `292db4a`, 측정 예정) |
-| 3 | (사용자 실행) | (g) | `ModelFormat=MLProgram` + `AllowLowPrecisionAccumulationOnGPU=1` | (현재 commit, 측정 예정) |
-| 4 | (보류) | (b) | `MACOSX_DEPLOYMENT_TARGET=15.5` rebuild | (보류) |
-| 5 | (보류) | (d) | `ORT_LOGGING_LEVEL=VERBOSE` 로 정확한 fault stage 확인 | `CKV_ORT_VERBOSE=1` 로 활성 가능 (commit `66bdefc`) |
+| 2 | 2026-05-20 14:10 | (f)+(g) | MLProgram + AllowLowPrecisionGPU + ModelCacheDirectory 동시 | ✅ I/O error 사라짐 / ✅ build 완주 (3m35s, 0.17 c/s) / ❌ throughput 미달 |
+| 3 | 2026-05-20 14:16 | (f) | 동일 옵션 second run (cache hit 측정) | ⚠️ cache subdir 재사용은 확인 / ❌ wall time 개선 없음 (4m15s) |
+| 4 | (보류) | (h) | `RequireStaticInputShapes=1` + max-seq padding | (대기 — 코드 변경 필요) |
+| 5 | (보류) | (b) | `MACOSX_DEPLOYMENT_TARGET=15.5` rebuild | (보류) |
+| 6 | (보류) | (d) | `CKV_ORT_VERBOSE=1` 로 cache hit/miss 명확 확인 | (가능 — commit `66bdefc`) |
 
 ## 6. Resolution & Lessons
 
