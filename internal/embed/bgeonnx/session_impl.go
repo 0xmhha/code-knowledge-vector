@@ -50,9 +50,26 @@ func initORT() error {
 			// would set CKV_ONNXRUNTIME_LIB=/usr/local/lib/libonnxruntime.dylib.
 			ort.SetSharedLibraryPath("/opt/homebrew/lib/libonnxruntime.dylib")
 		}
-		ortInitErr = ort.InitializeEnvironment()
+		var envOpts []ort.EnvironmentOption
+		if ortVerbose() {
+			envOpts = append(envOpts, ort.WithLogLevelVerbose())
+		}
+		ortInitErr = ort.InitializeEnvironment(envOpts...)
 	})
 	return ortInitErr
+}
+
+// ortVerbose returns true when CKV_ORT_VERBOSE is set to a truthy value.
+// Enables ORT env- and session-level verbose logging — useful when
+// diagnosing CoreML compile / EP attach failures. See
+// docs/issue-coreml-compile-io-error.md.
+func ortVerbose() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CKV_ORT_VERBOSE"))) {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 type onnxSession struct {
@@ -85,10 +102,23 @@ func coreMLDisabled() bool {
 //                                must not block index builds, only
 //                                slow them.
 //
-// MLComputeUnits=ALL lets ORT pick CPU/GPU/ANE per op; safest default
-// for BERT-class graphs where many ops only run on CPU anyway.
+// MLComputeUnits selects which compute units ORT may dispatch to:
+//
+//   - "ALL"        (default) — CPU + GPU + ANE
+//   - "CPUAndGPU"            — CPU + GPU, no ANE (workaround for ANE
+//                              compile I/O errors — see
+//                              docs/issue-coreml-compile-io-error.md)
+//   - "CPUOnly"             — CoreML attached but runs CPU only
+//
+// Override via env CKV_COREML_UNITS. Note: this only affects the V2
+// CoreML EP attach options — ORT may still fall back to CPU at
+// per-op granularity for unsupported ops regardless of this setting.
 func attachCoreML(opts *ort.SessionOptions, w io.Writer) string {
-	coreMLOpts := map[string]string{"MLComputeUnits": "ALL"}
+	units := strings.TrimSpace(os.Getenv("CKV_COREML_UNITS"))
+	if units == "" {
+		units = "ALL"
+	}
+	coreMLOpts := map[string]string{"MLComputeUnits": units}
 	if err := opts.AppendExecutionProviderCoreMLV2(coreMLOpts); err != nil {
 		if w != nil {
 			fmt.Fprintf(w, "bgeonnx: CoreML attach failed (%v), falling back to CPU\n", err)
@@ -123,6 +153,12 @@ func newONNXSession(modelDir string, cfg ModelConfig) (*onnxSession, error) {
 		return nil, fmt.Errorf("session options: %w", err)
 	}
 	defer opts.Destroy()
+
+	if ortVerbose() {
+		if e := opts.SetLogSeverityLevel(ort.LoggingLevelVerbose); e != nil {
+			fmt.Fprintf(os.Stderr, "bgeonnx: set session log level failed: %v\n", e)
+		}
+	}
 
 	provider := chooseProvider(runtime.GOOS, coreMLDisabled())(opts, os.Stderr)
 
