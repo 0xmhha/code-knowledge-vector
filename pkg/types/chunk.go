@@ -42,6 +42,11 @@ const (
 	ChunkSymbol        ChunkKind = "symbol"         // whole function/method/type
 	ChunkFunctionSplit ChunkKind = "function_split" // sub-chunk of a long function
 	ChunkFileHeader    ChunkKind = "file_header"    // import block / top-of-file
+	// ChunkDoc covers markdown heading sections (DocSection/ADRSection).
+	// Kept distinct from ChunkSymbol so callers can filter the corpus by
+	// "code vs documentation" without inspecting SymbolKind. The chunker
+	// promotes spans whose SymbolKind is DocSection or ADRSection.
+	ChunkDoc ChunkKind = "doc"
 )
 
 // Citation is the {file, start_line, end_line, commit_hash} tuple CKV

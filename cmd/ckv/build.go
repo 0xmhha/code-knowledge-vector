@@ -86,8 +86,8 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 	if opts.jsonOut {
 		return json.NewEncoder(cmdOutput()).Encode(res)
 	}
-	fmt.Printf("ckv: indexed %d files → %d chunks (%d symbol, %d header, %d truncated)\n",
-		res.FilesIndexed, res.Chunks.Total, res.Chunks.Symbol, res.Chunks.FileHeader, res.Chunks.Truncated)
+	fmt.Printf("ckv: indexed %d files → %d chunks (%d symbol, %d doc, %d header, %d truncated)\n",
+		res.FilesIndexed, res.Chunks.Total, res.Chunks.Symbol, res.Chunks.Doc, res.Chunks.FileHeader, res.Chunks.Truncated)
 	fmt.Printf("ckv: indexed_head=%s built_at=%s db=%s\n", res.IndexedHead, res.BuiltAt, res.DBPath)
 	return nil
 }

@@ -143,6 +143,10 @@ func (c *Chunker) fileHeaderChunk(in Input) *types.Chunk {
 func (c *Chunker) symbolChunk(in Input, sp parse.SymbolSpan, text string) types.Chunk {
 	contentHash := types.ContentSHA256(text)
 	id := types.ChunkID(in.File, sp.StartLine, sp.EndLine, contentHash)
+	kind := types.ChunkSymbol
+	if sp.Kind == types.KindDocSection || sp.Kind == types.KindADRSection {
+		kind = types.ChunkDoc
+	}
 	return types.Chunk{
 		ID:            id,
 		File:          in.File,
@@ -152,7 +156,7 @@ func (c *Chunker) symbolChunk(in Input, sp parse.SymbolSpan, text string) types.
 		IsTest:        types.IsTestPath(in.File, in.Language),
 		SymbolName:    sp.Name,
 		SymbolKind:    sp.Kind,
-		ChunkKind:     types.ChunkSymbol,
+		ChunkKind:     kind,
 		CommitHash:    in.CommitHash,
 		ContentSHA256: contentHash,
 		Text:          text,
@@ -183,6 +187,7 @@ type Stats struct {
 	Total       int
 	Symbol      int
 	FileHeader  int
+	Doc         int
 	Truncated   int
 }
 
@@ -196,6 +201,8 @@ func Summarize(chunks []types.Chunk) Stats {
 			s.Symbol++
 		case types.ChunkFileHeader:
 			s.FileHeader++
+		case types.ChunkDoc:
+			s.Doc++
 		}
 		if strings.Contains(c.Text, "[CKV-TRUNCATED]") {
 			s.Truncated++

@@ -115,7 +115,15 @@ func TestMarkdownSkipsFileHeader(t *testing.T) {
 	if stats.FileHeader != 0 {
 		t.Errorf("markdown should not produce file_header chunks, got %d", stats.FileHeader)
 	}
-	if stats.Symbol != 2 {
-		t.Errorf("expected 2 symbol chunks, got %d", stats.Symbol)
+	if stats.Symbol != 0 {
+		t.Errorf("DocSection spans should not produce symbol chunks (got %d) — chunk_kind=doc is the new classification", stats.Symbol)
+	}
+	if stats.Doc != 2 {
+		t.Errorf("expected 2 doc chunks, got %d", stats.Doc)
+	}
+	for _, c := range chunks {
+		if c.ChunkKind != types.ChunkDoc {
+			t.Errorf("expected ChunkDoc for %s, got %s", c.SymbolName, c.ChunkKind)
+		}
 	}
 }

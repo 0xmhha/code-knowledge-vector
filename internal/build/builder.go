@@ -245,6 +245,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			totalStats.Total += s.Total
 			totalStats.Symbol += s.Symbol
 			totalStats.FileHeader += s.FileHeader
+			totalStats.Doc += s.Doc
 			totalStats.Truncated += s.Truncated
 		}()
 		if perFileErr != nil {
@@ -289,6 +290,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		"chunks_total", totalStats.Total,
 		"chunks_symbol", totalStats.Symbol,
 		"chunks_file_header", totalStats.FileHeader,
+		"chunks_doc", totalStats.Doc,
 		"chunks_truncated", totalStats.Truncated,
 		"indexed_head", commit,
 		"languages", languageCounts,
