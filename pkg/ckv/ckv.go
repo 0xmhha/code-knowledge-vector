@@ -129,6 +129,20 @@ func (e *Engine) Close() error {
 	return err
 }
 
+// Warmup forces the embedder to pay its cold-start cost (ONNX session
+// load, CoreML compile, tokenizer init) by running a no-op embed.
+// Recommended once at startup so the first user-facing call doesn't
+// pay the multi-second compile spike.
+//
+// Calling Warmup after Close returns an error. Idempotent on a live
+// Engine — subsequent calls just round-trip a short embed.
+func (e *Engine) Warmup(ctx context.Context) error {
+	if e == nil || e.inner == nil {
+		return errors.New("ckv: engine is closed")
+	}
+	return e.inner.Warmup(ctx)
+}
+
 // MockEmbedder returns ckv's deterministic mock embedder — the same
 // implementation that backs `ckv build --embedder=mock`. Suitable for
 // tests, smoke checks, and downstream integration tests that need a

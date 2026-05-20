@@ -11,6 +11,7 @@
 //   - cks.context.semantic_search  — query.Engine.Search wrapper
 //   - cks.ops.get_freshness        — freshness.Check wrapper
 //   - cks.ops.health               — embedder + index identity probe
+//   - cks.ops.warmup               — pre-load embedder, report cold-start ms
 //
 // Transport is stdio by default (Claude Code default). This package is
 // importable by **CKS** — CKS multiplexes CKV's tools alongside CKG's
@@ -22,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -135,6 +137,10 @@ func (s *Server) registerTools() {
 	s.mcp.AddTool(mcpgo.NewTool("cks.ops.health",
 		mcpgo.WithDescription("Report index identity (embedding model, dim, indexed_head, chunk count). Used as a startup probe. READ-ONLY."),
 	), s.handleHealth)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.ops.warmup",
+		mcpgo.WithDescription("Pre-load the embedder by running a no-op embed. bgeonnx pays ONNX session + CoreML compile cost on the first call (1-3s typical, multi-second worst case), which would otherwise surface on the first user-facing semantic_search. Call once after initialize. READ-ONLY."),
+	), s.handleWarmup)
 }
 
 // ---- handlers ----
@@ -231,4 +237,27 @@ func jsonResult(payload any) (*mcpgo.CallToolResult, error) {
 		return mcpgo.NewToolResultError(fmt.Sprintf("encode result: %v", err)), nil
 	}
 	return mcpgo.NewToolResultText(string(data)), nil
+}
+
+// handleWarmup is the cks.ops.warmup handler. Reports the wall time
+// the embedder took to warm up plus the embedder's identity so the
+// caller can record cold-start metrics and decide whether to delay
+// "ready" until after the call returns.
+func (s *Server) handleWarmup(ctx context.Context, _ mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.warmup")
+	defer done()
+
+	start := time.Now()
+	warmErr := s.engine.Warmup(ctx)
+	elapsed := time.Since(start)
+
+	payload := map[string]any{
+		"ready":       warmErr == nil,
+		"duration_ms": elapsed.Milliseconds(),
+		"embedder":    s.engine.EmbedderInfo(),
+	}
+	if warmErr != nil {
+		payload["error"] = warmErr.Error()
+	}
+	return jsonResult(payload)
 }

@@ -142,6 +142,27 @@ func TestClose_Idempotent(t *testing.T) {
 	}
 }
 
+func TestEngine_Warmup(t *testing.T) {
+	out := buildSampleIndex(t)
+	engine, err := ckv.Open(out, ckv.OpenOptions{Embedder: ckv.MockEmbedder()})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer engine.Close()
+	if err := engine.Warmup(context.Background()); err != nil {
+		t.Errorf("Warmup: %v", err)
+	}
+}
+
+func TestEngine_WarmupAfterCloseFails(t *testing.T) {
+	out := buildSampleIndex(t)
+	engine, _ := ckv.Open(out, ckv.OpenOptions{Embedder: ckv.MockEmbedder()})
+	engine.Close()
+	if err := engine.Warmup(context.Background()); err == nil {
+		t.Fatal("expected Warmup after Close to error")
+	}
+}
+
 func TestEngine_Manifest(t *testing.T) {
 	out := buildSampleIndex(t)
 	engine, _ := ckv.Open(out, ckv.OpenOptions{Embedder: ckv.MockEmbedder()})

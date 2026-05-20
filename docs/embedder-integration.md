@@ -46,6 +46,13 @@ func main() {
     }
     defer engine.Close()
 
+    // (recommended) prepay the embedder's cold-start cost so the
+    // first user-facing query doesn't see a multi-second spike.
+    // No-op for mock; meaningful for bgeonnx (ONNX session + CoreML compile).
+    if err := engine.Warmup(context.Background()); err != nil {
+        log.Printf("ckv warmup failed: %v (continuing — first query may be slow)", err)
+    }
+
     resp, err := engine.SemanticSearch(
         context.Background(),
         "tokenizer encoding pipeline",
@@ -156,6 +163,8 @@ stdio 위에서 MCP JSON-RPC. tool 이름:
   `path`, `symbol_kind`, `budget_tokens`, `threshold`, `examples_k`)
 - `cks.ops.get_freshness`
 - `cks.ops.health`
+- `cks.ops.warmup` — embedder cold start 비용을 미리 지불.
+  initialize 직후 1회 호출 권장. 응답 `{ready, duration_ms, embedder}`
 
 검증 스크립트는 `testdata/mcp-repro/` (serial + concurrent).
 

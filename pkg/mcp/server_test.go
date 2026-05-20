@@ -219,6 +219,34 @@ func TestServerConstructs(t *testing.T) {
 	}
 }
 
+func TestWarmupHandlerReportsReadyAndDuration(t *testing.T) {
+	eng := buildSample(t)
+	s := NewServer(eng)
+
+	res, err := s.handleWarmup(context.Background(),
+		callRequest("cks.ops.warmup", nil))
+	if err != nil {
+		t.Fatalf("handleWarmup: %v", err)
+	}
+	body := textContent(t, res)
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("decode: %v: %s", err, body)
+	}
+	if ready, _ := m["ready"].(bool); !ready {
+		t.Errorf("ready should be true on mock embedder, got %v (body=%s)", m["ready"], body)
+	}
+	if _, ok := m["duration_ms"]; !ok {
+		t.Error("expected duration_ms in warmup response")
+	}
+	if _, ok := m["embedder"].(map[string]any); !ok {
+		t.Errorf("expected embedder object in warmup response, got %T", m["embedder"])
+	}
+	if _, hasErr := m["error"]; hasErr {
+		t.Errorf("error key should be absent on success, got %v", m["error"])
+	}
+}
+
 // CKV-4: a panic inside a tool handler must not crash the process.
 // Without WithRecovery, the panic would unwind past the MCP dispatcher
 // and ServeStdio, the OS would close stdout, and cks (subprocess

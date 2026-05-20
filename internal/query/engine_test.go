@@ -36,6 +36,33 @@ func buildSample(t *testing.T) (out, src string) {
 	return outDir, srcAbs
 }
 
+func TestWarmup_RunsEmbedOnLiveEngine(t *testing.T) {
+	out, _ := buildSample(t)
+	eng, err := Open(out, mock.Default())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer eng.Close()
+	if err := eng.Warmup(context.Background()); err != nil {
+		t.Errorf("Warmup on live engine should succeed, got %v", err)
+	}
+	// Calling Warmup a second time must remain safe (idempotent).
+	if err := eng.Warmup(context.Background()); err != nil {
+		t.Errorf("second Warmup should also succeed, got %v", err)
+	}
+}
+
+func TestWarmup_FailsAfterClose(t *testing.T) {
+	out, _ := buildSample(t)
+	eng, _ := Open(out, mock.Default())
+	if err := eng.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := eng.Warmup(context.Background()); err == nil {
+		t.Fatal("Warmup after Close should error")
+	}
+}
+
 func TestOpenRejectsDimMismatch(t *testing.T) {
 	out, _ := buildSample(t)
 	// mock.Default() is 64-dim; instantiating with 128 must fail.

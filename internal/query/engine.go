@@ -219,6 +219,27 @@ type EmbedderInfo struct {
 	ModelDir string `json:"model_dir,omitempty"`
 }
 
+// Warmup forces the embedder to pay its cold-start cost (ONNX
+// session load, CoreML compile, tokenizer lazy init) before the
+// first user-facing query lands. Runs a single dummy Embed call.
+// Returns the embedder's error if it fails to attach — callers
+// (health, CLI) should surface it so the operator can investigate
+// before traffic starts.
+//
+// Idempotent and cheap to call repeatedly: after the first call the
+// embedder is already warm so subsequent calls just round-trip a
+// short batch.
+func (e *Engine) Warmup(ctx context.Context) error {
+	if e == nil || e.store == nil {
+		return errors.New("query: engine is closed")
+	}
+	if e.emb == nil {
+		return errors.New("query: nil embedder")
+	}
+	_, err := e.emb.Embed(ctx, []string{"warmup"})
+	return err
+}
+
 // EmbedderInfo extracts metadata via duck typing — bgeonnx exposes
 // Provider() and ModelDir(), the mock exposes neither. The returned
 // struct is JSON-safe (no unset zero-value confusion for omitted
