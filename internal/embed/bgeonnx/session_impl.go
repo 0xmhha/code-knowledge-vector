@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -193,6 +194,27 @@ func envBool(name string) bool {
 	}
 }
 
+// applyThreadEnv reads a positive-integer env var and applies it via
+// setter. Logs success or failure to stderr; never panics. Unset env
+// leaves ORT's default in place (one IntraOp thread per core,
+// InterOp=1).
+func applyThreadEnv(opts *ort.SessionOptions, envName string, setter func(*ort.SessionOptions, int) error, label string) {
+	raw := strings.TrimSpace(os.Getenv(envName))
+	if raw == "" {
+		return
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		fmt.Fprintf(os.Stderr, "bgeonnx: %s=%q ignored (need positive integer)\n", envName, raw)
+		return
+	}
+	if e := setter(opts, n); e != nil {
+		fmt.Fprintf(os.Stderr, "bgeonnx: Set%s(%d) failed: %v\n", label, n, e)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "bgeonnx: ORT %s=%d\n", label, n)
+}
+
 // chooseProvider decides which EP to attach based on platform + env.
 // Pulled out so it's unit-testable without touching ORT. The returned
 // closure is what session creation calls; it returns the resolved
@@ -224,6 +246,17 @@ func newONNXSession(modelDir string, cfg ModelConfig) (*onnxSession, error) {
 			fmt.Fprintf(os.Stderr, "bgeonnx: set session log level failed: %v\n", e)
 		}
 	}
+
+	// ORT thread control. CKV_ORT_INTRA_THREADS sets the IntraOp
+	// thread count — the pool that parallelizes a single op (the big
+	// matmuls inside transformer attention). CKV_ORT_INTER_THREADS
+	// sets the InterOp thread count — runs independent graph nodes
+	// concurrently, less useful for transformers (layers are
+	// sequential). ORT's default is one thread per core for IntraOp
+	// and one for InterOp; we only override when the env is set so
+	// existing CPU-baseline behavior is unchanged.
+	applyThreadEnv(opts, "CKV_ORT_INTRA_THREADS", (*ort.SessionOptions).SetIntraOpNumThreads, "IntraOpNumThreads")
+	applyThreadEnv(opts, "CKV_ORT_INTER_THREADS", (*ort.SessionOptions).SetInterOpNumThreads, "InterOpNumThreads")
 
 	provider := chooseProvider(runtime.GOOS, coreMLDisabled())(opts, os.Stderr)
 
