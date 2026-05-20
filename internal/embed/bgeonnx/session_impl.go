@@ -113,12 +113,26 @@ func coreMLDisabled() bool {
 // Override via env CKV_COREML_UNITS. Note: this only affects the V2
 // CoreML EP attach options — ORT may still fall back to CPU at
 // per-op granularity for unsupported ops regardless of this setting.
+//
+// CKV_COREML_CACHE_DIR enables ModelCacheDirectory — first run pays
+// the GPU/ANE compile cost, subsequent runs read the cached compiled
+// model from disk. Without this, the compile artifact lives in a temp
+// dir that ORT cleans up on session destroy, so every build re-pays
+// the multi-minute compile cost. yalue/onnxruntime_go v1.30.1 passes
+// this key straight to ORT's C API (verified against the binding's
+// own test in onnxruntime_test.go::getCoreMLV2SessionOptions).
 func attachCoreML(opts *ort.SessionOptions, w io.Writer) string {
 	units := strings.TrimSpace(os.Getenv("CKV_COREML_UNITS"))
 	if units == "" {
 		units = "ALL"
 	}
 	coreMLOpts := map[string]string{"MLComputeUnits": units}
+	if cacheDir := strings.TrimSpace(os.Getenv("CKV_COREML_CACHE_DIR")); cacheDir != "" {
+		coreMLOpts["ModelCacheDirectory"] = cacheDir
+		if w != nil {
+			fmt.Fprintf(w, "bgeonnx: CoreML ModelCacheDirectory=%s\n", cacheDir)
+		}
+	}
 	if err := opts.AppendExecutionProviderCoreMLV2(coreMLOpts); err != nil {
 		if w != nil {
 			fmt.Fprintf(w, "bgeonnx: CoreML attach failed (%v), falling back to CPU\n", err)
