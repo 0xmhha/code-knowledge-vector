@@ -143,6 +143,34 @@ var registry = map[string]ModelConfig{
 		// to OOM-killing the host.
 		EstimatedRAMMB: 5000,
 	},
+	// EmbeddingGemma 300M (Google DeepMind, built on Gemma 3).
+	// Documented ANE utilization is 99.80% — the graph is shaped
+	// for Apple's Neural Engine from the start, unlike bge-large
+	// where attention ops fall back to CPU/GPU at runtime. Input
+	// signature mirrors BERT-class models (token_type_ids is single
+	// segment, zeros). Pooling is mean, matching Gemma's training
+	// recipe. Matryoshka heads support 768 / 512 / 256 / 128; we
+	// expose only the native 768 for now — a smaller dim is one
+	// truncate away if a use case wants it.
+	"embeddinggemma-300m": {
+		Name:          "embeddinggemma-300m",
+		Dim:           768,
+		MaxInput:      2048, // Gemma 3 native context. Reduce via tokenizer truncation if memory is tight.
+		Normalize:     "l2",
+		OnnxFile:      "onnx/model.onnx",
+		TokenizerFile: "tokenizer.json",
+		InputOrder:    []string{"input_ids", "attention_mask", "token_type_ids"},
+		Outputs:       []string{"last_hidden_state"},
+		ExtraInputs: map[string]ExtraInputFn{
+			"token_type_ids": ZeroExtraInput,
+		},
+		Pooling: PoolingMean,
+		// 300M params FP32 ≈ 1.2 GB weights + ORT runtime (~300 MB)
+		// + working set (seq=2048 raises this versus 512). ANE
+		// compile spike unknown until measured — set conservative
+		// 2500 MB; tighten after first run records actual peak.
+		EstimatedRAMMB: 2500,
+	},
 	// Future entries (each adds 15-25 lines, no other file changes):
 	// "bge-code-v1": {
 	//     Name: "bge-code-v1", Dim: 1536, MaxInput: 32768, Normalize: "l2",
