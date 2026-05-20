@@ -262,27 +262,60 @@ CKV_COREML_UNITS=ALL CKV_COREML_MODEL_FORMAT=MLProgram \
 
 **왜 ANE가 도움이 안 되는가**: bge-large-en-v1.5는 24-layer attention-heavy transformer. ANE는 *CNN 최적화 설계* (Apple 공식). ORT가 per-op granularity로 attention의 대부분을 CPU/GPU로 fallback → ANE attach가 오히려 CPU/GPU/ANE 데이터 이동 overhead로 작용.
 
-### 5.6 다음 단계 후보
+### 5.6 CPU multi-thread sweep (구현 + 측정 완료)
 
-ANE 경로로는 throughput 한계점. 추가 가속 옵션:
-- **모델 크기 자체 축소** (`docs/fp16-model-evaluation.md` 옵션 B/C) — FP16 ONNX export 또는 Teradata int8 사용. 모델 1/2 ~ 1/4 크기, 정확도 손실 측정 필요.
-- **CPU multi-thread 최적화** — `CKV_COREML_UNITS=CPUOnly` + ORT IntraOp/InterOp thread 늘리기. 4-core 활용 시 CPU baseline (1.0) × 4 = 4 c/s 도달 가능성.
-- **Batch size 증가** — `--batch` flag 또는 옵션 추가, 32 → 128로 amortize. 단 메모리 사용량 증가, ANE는 batch가 너무 크면 compile 자체가 비현실적.
-- **Apple ML 직접 변환** — Apple ML research paper의 (B, C, 1, S) reshape pattern으로 모델을 ANE 친화 구조로 export. 가장 큰 잠재 효과지만 변환 작업 큼.
+**구현**: `CKV_ORT_INTRA_THREADS` / `CKV_ORT_INTER_THREADS` env 추가 (commit `8527277`). ORT default는 logical cores 수 = 8 (Apple Silicon 4 P-core + 4 E-core).
 
-### 5.7 시도 timeline
+**측정** (2026-05-20 15:13~15:21):
 
-| # | 일시 | 가설 | 시도 | 결과 |
+```bash
+CKV_DISABLE_COREML=1 CKV_ORT_INTRA_THREADS=N CKV_MEM_GUARD=off \
+  ./bin/ckv build --src=./testdata/sample --out=/tmp/ckv-t-N --embedder=bgeonnx
+```
+
+| Round | IntraOp | Wall | chunks/s | CPU% |
 |---|---|---|---|---|
-| 1 | 2026-05-20 09:44~10:27 | (a) | `CKV_COREML_UNITS=CPUAndGPU` (ANE 우회) | ✅ I/O error 사라짐 / ❌ GPU compile cost로 hang. *반쪽 해결*. |
-| 2 | 2026-05-20 14:10 | (f)+(g) | MLProgram + AllowLowPrecisionGPU + ModelCacheDirectory 동시 | ✅ I/O error 사라짐 / ✅ build 완주 (3m35s, 0.17 c/s) / ❌ throughput 미달 |
-| 3 | 2026-05-20 14:16 | (f) | 동일 옵션 second run (cache hit 측정) | ⚠️ cache subdir 재사용은 확인 / ❌ wall time 개선 없음 (4m15s) |
-| 4 | 2026-05-20 14:32 | (h) cold | `RequireStaticInputShapes=1` + max-seq padding | ✅ **59.9s** (3.6× 가속) / cache 2.5GB → 28KB |
-| 5 | 2026-05-20 14:43 | (h) warm | 동일 옵션 second run (cache hit 측정) | = Round 4와 동일 (59.8s) — cache hit 효과 거의 없음 |
-| 6 | (선택) | 모델 변경 | FP16/INT8 ONNX export | 다음 단계 후보 |
-| 7 | (선택) | CPU thread | `CKV_COREML_UNITS=CPUOnly` + IntraOp threads | 다음 단계 후보 |
-| 8 | (보류) | (b) | `MACOSX_DEPLOYMENT_TARGET=15.5` rebuild | (보류) |
-| 9 | (보류) | (d) | `CKV_ORT_VERBOSE=1` 로 cache hit/miss 명확 확인 | (가능 — commit `66bdefc`) |
+| 5 | 8 (E-core 포함) | 67.6s | 0.55 | 357% |
+| 5b | default (auto) | **50.1s** | **0.74** | 337% |
+| 5c | 4 (P-core 한정) | 50.1s | 0.74 | 331% |
+| (참고: 3/4) | ANE+static | 59.9s | 0.62 | 366% |
+
+**결론**:
+- ✅ CPU pure (default) > ANE attached. ORT가 자동으로 P-core 4개를 정확히 짚음.
+- ❌ IntraOp=8 명시는 *역효과* — E-core 4개가 matmul pool에 들어가면 bandwidth 추가 없이 contention만 증가.
+- 현재 best **0.74 chunks/s**. D1-FU-8 (30 c/s) 목표와는 여전히 **40배 거리**.
+
+### 5.7 다음 단계 후보 (throughput 향상)
+
+ANE/thread 경로는 한계점. 추가 가속은 **모델 자체 축소**가 필수:
+
+| 후보 | 코드 변경 | 모델 크기 | 정확도 risk | 기대 throughput |
+|---|---|---|---|---|
+| **bge-base-en-v1.5** (110M) | model_config.go 새 entry + 모델 다운로드 | 1.3 GB → 440 MB (~3×) | Mid (~2~3% recall 손실) | 2~3× |
+| **bge-small-en-v1.5** (33M) | 동일 + 다운로드 | 1.3 GB → 130 MB (~10×) | High (~5~8%) | 5~10× |
+| **Teradata int8** | 새 entry + dtype 분기 | 1.3 GB → 330 MB (~4×) | High (~2~5%) | 2~4× |
+| **FP16 ONNX export** | conversion script + dtype 분기 | 1.3 GB → 650 MB (~2×) | Low (~0~2%) | 1.5~2× |
+| **Batch size 증가** | Options.BatchSize CLI flag | 동일 | 0 | 1.2~1.5× (amortization) |
+
+가장 큰 잠재 효과: bge-small 또는 Teradata int8. 정확도 손실을 D1 fixture (recall@5 / MRR) 로 정량화 후 결정.
+
+### 5.8 시도 timeline
+
+### 5.8 시도 timeline (Round 1~7 종합)
+
+| # | 일시 | 가설/시도 | Wall | c/s | 결과 |
+|---|---|---|---|---|---|
+| 1 | 2026-05-20 09:44~10:27 | (a) `CKV_COREML_UNITS=CPUAndGPU` | 5min+ hang | <0.1 | ✅ I/O error 사라짐 / ❌ GPU compile hang |
+| 2 | 2026-05-20 14:10 | (f)+(g) MLProgram + AllowLowPrecisionGPU + cache | 3m 35s | 0.17 | ✅ build 완주 / ❌ throughput 미달 |
+| 3 | 2026-05-20 14:16 | (f) cache hit 재측정 | 4m 15s | 0.15 | ⚠️ cache 효과 거의 없음 |
+| 4 | 2026-05-20 14:32 | (h) `RequireStaticInputShapes=1` cold | **59.9s** | 0.62 | ✅ **3.6× 가속** / cache 2.5GB → 28KB |
+| 5 | 2026-05-20 14:43 | (h) warm 재측정 | 59.8s | 0.62 | ⚠️ cache hit 효과 거의 없음 |
+| 6 | 2026-05-20 15:13 | CPU pure + IntraOp=8 | 67.6s | 0.55 | ❌ E-core contention 역효과 |
+| 7a | 2026-05-20 15:17 | CPU pure + ORT default thread | **50.1s** | **0.74** | ✅ **현재 best** |
+| 7b | 2026-05-20 15:20 | CPU pure + IntraOp=4 (P-core) | 50.1s | 0.74 | = default와 동일 |
+| 8 | (선택) | 모델 축소 (bge-base / int8 / FP16) | — | — | 다음 후보 |
+| 9 | (보류) | (b) `MACOSX_DEPLOYMENT_TARGET=15.5` rebuild | — | — | (보류) |
+| 10 | (보류) | (d) `CKV_ORT_VERBOSE=1` 로 cache hit/miss 명확 확인 | — | — | (가능, commit `66bdefc`) |
 
 ## 6. Resolution & Lessons
 
