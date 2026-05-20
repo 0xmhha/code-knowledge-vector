@@ -137,6 +137,57 @@ func TestHealthHandlerReportsManifest(t *testing.T) {
 	}
 }
 
+func TestHealthHandlerReportsEmbedderStatus(t *testing.T) {
+	eng := buildSample(t)
+	s := NewServer(eng)
+
+	res, err := s.handleHealth(context.Background(),
+		callRequest("cks.ops.health", nil))
+	if err != nil {
+		t.Fatalf("handleHealth: %v", err)
+	}
+	body := textContent(t, res)
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("decode: %v: %s", err, body)
+	}
+
+	// embedder object (CKV-6 expansion): name + dimension + status.
+	emb, ok := m["embedder"].(map[string]any)
+	if !ok {
+		t.Fatalf("embedder block missing or wrong shape: %v", m["embedder"])
+	}
+	if name, _ := emb["name"].(string); name == "" {
+		t.Errorf("embedder.name should not be empty")
+	}
+	if dim, _ := emb["dimension"].(float64); dim <= 0 {
+		t.Errorf("embedder.dimension should be >0, got %v", emb["dimension"])
+	}
+	// buildSample uses the mock embedder → status should be "stub" so
+	// cks can render a degraded indicator without inspecting the name.
+	if got, _ := emb["status"].(string); got != "stub" {
+		t.Errorf("embedder.status: got %q, want %q for mock embedder", got, "stub")
+	}
+	// provider and model_dir are optional; they only appear for
+	// embedders that implement the duck-typed interfaces. Mock does
+	// not, so both should be absent (or empty string).
+	if v, present := emb["provider"]; present {
+		if s, _ := v.(string); s != "" {
+			t.Errorf("embedder.provider should be empty for mock, got %q", s)
+		}
+	}
+
+	// index object: chunk_count + last_built_at duplicated from manifest
+	// so cks can read everything index-side under one key.
+	idx, ok := m["index"].(map[string]any)
+	if !ok {
+		t.Fatalf("index block missing or wrong shape: %v", m["index"])
+	}
+	if c, _ := idx["chunk_count"].(float64); c <= 0 {
+		t.Errorf("index.chunk_count should be >0, got %v", idx["chunk_count"])
+	}
+}
+
 func TestGetFreshnessHandlerExecutes(t *testing.T) {
 	eng := buildSample(t)
 	s := NewServer(eng)

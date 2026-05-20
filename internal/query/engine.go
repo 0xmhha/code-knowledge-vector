@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
@@ -190,6 +191,63 @@ func (e *Engine) Manifest() manifest.Manifest {
 		return manifest.Manifest{}
 	}
 	return *e.man
+}
+
+// EmbedderInfo is the health-endpoint view of the embedder this Engine
+// was opened with. Status answers "is this embedder useful for real
+// semantic search?" — operators can distinguish "ckv alive but mock
+// embedder" from "ckv ready with bgeonnx + model loaded" without
+// inspecting the model name string.
+//
+// Optional fields (Provider, ModelDir) are empty when the embedder
+// implementation doesn't expose them — health consumers must tolerate
+// the empty case.
+type EmbedderInfo struct {
+	Name      string `json:"name"`
+	Dimension int    `json:"dimension"`
+	// Status: "ready" | "stub" | "unavailable"
+	//   ready       — embedder loaded, semantic signal expected
+	//   stub        — placeholder embedder (mock, hash-based); recall not meaningful
+	//   unavailable — embedder is nil or failed to attach
+	Status string `json:"status"`
+	// Provider is the execution backend tag (bgeonnx-specific):
+	// "coreml" | "coreml-fallback-to-cpu" | "cpu" | "". Empty for
+	// embedders that don't run a backend (mock).
+	Provider string `json:"provider,omitempty"`
+	// ModelDir is the on-disk model directory the embedder loaded from.
+	// Empty for embedders that don't have one (mock).
+	ModelDir string `json:"model_dir,omitempty"`
+}
+
+// EmbedderInfo extracts metadata via duck typing — bgeonnx exposes
+// Provider() and ModelDir(), the mock exposes neither. The returned
+// struct is JSON-safe (no unset zero-value confusion for omitted
+// fields) so health handlers can serialize it directly.
+func (e *Engine) EmbedderInfo() EmbedderInfo {
+	if e == nil || e.emb == nil {
+		return EmbedderInfo{Status: "unavailable"}
+	}
+	info := EmbedderInfo{
+		Name:      e.emb.Name(),
+		Dimension: e.emb.Dimension(),
+		Status:    "ready",
+	}
+	if p, ok := e.emb.(interface{ Provider() string }); ok {
+		info.Provider = p.Provider()
+	}
+	if d, ok := e.emb.(interface{ ModelDir() string }); ok {
+		info.ModelDir = d.ModelDir()
+	}
+	// Stub classification:
+	//   - explicit "stub" provider (bgeonnx without -tags bgeonnx), or
+	//   - mock-family name (the in-tree mock embedder uses "mock-...").
+	switch {
+	case info.Provider == "stub":
+		info.Status = "unavailable"
+	case strings.HasPrefix(info.Name, "mock"):
+		info.Status = "stub"
+	}
+	return info
 }
 
 // Search runs the full pipeline: embed → over-fetch → threshold drop →

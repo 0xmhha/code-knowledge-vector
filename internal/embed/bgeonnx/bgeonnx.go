@@ -158,6 +158,18 @@ func (a *Adapter) EstimatedRAMMB() uint64 {
 	return a.modelCfg.EstimatedRAMMB
 }
 
+// ModelDir returns the directory the adapter loaded model.onnx +
+// tokenizer.json from. Empty for a nil adapter. Read by the health
+// endpoint via duck typing — embedders that don't have a model dir
+// (the mock) don't implement this method and the field stays empty
+// in the health response.
+func (a *Adapter) ModelDir() string {
+	if a == nil {
+		return ""
+	}
+	return a.modelDir
+}
+
 // EstimatedRAMMB resolves opts the same way Open() does but stops at
 // the registry lookup — no file I/O, no ONNX session, no CoreML
 // compile. Returns the registered estimate in MB, or 0 when the

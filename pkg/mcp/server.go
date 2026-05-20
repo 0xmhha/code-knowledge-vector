@@ -187,6 +187,13 @@ func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpg
 	defer done()
 
 	man := s.engine.Manifest()
+	embInfo := s.engine.EmbedderInfo()
+	// Flat manifest fields stay so existing parsers (cks legacy
+	// ckvclient.parseHealthResult) keep working. The nested objects
+	// carry the CKV-6 expansion: embedder status / provider / model_dir
+	// and index identity grouped together — lets a caller render
+	// "degraded — embedder=stub" without reverse-engineering the
+	// embedding_model string.
 	payload := map[string]any{
 		"server":          ServerName,
 		"server_version":  ServerVersion,
@@ -196,6 +203,12 @@ func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpg
 		"chunk_count":     man.ChunkCount,
 		"built_at":        man.BuiltAt,
 		"src_root":        man.SrcRoot,
+		"embedder":        embInfo,
+		"index": map[string]any{
+			"chunk_count":   man.ChunkCount,
+			"last_built_at": man.BuiltAt,
+			"indexed_head":  man.IndexedHead,
+		},
 	}
 	return jsonResult(payload)
 }
