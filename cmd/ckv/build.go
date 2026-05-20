@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/build"
+	"github.com/0xmhha/code-knowledge-vector/internal/embed/bgeonnx"
 )
 
 type buildOpts struct {
@@ -51,6 +52,16 @@ Incremental indexing (--since) lands in S2.`,
 func runBuild(ctx context.Context, opts *buildOpts) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	// Memory pre-check before resolveEmbedder() — model load + CoreML
+	// compile artifacts can be several GB and take seconds. The
+	// in-Run() guard fires too late: by then the host has already paid
+	// the resource cost the guard is meant to protect.
+	if globalFlags.embedder == "bgeonnx" {
+		needMB := bgeonnx.EstimatedRAMMB(bgeonnx.Options{ModelDir: globalFlags.modelDir})
+		if err := build.PreCheckByEstimate(needMB, os.Stderr); err != nil {
+			return err
+		}
 	}
 	emb, cleanup, err := resolveEmbedder(globalFlags.embedder, globalFlags.modelDir)
 	if err != nil {

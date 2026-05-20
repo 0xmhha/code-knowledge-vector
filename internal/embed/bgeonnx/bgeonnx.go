@@ -158,6 +158,19 @@ func (a *Adapter) EstimatedRAMMB() uint64 {
 	return a.modelCfg.EstimatedRAMMB
 }
 
+// EstimatedRAMMB resolves opts the same way Open() does but stops at
+// the registry lookup — no file I/O, no ONNX session, no CoreML
+// compile. Returns the registered estimate in MB, or 0 when the
+// model can't be resolved. Intended for a CLI-layer memory pre-check
+// that runs before Open() pays the multi-GB load + compile cost.
+func EstimatedRAMMB(opts Options) uint64 {
+	cfg, _, err := resolveModel(opts)
+	if err != nil {
+		return 0
+	}
+	return cfg.EstimatedRAMMB
+}
+
 // Provider reports the underlying session's execution backend
 // ("cpu", "coreml", "coreml-fallback-to-cpu", "stub"). The build
 // pipeline uses this to label footprint events so a slow run can be

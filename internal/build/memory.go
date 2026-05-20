@@ -92,18 +92,18 @@ func memEstimatedRAMMB(emb any) uint64 {
 	return 0
 }
 
-// preCheckMemory verifies the host has enough RAM before model load.
-// Returns nil (fail-open) when the guard is disabled, the embedder has
-// no estimate, the OS provider is missing, or measurement fails.
-func preCheckMemory(emb any, w io.Writer) error {
-	if !memGuardEnabled() || defaultMemProvider == nil {
+// PreCheckByEstimate verifies host memory headroom against an
+// already-known RAM estimate in MB. Intended for the CLI layer, where
+// the embedder isn't constructed yet but the estimate is recoverable
+// from model config (e.g. bgeonnx.EstimatedRAMMB(opts)).
+//
+// rawNeedMB == 0 disables the check (caller doesn't know — treat as
+// fail-open). CKV_MEM_GUARD=off or a missing MemProvider also disables.
+func PreCheckByEstimate(rawNeedMB uint64, w io.Writer) error {
+	if !memGuardEnabled() || defaultMemProvider == nil || rawNeedMB == 0 {
 		return nil
 	}
-	rawNeed := memEstimatedRAMMB(emb)
-	if rawNeed == 0 {
-		return nil
-	}
-	needMB := uint64(float64(rawNeed) * preCheckHeadroomFactor)
+	needMB := uint64(float64(rawNeedMB) * preCheckHeadroomFactor)
 	stat, err := defaultMemProvider.Read()
 	if err != nil {
 		if w != nil {
@@ -115,7 +115,7 @@ func preCheckMemory(emb any, w io.Writer) error {
 		return fmt.Errorf(
 			"mem guard: model needs ~%d MB headroom (%.1f× of %d MB estimate) but only %d MB available (total %d MB). "+
 				"Free memory, switch to a smaller model, or set CKV_MEM_GUARD=off to skip",
-			needMB, preCheckHeadroomFactor, rawNeed, stat.AvailableMB, stat.TotalMB,
+			needMB, preCheckHeadroomFactor, rawNeedMB, stat.AvailableMB, stat.TotalMB,
 		)
 	}
 	if w != nil {
@@ -123,6 +123,15 @@ func preCheckMemory(emb any, w io.Writer) error {
 			needMB, stat.AvailableMB, stat.TotalMB)
 	}
 	return nil
+}
+
+// preCheckMemory is the embedder-driven wrapper retained as a safety
+// net for callers that hit build.Run() without going through the CLI
+// (in-process embedders, tests, future CKS integration). The CLI
+// layer should call PreCheckByEstimate directly so the model never
+// loads when memory is short.
+func preCheckMemory(emb any, w io.Writer) error {
+	return PreCheckByEstimate(memEstimatedRAMMB(emb), w)
 }
 
 // memSignal is the shared pressure flag between the watchdog goroutine
