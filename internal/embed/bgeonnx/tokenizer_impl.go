@@ -42,6 +42,13 @@ func newHFTokenizer(modelDir string, cfg ModelConfig) (*hfTokenizer, error) {
 // to MaxInput when the batch is mostly short snippets — fixed-max
 // padding would 10x the inference cost on small batches.
 //
+// CKV_STATIC_SHAPES=1 switches to fixed maxLen padding for every
+// batch, regardless of observed length. The session-side
+// RequireStaticInputShapes=1 needs this to actually hit a single
+// shape; without it the EP still sees per-batch shape variation and
+// recompiles. Pad cost grows linearly with maxLen and is only worth
+// it when compile cost dominates inference (CoreML cold path).
+//
 // TokenTypeIDs is left nil here regardless of model. If the ONNX
 // graph requires it (e.g. BERT-family), Session.Run synthesizes a
 // zeros tensor via ModelConfig.ExtraInputs.
@@ -80,17 +87,28 @@ func (t *hfTokenizer) Tokenize(ctx context.Context, batch []string, maxLen int) 
 		return TokenizedBatch{}, fmt.Errorf("bgeonnx: every input produced zero tokens — tokenizer.json likely invalid")
 	}
 
+	padLen := maxObserved
+	if envBool("CKV_STATIC_SHAPES") {
+		padLen = maxLen
+	}
+
 	out := TokenizedBatch{
 		InputIDs:      make([][]int64, len(batch)),
 		AttentionMask: make([][]int64, len(batch)),
 	}
 	for i, enc := range encs {
-		ids := make([]int64, maxObserved)
-		mask := make([]int64, maxObserved)
+		ids := make([]int64, padLen)
+		mask := make([]int64, padLen)
 		for j, id := range enc.IDs {
+			if j >= padLen {
+				break
+			}
 			ids[j] = int64(id)
 		}
 		for j, m := range enc.AttentionMask {
+			if j >= padLen {
+				break
+			}
 			mask[j] = int64(m)
 		}
 		out.InputIDs[i] = ids

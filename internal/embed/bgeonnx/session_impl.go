@@ -133,6 +133,13 @@ func coreMLDisabled() bool {
 // Enables FP16 accumulation for GPU ops only; ANE / CPU paths are
 // unaffected. Trades a small (<1 ulp) numerical error for measurable
 // GPU throughput on Apple Silicon.
+//
+// CKV_STATIC_SHAPES asks ORT to compile for fixed input shapes
+// (RequireStaticInputShapes=1). Pair with tokenizer-side max-length
+// padding (the tokenizer reads the same env). Useful on ANE, which
+// is designed for fixed-shape ops — a single compile + reuse beats
+// per-batch dynamic recompiles. Bumps padding overhead but flattens
+// the cold-compile tail.
 func attachCoreML(opts *ort.SessionOptions, w io.Writer) string {
 	units := strings.TrimSpace(os.Getenv("CKV_COREML_UNITS"))
 	if units == "" {
@@ -149,6 +156,12 @@ func attachCoreML(opts *ort.SessionOptions, w io.Writer) string {
 		coreMLOpts["AllowLowPrecisionAccumulationOnGPU"] = "1"
 		if w != nil {
 			fmt.Fprintf(w, "bgeonnx: CoreML AllowLowPrecisionAccumulationOnGPU=1\n")
+		}
+	}
+	if envBool("CKV_STATIC_SHAPES") {
+		coreMLOpts["RequireStaticInputShapes"] = "1"
+		if w != nil {
+			fmt.Fprintf(w, "bgeonnx: CoreML RequireStaticInputShapes=1\n")
 		}
 	}
 	if cacheDir := strings.TrimSpace(os.Getenv("CKV_COREML_CACHE_DIR")); cacheDir != "" {
