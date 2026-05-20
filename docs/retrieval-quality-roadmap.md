@@ -565,22 +565,22 @@ Group δ (인프라 + retrieval 마무리):
 
 ### 12.5 진행 상태 추적
 
-각 항목의 status를 본 표 또는 §10 측정 결과 기록 표에서 추적. 완료 시 ✅, 진행 중 🔄, 차단 ⛔, 결정 대기 ⏳ 마킹 권고.
+> ⚠️ **본 표는 retrieval quality 10 items만**. broader work tracking (33 items, A~E 카테고리 포함) 은 [`backlog.md §4`](./backlog.md) 가 *single source of truth*. 본 표는 Roadmap §12.1 매트릭스의 status view.
 
 | # | 상태 | 시작일 | 완료일 | 측정 기록 (§10) | 비고 |
 |---|---|---|---|---|---|
-| 1 | 🔄 | 2026-05-19 | — | — | Group α 병렬 dispatch — background agent 진행 중 |
-| 2 | 📌 | — | — | — | Group α 완료 직후 진행 OK (사용자 결정 2026-05-19) |
-| 3 | 🔄 | 2026-05-19 | — | — | Group α 병렬 dispatch — background agent 진행 중 |
+| 1 | ✅ | 2026-05-19 | 2026-05-19 | Phase 0a N=34 row | commit `f1a8ac9` (fixture) + `ad804be` (measurement). N=10 → N=34 + why-queries.yaml 12개 |
+| 2 | 🔄 | — | — | — | **다른 세션 진행 중** (사용자 명시 2026-05-19). 본 세션 dispatch 금지 |
+| 3 | ✅ | 2026-05-19 | 2026-05-19 | Phase 0a N=34 row (markdown corpus 포함) | commit `4a5dc3a`. `internal/parse/markdown/` 신설 + heading-level split |
 | 4 | ⏳ | — | — | — | #2 후 (git/gh fetch 모듈 재사용) |
-| 5 | 🔄 | 2026-05-19 | — | — | Group α 병렬 dispatch — background agent 진행 중 |
-| 6 | 📌 | — | — | — | Group α 완료 직후 진행 OK (사용자 결정 2026-05-19) |
-| 7 | ⏳ | — | — | — | #5 후 (throughput buffer 확보) |
-| 8 | 📌 | — | — | — | **S1.5 승격** (사용자 결정 2026-05-19). featurelist + plan 정정 필요 |
+| 5 | ⚠️ 부분 | 사용자 별도 세션 | 2026-05-19 부분 | Phase 0a N=34 throughput 1.0 c/s | main `555b0c4`로 CoreML 코드 적용 완료. but N=34 측정 시 **CoreML compile I/O error** → CKV_DISABLE_COREML=1 fallback. Phase 0b 잔여 = backlog **A1** |
+| 6 | 📌 | — | — | — | Group α 완료 직후 진행 가능 — Group β 진입 OK |
+| 7 | ⏳ | — | — | — | A1 (CoreML 정상화) 후 (throughput buffer 확보) |
+| 8 | 📝 | — | — | — | **S1.5 승격 결정만 완료** (commit `c0689d7`). 코드 미진행. backlog **C1** |
 | 9 | ⏳ | — | — | — | #8 후 |
-| 10 | ⏳ | — | — | — | 큰 함수 비율 측정 후 |
+| 10 | ⏳ | — | — | — | 큰 함수 비율 측정 후. backlog **B1** |
 
-> 범례: ⏳ 대기 · 🔄 진행 중 · 📌 다음 작업 예정 · ✅ 완료 · ⛔ 차단
+> 범례: ⏳ 대기 · 🔄 진행 중 · 📌 다음 작업 예정 · ✅ 완료 · ⚠️ 부분 · 📝 결정만 · ⛔ 차단
 
 ---
 
@@ -590,3 +590,4 @@ Group δ (인프라 + retrieval 마무리):
 |---|---|---|
 | 2026-05-19 | 1.0 | 초안 — 5 산업계 패턴 + 외부 측정값 (Anthropic 67%) + 6-phase roadmap + throughput 트레이드오프 (사용자 결정 허용) + A/B 측정 framework + §10 결과 기록 템플릿. |
 | 2026-05-19 | 1.1 | **§12 통합 작업 우선순위 신설** — 3개 source(Challenges + Appendix C + Roadmap §8) 를 한 우선순위로 통합. 10 항목 매트릭스 + 4 그룹 병렬화 + source 역방향 매핑 + 진행 상태 추적 표 추가. 기존 §12 변경 이력 → §13으로 shift. 사용자 질문(2026-05-19): "현재 제안하는 작업리스트의 우선순위가 Roadmap 내용을 반영한 거야?" 에 대한 답 — 이전 3건 제안은 fixture 확장(Phase 0a)을 누락한 상태였음. §12로 통합 정합성 회복. |
+| 2026-05-20 | 1.2 | **§12.5 진행 상태 정정** — Group α 완료 반영 (#1 ✅, #3 ✅, #5 ⚠️ 부분 CoreML I/O error). #2 다른 세션 🔄, #8 결정만 📝. 범례에 ⚠️·📝 추가. **broader backlog (33 items, A~E 카테고리) 는 [`backlog.md`](./backlog.md) 신설로 분리** — Roadmap §12 는 retrieval quality slice의 우선순위 view, backlog.md 는 모든 추적 항목의 SoT. 사용자 결정 옵션 (b). |
