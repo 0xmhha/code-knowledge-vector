@@ -85,6 +85,8 @@ CKV_DISABLE_COREML=1 \
 | **(c) yalue/onnxruntime_go의 `AppendExecutionProviderCoreML(0)` (V1 API) 와 모델 호환성** | Mid | `AppendExecutionProviderCoreMLV2(map[string]string{"ModelFormat":"MLProgram","MLComputeUnits":"ALL"})` 로 API 전환. 또는 flags 변경. | 코드 ~5 줄 |
 | **(d) bge-large-en-v1.5 ONNX 모델 안에 CoreML 미지원 operator** | Low | ORT verbose log enable (`ORT_LOGGING_LEVEL=VERBOSE`) — fallback operator 확인 | 환경 변수 + 로그 분석 |
 | **(e) 모델 파일 권한 / 경로 / 손상** | Very Low | `ls -la` + sha256 verify. *이미 확인됨* — 1.3GB, read OK. | (검증 완료) |
+| **(f) ANE/GPU compile artifact가 매 build마다 cold 재컴파일** | High | V2 EP에 `ModelCacheDirectory` 명시 → 첫 build가 cache 채우면 두 번째 build attach 즉시 완료 | 코드 ~5줄 (commit `292db4a`) |
+| **(g) `ModelFormat=NeuralNetwork` (ORT default) 의 silent FP32 → FP16 cast 가 ANE compile 단계에서 실패** | High | `ModelFormat=MLProgram` 으로 silent cast 회피. `AllowLowPrecisionAccumulationOnGPU=1`로 GPU FP16 가속도 동시 활성. | 코드 ~10줄 (`docs/fp16-model-evaluation.md` 옵션 A) |
 
 ## 5. Resolution Attempts
 
@@ -142,17 +144,11 @@ CGO_LDFLAGS="-L$HOME/lib" CKV_COREML_UNITS=CPUAndGPU \
 
 → **가설 (a) 부분 검증**. 다음 시도가 필요 = **ModelCacheDirectory 명시** (신규 가설 f).
 
-### 5.2 신규 가설 (f) — `ModelCacheDirectory` 명시 (대기)
+### 5.2 가설 (f) — `ModelCacheDirectory` 명시 (구현됨, 검증 대기)
 
 **가설**: V2 CoreML EP 옵션에 `ModelCacheDirectory` 를 명시하면 GPU/ANE compile artifact가 영구 cache 디렉토리에 저장 → second run 부터 빠름.
 
-**시도 예정 코드**:
-```go
-coreMLOpts := map[string]string{"MLComputeUnits": units}
-if cache := os.Getenv("CKV_COREML_CACHE_DIR"); cache != "" {
-    coreMLOpts["ModelCacheDirectory"] = cache
-}
-```
+**구현 (commit `292db4a`)**: `CKV_COREML_CACHE_DIR` env 추가. yalue v1.30.1 binding 의 자체 테스트 (`getCoreMLV2SessionOptions`) 가 `ModelCacheDirectory` 키를 사용 — 키 통과 검증됨.
 
 **사용**:
 ```bash
@@ -161,16 +157,49 @@ CKV_COREML_UNITS=ALL CKV_COREML_CACHE_DIR=$HOME/.cache/ckv/coreml-cache \
   ./bin/ckv build ...
 ```
 
+**측정 예정 항목**: (1) 첫 build cache dir 채워지는지, (2) 두 번째 build session create 즉시 완료, (3) 측정된 throughput.
+
+### 5.3 가설 (g) — `ModelFormat=MLProgram` + `AllowLowPrecisionAccumulationOnGPU` (구현됨, 검증 대기)
+
+**가설**: ORT의 CoreML EP V2 가 `ModelFormat`을 미지정 시 `NeuralNetwork` 로 fallback. NeuralNetwork format은 MPS / ANE 경로에서 silent FP32 → FP16 cast 를 수행. 이 cast 단계의 op-set mismatch 가 I/O error 의 진짜 원인일 가능성.
+
+근거:
+- 공개 분석 글 (https://ym2132.github.io/ONNX_MLProgram_NN_exploration): "By setting the model format to be the newer MLProgram format no implicit cast to FP16 takes place."
+- Apple ANE 는 FP16 native — INT8 weights 도 ANE 내부에서 FP16 로 변환 (동일 throughput).
+- 즉 ANE 는 FP16 모델을 *원래* 받는 게 자연스러우며, FP32 silent cast 경로보다 직접 FP16 입력이 더 안전.
+
+**구현 (이 commit)**: 두 env 추가.
+- `CKV_COREML_MODEL_FORMAT` — "MLProgram" 또는 "NeuralNetwork". 빈 값이면 ORT default 그대로 (=NeuralNetwork).
+- `CKV_COREML_GPU_FP16` — `1` 이면 `AllowLowPrecisionAccumulationOnGPU=1` 활성. GPU 만 영향, ANE / CPU 는 무관.
+
+**사용** (Phase 1 검증과 동시 실행 가능):
+```bash
+mkdir -p ~/.cache/ckv/coreml-cache
+CKV_COREML_UNITS=ALL \
+  CKV_COREML_MODEL_FORMAT=MLProgram \
+  CKV_COREML_GPU_FP16=1 \
+  CKV_COREML_CACHE_DIR=$HOME/.cache/ckv/coreml-cache \
+  ./bin/ckv build --src=./testdata/sample --out=/tmp/ckv-bge-mlprogram --embedder=bgeonnx
+```
+
+**기대 결과**:
+- I/O error 사라짐 (silent cast 회피).
+- ANE compile path 가 정상 진입 → throughput 가 CPU-only (1.0 chunks/s) 보다 회복 또는 상승.
+- 만약 여전히 I/O error 면 silent cast 가설은 기각 → 가설 (d) 또는 별도 가설 필요.
+
 **리스크**:
-- `ModelCacheDirectory` 옵션을 yalue/onnxruntime_go 의 V2 binding 이 지원하는지 미확인 — 미지원 시 silently ignored 또는 attach error.
-- ANE/GPU compile 자체가 cache 없이도 빠른 코드 path를 가져야 하는데 매번 cold compile 한다면 cache가 의미 없을 수도.
+- MLProgram format 은 Core ML 5+ (macOS 12+) 필요 — 사용자 환경 macOS 15.7 충족.
+- MLProgram + FP32 입력 → ORT 가 op 단위로 FP16 dispatch 결정. 순수 FP32 추론보다 약간의 numerical drift 가능 (recall 측정 필요).
+
+### 5.4 시도 timeline
 
 | # | 일시 | 가설 | 시도 | 결과 |
 |---|---|---|---|---|
 | 1 | 2026-05-20 09:44~10:27 | (a) | `CKV_COREML_UNITS=CPUAndGPU` (ANE 우회) | ✅ I/O error 사라짐 / ❌ GPU compile cost로 hang. *반쪽 해결*. |
-| 2 | (pending) | (f) | `ModelCacheDirectory` 명시 | (대기 중) |
-| 3 | (pending) | (b) | `MACOSX_DEPLOYMENT_TARGET=15.5` rebuild | (대기 중) |
-| 4 | (pending) | (d) | `ORT_LOGGING_LEVEL=VERBOSE` 로 정확한 fault stage 확인 | (대기 중) |
+| 2 | (사용자 실행) | (f) | `ModelCacheDirectory` 명시 (`CKV_COREML_CACHE_DIR`) | (commit `292db4a`, 측정 예정) |
+| 3 | (사용자 실행) | (g) | `ModelFormat=MLProgram` + `AllowLowPrecisionAccumulationOnGPU=1` | (현재 commit, 측정 예정) |
+| 4 | (보류) | (b) | `MACOSX_DEPLOYMENT_TARGET=15.5` rebuild | (보류) |
+| 5 | (보류) | (d) | `ORT_LOGGING_LEVEL=VERBOSE` 로 정확한 fault stage 확인 | `CKV_ORT_VERBOSE=1` 로 활성 가능 (commit `66bdefc`) |
 
 ## 6. Resolution & Lessons
 

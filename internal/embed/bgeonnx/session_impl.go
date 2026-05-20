@@ -121,12 +121,36 @@ func coreMLDisabled() bool {
 // the multi-minute compile cost. yalue/onnxruntime_go v1.30.1 passes
 // this key straight to ORT's C API (verified against the binding's
 // own test in onnxruntime_test.go::getCoreMLV2SessionOptions).
+//
+// CKV_COREML_MODEL_FORMAT picks between "MLProgram" (newer, Core ML 5+,
+// macOS 12+) and "NeuralNetwork" (legacy default). Unset leaves the
+// ORT default — currently NeuralNetwork, which silently casts FP32 →
+// FP16 on the MPS / ANE path. MLProgram keeps the model at its
+// declared precision, which is a candidate root-cause fix for the
+// ANE compile I/O error.
+//
+// CKV_COREML_GPU_FP16 maps to AllowLowPrecisionAccumulationOnGPU.
+// Enables FP16 accumulation for GPU ops only; ANE / CPU paths are
+// unaffected. Trades a small (<1 ulp) numerical error for measurable
+// GPU throughput on Apple Silicon.
 func attachCoreML(opts *ort.SessionOptions, w io.Writer) string {
 	units := strings.TrimSpace(os.Getenv("CKV_COREML_UNITS"))
 	if units == "" {
 		units = "ALL"
 	}
 	coreMLOpts := map[string]string{"MLComputeUnits": units}
+	if format := strings.TrimSpace(os.Getenv("CKV_COREML_MODEL_FORMAT")); format != "" {
+		coreMLOpts["ModelFormat"] = format
+		if w != nil {
+			fmt.Fprintf(w, "bgeonnx: CoreML ModelFormat=%s\n", format)
+		}
+	}
+	if envBool("CKV_COREML_GPU_FP16") {
+		coreMLOpts["AllowLowPrecisionAccumulationOnGPU"] = "1"
+		if w != nil {
+			fmt.Fprintf(w, "bgeonnx: CoreML AllowLowPrecisionAccumulationOnGPU=1\n")
+		}
+	}
 	if cacheDir := strings.TrimSpace(os.Getenv("CKV_COREML_CACHE_DIR")); cacheDir != "" {
 		coreMLOpts["ModelCacheDirectory"] = cacheDir
 		if w != nil {
@@ -140,6 +164,20 @@ func attachCoreML(opts *ort.SessionOptions, w io.Writer) string {
 		return "coreml-fallback-to-cpu"
 	}
 	return "coreml"
+}
+
+// envBool parses a truthy env var: "1", "t", "true", "y", "yes", "on"
+// (case-insensitive) return true; everything else, including unset,
+// returns false. Matches ortVerbose() / coreMLDisabled() — kept inline
+// instead of refactoring those callers to avoid mixing one feature
+// addition with a sweep.
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // chooseProvider decides which EP to attach based on platform + env.
