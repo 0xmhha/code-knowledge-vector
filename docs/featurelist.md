@@ -36,7 +36,7 @@
 |---|---|---|---|---|
 | §1.1 | 파일 디스커버리 (gitignore + .ckvignore + 메타) | P0 | ✅ | `internal/discover` |
 | §1.2 | Go / TypeScript / Solidity parser | P0 | ✅ | `internal/parse/{golang,typescript,solidity}` |
-| §1.2 | JavaScript parser | P0 | ❌-S2 | 사용자 결정 2026-05-19 (S2 이관) |
+| §1.2 | JavaScript parser | P0 | ✅ | `internal/parse/javascript/` (commit `e4977fa`, 2026-05-21). tree-sitter-typescript binding delegation; `.js` / `.jsx` / `.mjs` / `.cjs` 인덱싱. S2 → S1 끌어옴 (TS parser 패턴 재사용 비용 작음). |
 | §1.2 | Bash parser | P0 | ❌-S2 | 사용자 결정 2026-05-19 (S2 이관) |
 | §1.3 | Chunking — symbol + file_header | P0 | ✅ | `internal/chunk` |
 | §1.3 | Chunking — 큰 함수 sliding window | P0 | ⚠️ | head-truncate만 (sliding split deferred to W3 enhancement) |
