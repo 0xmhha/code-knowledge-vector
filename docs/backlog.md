@@ -39,8 +39,10 @@
 - ~~**#6** Rule-based contextual prefix~~ — ✅ 2026-05-21 (commit `1a5289d`)
 - ~~**E3** ADR 디렉토리 + 첫 5 ADR~~ — ✅ 2026-05-21 (commit `a4cd5d9`)
 - ~~**B3** Snippet density 3-tier ladder~~ — ✅ 2026-05-21 (commit `5f8f024`)
+- ~~**E1** `docs/ARCHITECTURE.md`~~ — ✅ 2026-05-21 (commit `6466815`)
+- ~~**E2-chunk** `docs/SCHEMA.md`~~ — ✅ 2026-05-21 (commit `<TBD>`)
 
-→ **Tier 1 4건 + #6 + E3 + B3 (7 항목) 완료.** 다음 candidates: **E1** (ARCHITECTURE.md) / **E2** (SCHEMA.md) / **#7** (LLM prefix, throughput buffer 후).
+→ **Tier 1 4건 + #6 + E3 + B3 + E1 + E2-chunk (9 항목) 완료.** 다음 candidates: **#7** (LLM prefix D.2, throughput buffer 후) / 잔여 B 그룹.
 
 ---
 
@@ -108,8 +110,10 @@
 
 | ID | 작업 | 우선순위 | 상태 | 비고 |
 |---|---|---|---|---|
-| **E1** | `docs/ARCHITECTURE.md` 신설 | P1 | ⏳ | featurelist §18.2. 4-Layer 위치 + 모듈 도식. 현재 plan-S1-ckv.md가 일부 역할. |
-| **E2** | `docs/SCHEMA.md` 신설 | P1 | ⏳ | featurelist §18.3. chunk metadata schema + working memory entry + sanitize_report. 현재 plan-S1-ckv.md 에 분산. |
+| **E1** | `docs/ARCHITECTURE.md` 신설 | P1 | ✅ 2026-05-21 | 4-Layer 위치 + 내부 모듈 의존 그래프 (pkg/types leaf, no cycles) + build/query/reindex 파이프라인 패키지 시퀀스 + ADR 매핑. 190줄. README / plan-S1 와 겹치는 부분은 링크로 위임. |
+| **E2-chunk** | `docs/SCHEMA.md` (chunk metadata only) | P1 | ✅ 2026-05-21 | Chunk / Citation / Manifest + sqlite-vec DDL + migration 정책 + 1.0 버저닝 규칙. 코드 기반 ground-truth. |
+| **E2-WM** | working memory entry 스키마 | P1 | ⏳ S2 | `cks.memory.*` 모듈 도입 시 그 모듈 내부에서 작성. 도입 전 spec 만 쓰는 건 drift 위험. |
+| **E2-Sanitize** | sanitize_report 스키마 | P1 | ⏳ S2 | UC-V13 sanitize 모듈 도입 시 그 모듈 내부에서 작성. |
 | **E3** | ADR 디렉토리 신설 (`docs/adr/NNN-*.md`) | Mid | ✅ 2026-05-21 | `docs/adr/` 신설 + README (format / when-to-write 가이드 + index) + 5 ADR (001 sqlite-vec / 002 bge-large pivot / 003 BM25 dual-track / 004 ckv reindex S1.5 promotion / 005 CoreML MLProgram + static shapes). 모두 markdown parser 가 `KindADRSection` 으로 자동 분류해 검색 가능. |
 
 ### F. cks dogfood follow-ups (모두 closed)
@@ -180,7 +184,7 @@
 | **C1**~**C9, C11** | S2 이관 10건 | 신기능 | ⏳ | — | S2 milestone |
 | **C10** | JavaScript parser | 신기능 | ✅ | 2026-05-21 | commit `e4977fa` (S2 → S1 끌어옴) |
 | **D1**~**D4** | 외부 의존 4건 | 통합 | ⏳ | — | CKS / 외부 milestone |
-| **E1**, **E2** | 문서 신설 2건 잔여 (E3 완료) | 문서화 | ⏳ | — | E3 ✅ 2026-05-21. ARCHITECTURE.md (4-Layer 도식) + SCHEMA.md (chunk metadata) 잔여. |
+| **E1**, **E2-chunk**, **E3** | 문서 신설 (E2-WM/E2-Sanitize 는 S2 deferred) | 문서화 | ✅ 2026-05-21 | E1: ARCHITECTURE.md (4-Layer + 모듈 그래프). E2-chunk: SCHEMA.md (Chunk/Citation/Manifest + DDL). E3: ADR ×5 + README. WM / sanitize 스키마는 그 모듈 도입 시 함께 작성. |
 | **F (CKV-1~7)** | cks dogfood follow-ups | API + 운영 | ✅ | 2026-05-20~21 | 7 / 7 closed. commits `42bb7f2` / `7aa08d9` / `acaff74` / `7f2fab8` / `9474b4e` / `bd8f701` / `a45654b` |
 | **G (PRR-2~5)** | PR-regression follow-ups | 평가 | ✅ | 2026-05-20~21 | 4 / 5 closed. PRR-1 만 보류 (throughput buffer 부족) |
 
@@ -199,10 +203,12 @@
 | ~~**E3** ADR 디렉토리 + 첫 5 개 ADR~~ | ✅ 2026-05-21 | `docs/adr/` + README + 5 ADR (sqlite-vec / bge-large pivot / BM25 dual-track / reindex S1.5 / CoreML MLProgram+static) |
 | ~~**B3** Snippet density 3-tier ladder~~ | ✅ 2026-05-21 | `DensityTier` 노출 + cap / ctxLines 옵션 |
 | **#7** LLM-generated prefix (Phase D.2) | 후속 | Anthropic 정식 패턴. throughput cost 큼 (0.2~0.4 c/s). D.1 효과 확정 후 검토. |
-| **E1** `docs/ARCHITECTURE.md` | 즉시 | featurelist §18.2. 4-Layer 위치 + 모듈 도식. |
-| **E2** `docs/SCHEMA.md` | 즉시 | featurelist §18.3. chunk metadata + working memory + sanitize_report. |
+| ~~**E1** `docs/ARCHITECTURE.md`~~ | ✅ 2026-05-21 | 내부 모듈 그래프 + 파이프라인 시퀀스 + ADR 매핑 |
+| ~~**E2-chunk** `docs/SCHEMA.md`~~ | ✅ 2026-05-21 | Chunk/Citation/Manifest + sqlite-vec DDL + versioning rules |
+| **E2-WM** working memory schema | S2 | `cks.memory.*` 모듈 도입 시 함께 작성 |
+| **E2-Sanitize** sanitize_report schema | S2 | UC-V13 sanitize 모듈 도입 시 함께 작성 |
 
-→ **Tier 1 4 + #6 + E3 (6 항목) 완료.** 다음 candidate = **B3** (snippet ladder) / **E1** (ARCHITECTURE.md) / **E2** (SCHEMA.md) / **#7** (LLM prefix, throughput buffer 후).
+→ **Tier 1 4 + #6 + E3 + B3 + E1 + E2-chunk (9 항목) 완료.** 다음 candidate = **#7** (LLM prefix D.2, throughput buffer 후) / 잔여 B 그룹 (B1 sliding split / B2 commit_hash filter / B4 citation stale check / B5 envelope trace_id / B7/B8/B10) / C 그룹 S2 항목.
 
 ---
 
@@ -249,8 +255,10 @@
 | D2 | (CKS multiplex) | E | plan §7.3 |
 | D3 | §8.3 ❌-S6 | — | plan §8.4 |
 | D4 | (CKG 책임) | — | CKG `pkg/bm25/scorer.go` |
-| E1 | §18.2 ❌ | — | — |
-| E2 | §18.3 ❌ | — | — |
+| E1 | ✅ 2026-05-21 — `docs/ARCHITECTURE.md` (모듈 그래프 + 파이프라인 + ADR 매핑) | — | — |
+| E2-chunk | ✅ 2026-05-21 — `docs/SCHEMA.md` (Chunk/Citation/Manifest + sqlite-vec DDL) | — | — |
+| E2-WM | ⏳ S2 — `cks.memory.*` 도입 시 그 모듈 내부에서 작성 | — | — |
+| E2-Sanitize | ⏳ S2 — UC-V13 sanitize 도입 시 그 모듈 내부에서 작성 | — | — |
 | E3 | ✅ 2026-05-21 — `docs/adr/{README,001..005}.md` 신설, ADRSection 자동 인덱싱 | — | — |
 | CKV-1 | (consumer 측 hang) | — | `testdata/mcp-repro/` 검증 스크립트 |
 | CKV-2 | (no public API) | — | `pkg/ckv/` 신설 |

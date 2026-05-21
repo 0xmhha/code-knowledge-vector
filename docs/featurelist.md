@@ -110,8 +110,8 @@
 | §17.2 | 멀티-OS 빌드 | P1 | ❌ | D1-FU-5 open |
 | §17.3 | Release (`make release` + CI matrix) | P2 | ❌ | |
 | §18.1 | README | P0 | ✅ | |
-| §18.2 | ARCHITECTURE.md | P1 | ❌ | (`plan-S1-ckv.md` 일부 역할) |
-| §18.3 | SCHEMA.md | P1 | ❌ | plan-S1-ckv.md에 분산 |
+| §18.2 | ARCHITECTURE.md | P1 | ✅ 2026-05-21 | `docs/ARCHITECTURE.md` — 4-Layer 위치, 내부 모듈 의존 그래프 (pkg/types leaf), build/query/reindex 파이프라인의 패키지 시퀀스, ADR 매핑. |
+| §18.3 | SCHEMA.md (chunk metadata only) | P1 | ✅ 2026-05-21 | `docs/SCHEMA.md` — Chunk / Citation / Manifest + sqlite-vec DDL + migration / versioning 규칙. WM entry / sanitize_report 스키마는 S2 모듈 도입 시 그 모듈 내부에서 작성 (정책 결정 2026-05-21). |
 | §18.4 | CKS integration guide | P2 | ❌-CKS | CKS repo 책임 |
 
 **S1 진행 요약**: P0 항목 중 ✅ = 35%, ⚠️ = 15%, ❌-S2 이관 결정 = 30%, ❌-planned/CKS = 20%. 본문 sub-section의 미구현 claim은 본 표의 "❌-..." 분류로 해석.
@@ -559,10 +559,14 @@ type VectorStore interface {
 - 지원 언어, 기본 모델, 백엔드
 
 ### 18.2 ARCHITECTURE.md (P1)
-- 4-Layer 중 본 프로젝트 위치, 모듈 도식
+- 4-Layer 중 본 프로젝트 위치, 모듈 도식 — `docs/ARCHITECTURE.md` (impl 2026-05-21, commit `<TBD>`)
+- 내부 모듈 의존 그래프 + build / query / reindex 파이프라인의 패키지 시퀀스
+- ADR ↔ 패키지 매핑
 
 ### 18.3 SCHEMA.md (P1)
-- chunk metadata 스키마, working memory entry 스키마, sanitize_report 스키마
+- chunk metadata 스키마 — `docs/SCHEMA.md` (impl 2026-05-21, commit `<TBD>`)
+- 포함 범위: `Chunk` / `Citation` / `Manifest` Go struct + sqlite-vec DDL + migration 정책 + 1.0 ↔ 1.x 버저닝 규칙
+- 제외 범위 (S2 모듈 도입 시 작성): working memory entry (`cks.memory.*`), sanitize_report (UC-V13). 도입 전 spec 만 쓰는 건 drift 위험으로 보류.
 
 ### 18.4 CKS Integration Guide (P2)
 - CKG 와 통합 시 디렉터리 레이아웃, 인용 포맷 호환성, RRF 입력 예시
