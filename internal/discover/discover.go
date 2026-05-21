@@ -214,6 +214,19 @@ func loadCKVIgnore(srcRoot string) ([]string, error) {
 	return out, scan.Err()
 }
 
+// IsIgnored is the exported variant of isIgnored, used by other packages
+// (reindex) that need to apply the same ignore semantics to a list of
+// paths rather than a tree walk.
+func IsIgnored(rel string, patterns []string) bool {
+	return isIgnored(rel, patterns)
+}
+
+// IsProbablyBinary is the exported variant of isProbablyBinary, used by
+// reindex to apply the same binary-detection heuristic Walk uses.
+func IsProbablyBinary(path string) bool {
+	return isProbablyBinary(path)
+}
+
 // isIgnored matches rel against patterns. Directory patterns end in '/'
 // and match any path whose first segment(s) equal the pattern (without
 // trailing slash). Non-directory patterns use filepath.Match against

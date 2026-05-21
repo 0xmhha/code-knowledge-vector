@@ -34,8 +34,10 @@
 **가장 시급한 항목** (사용자 결정 또는 작업 의존성 trigger):
 - ~~**B9** Secret 회피 패턴~~ — ✅ 2026-05-21 (commit `b1ad8aa`)
 - ~~**B6** Error model 5 종~~ — ✅ 2026-05-21 (commit `c7f8969`)
-- ~~**A5** fixture N=34 → N=50+~~ — ✅ 2026-05-21 (commit `<TBD>`)
-- **Roadmap #8** `ckv reindex` 도입 — S1.5 승격, Phase B 도입 *전* architectural 전제
+- ~~**A5** fixture N=34 → N=50+~~ — ✅ 2026-05-21 (commit `8c0555d`)
+- ~~**Roadmap #8** `ckv reindex` 도입~~ — ✅ 2026-05-21 (commit `<TBD>`)
+
+→ **Tier 1 (4 항목) 모두 완료.** 다음 Tier candidates: **#6** (룰 기반 prefix, A5 완료 → 측정 가능) / **E3** (ADR 디렉토리) / **B3** (snippet density 3-tier ladder).
 
 ---
 
@@ -78,7 +80,7 @@
 
 | ID | 작업 | featurelist 출처 | 비고 |
 |---|---|---|---|
-| **C1** | `ckv reindex` (incremental, UC-V2) | §6.2 | **S2 → S1.5 승격** (사용자 결정 2026-05-19). Phase B 도입 *전* 필요. = Roadmap §12 #8. |
+| **C1** | `ckv reindex` (incremental, UC-V2) | §6.2 | ✅ 2026-05-21 (commit `<TBD>`). `internal/build.Reindex` + `cmd/ckv reindex`. git diff name-status 기반 변경 set + DeleteByFile + embed/upsert. Embedder identity 강제. = Roadmap §12 #8. |
 | **C2** | `internal/sanitize/` 전체 (UC-V13) | §9 (5 sub-section) | external caller 도입 시. plan §13. |
 | **C3** | `internal/memory/` Working Memory (UC-V9/14) | §7 (5 sub-section) | `cks.memory.*` planned. plan §8.2. |
 | **C4** | `ckv serve` HTTP API | §12 | MCP 외 추가 transport. |
@@ -189,11 +191,12 @@
 | ~~**B9** Secret 회피 패턴~~ | ✅ 2026-05-21 | `internal/discover.DefaultSecretPatterns` impl |
 | ~~**B6** Error model 5 종~~ | ✅ 2026-05-21 | `internal/query/errors.go` 6 sentinel + raise points 4 종 wired |
 | ~~**A5** fixture N=34 → N=50+~~ | ✅ 2026-05-21 | `validator.go` + `client.js` 신설, 16 신규 query, mock recall@5=0.68 |
+| ~~**Roadmap #8** `ckv reindex` 도입~~ | ✅ 2026-05-21 | `internal/build.Reindex` + `cmd/ckv reindex` impl + 7 unit test |
 | **#6** 룰 기반 prefix | 즉시 (A5 완료, 측정 가능) | Roadmap §12 Group β 진입 |
-| **Roadmap #8** `ckv reindex` 도입 | 즉시 (architectural) | S1.5 승격. Phase B 도입 *전* 전제 |
 | **E3** ADR 디렉토리 + 첫 5 개 ADR | 즉시 | A1 결정사항을 ADR-005 로 봉인. 결정 누수 방지 |
+| **B3** Snippet density 3-tier ladder | 즉시 | featurelist §4.3 / plan §6.1 ladder. 현재 `budget_tokens`만. |
 
-→ 본 세션의 다음 candidate = **Roadmap #8** (architectural) — Tier 1 마지막.
+→ **Tier 1 4건 모두 완료.** 다음 Tier candidate = **#6** (룰 기반 prefix, 측정 즉시 가능) / **E3** (ADR 문서) / **B3** (snippet ladder).
 
 ---
 

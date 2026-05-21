@@ -62,7 +62,7 @@
 | §5.2 | 인용 실재성 cheap check | P0 | ⚠️ | file existence만, commit_hash 매칭 미구현 |
 | §5.3 | Citation test suite | P1 | ✅ | `internal/eval` citation accuracy |
 | §6.1 | 변경 감지 (git diff) | P0 | ⚠️ | freshness check만, fsnotify 미구현 |
-| §6.2 | `ckv reindex` (UC-V2) | P0 | ❌-S1.5 | **S1.5 승격** (사용자 결정 2026-05-19). Phase B (multi-granularity) 도입 전 architectural 전제 — retrieval-quality-roadmap.md §7.5 |
+| §6.2 | `ckv reindex` (UC-V2) | P0 | ✅ 2026-05-21 | `internal/build.Reindex` + `cmd/ckv reindex`. git diff name-status 기반 changeSet (A/M/D/R/C/T) → DeleteByFile + embed/upsert. Flags: `--since` (diff base override), `--files` (force list, bypass git). Embedder identity match 강제 — mismatch 시 `ErrEmbedderMismatch`. 7 unit test. |
 | §6.3 | `cks.ops.get_freshness` | P0 | ✅ | `internal/freshness` |
 | §6.3 | `cks.ops.request_refresh` | P0 | ❌-S2 | |
 | §6.4 | Stale 정책 (auto_refresh / warn_only / block) | P1 | ❌-S2 | |
@@ -400,7 +400,7 @@ type VectorStore interface {
 | `ckv model fetch <name>` | 모델 다운로드 + sha256 검증 | ⚠️ stub (D1-FU-4 open, D2 scope) |
 | `ckv model list` | 캐시된 모델 list | ⚠️ stub |
 | `ckv footprint` | footprint event log 조회 (W3-T14) | ✅ |
-| `ckv reindex` | 변경분만 재인덱싱 (UC-V2) | ❌-S1.5 (사용자 결정 2026-05-19) |
+| `ckv reindex` | 변경분만 재인덱싱 (UC-V2) | ✅ 2026-05-21 |
 | `ckv serve` | HTTP API 서버 | ❌-S2 |
 | `ckv bootstrap --report` | systemization 리포트 (UC-V12) | ❌-S4 |
 
