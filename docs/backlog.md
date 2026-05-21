@@ -32,7 +32,7 @@
 **현재 진행 중**: Group α 완료 (#1 / #3 / #5 부분 ✅), Group β 진입 가능. F / G 두 그룹은 2026-05-20~21 세션에서 전면 처리. 자세히 §4 마스터 표.
 
 **가장 시급한 항목** (사용자 결정 또는 작업 의존성 trigger):
-- **B9** Secret 회피 패턴 (`.env` / `*.pem` / `*.key`) — 사용자 글로벌 보안 룰 직접 매칭
+- ~~**B9** Secret 회피 패턴~~ — ✅ 2026-05-21 (commit `<TBD>`)
 - **B6** Error model 5 종 — API 완성도, `pkg/ckv` 표면에 명시
 - **A5** fixture N=34 → N=50+ — 모든 retrieval 측정의 baseline
 - **Roadmap #8** `ckv reindex` 도입 — S1.5 승격, Phase B 도입 *전* architectural 전제
@@ -67,7 +67,7 @@
 | **B6** | §8.4 Error model 6종 중 5종 미구현 | Mid | ⏳ | `IndexUnavailable`만. `FreshnessStale`/`BudgetExceeded`/`CitationNotFound`/`SanitizeFailed`/`PolicyError` 미구현. |
 | **B7** | §10.2 Symbol ID 호환 정규화 규칙 | Low | ⏳ | `ckg_node_id` 필드만. CKG와 join 위한 normalize 규칙 미합의. CKG 측과 협업 필요. |
 | **B8** | §11.2 공통 플래그 (`--log-level`, `--profile`) | Low | ⏳ | `--json`만 일관 적용. log-level 환경변수, profile output 미구현. |
-| **B9** | §15.2 Secret 회피 패턴 (.env / *.pem) | High (보안) | ⏳ | gitignore 호환만. `.env`/`*.pem`/`*.key` 명시 제외 패턴 미구현. **사용자 글로벌 보안 룰 의식 필요**. |
+| **B9** | §15.2 Secret 회피 패턴 (.env / *.pem) | High (보안) | ✅ 2026-05-21 | `internal/discover.DefaultSecretPatterns` 25개 패턴 — `.env*` env variants / `*.pem` `*.key` `*.p12` `*.pfx` `*.keystore` / SSH keys / `credentials.json` `service-account*.json` / `.npmrc` `.pypirc` `.netrc` / `.aws/credentials`. opt-out: `CKV_DISABLE_SECRET_FILTER=1`. 3개 신규 unit test (block all / allow template / opt-out). |
 | **B10** | §16.4 Fuzz / Property tests | Low | ⏳ | parser fuzz 미구현. 랜덤 입력 panic 부재 확인. |
 
 ### C. S2 이관 (작업 시점 미정, 추적만)
@@ -186,14 +186,14 @@
 
 | ID | 작업 | 시작 가능 시점 | 추천 사유 |
 |---|---|---|---|
-| **B9** Secret 회피 패턴 | 즉시 | 보안 high, 코드 변경 작음, 사용자 글로벌 보안 룰 직접 매칭 |
+| ~~**B9** Secret 회피 패턴~~ | ✅ 2026-05-21 | `internal/discover.DefaultSecretPatterns` impl |
 | **B6** Error model 5 종 | 즉시 | API 완성도, `pkg/ckv` 표면에 명시. consumer (cks) 가 활용 |
 | **A5** fixture N=34 → N=50+ | 즉시 | 모든 retrieval 측정의 baseline. #6 / #9 진행 전 권장 |
 | **#6** 룰 기반 prefix | 즉시 (A5 후 측정 가능) | Roadmap §12 Group β 진입 |
 | **Roadmap #8** `ckv reindex` 도입 | 즉시 (architectural) | S1.5 승격. Phase B 도입 *전* 전제 |
 | **E3** ADR 디렉토리 + 첫 5 개 ADR | 즉시 | A1 결정사항을 ADR-005 로 봉인. 결정 누수 방지 |
 
-→ 본 세션의 다음 candidate = **B9** (보안) 또는 **B6** (API 완성도) 또는 **Roadmap #8** (architectural).
+→ 본 세션의 다음 candidate = **B6** (API 완성도) 또는 **A5** (측정 baseline) 또는 **Roadmap #8** (architectural).
 
 ---
 

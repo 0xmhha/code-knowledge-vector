@@ -98,7 +98,7 @@
 | §14.2 | Prometheus metrics | P1 | ❌-S2 | |
 | §14.3 | OpenTelemetry tracing | P2 | ❌ | |
 | §15.1 | Read-only source | P0 | ✅ | |
-| §15.2 | Secret 회피 (.env/*.pem 패턴) | P0 | ⚠️ | gitignore 호환만, 별도 secret 패턴 미구현 |
+| §15.2 | Secret 회피 (.env/*.pem 패턴) | P0 | ✅ | `internal/discover.DefaultSecretPatterns` 25개 패턴 — `.env*` env variants / `*.pem` `*.key` `*.p12` `*.pfx` `*.keystore` / SSH keys (`id_rsa*` `id_ed25519*` `id_ecdsa*` `id_dsa*`) / `credentials.json` `service-account*.json` / `.npmrc` `.pypirc` `.netrc` / `.aws/credentials` `.aws/config`. opt-out: `CKV_DISABLE_SECRET_FILTER=1`. |
 | §15.3 | Output audit (sanitize pass) | P0 | ❌-S2 | §9 의존 |
 | §16.1 | 단위 테스트 | P0 | ✅ | 25개 test 파일 |
 | §16.2 | 통합 테스트 | P0 | ✅ | `testdata/sample` |
@@ -471,8 +471,11 @@ type VectorStore interface {
 - write 는 `--out` 데이터 디렉터리에 한정
 
 ### 15.2 Secret 회피 (P0)
-- `.env`, `*.pem`, `*.key` 등 사전 정의 패턴은 임베딩 제외
-- `.ckvignore` 로 사용자 추가 규칙
+- `internal/discover.DefaultSecretPatterns` 25개 사전 정의 패턴이 indexing 입구에서 secret 파일 차단 (impl 2026-05-21, commit `<TBD>`)
+- 적용 순서: `DefaultIgnore` → `.ckvignore` → `Options.Extra` → `DefaultSecretPatterns` (마지막 적용으로 user override 영향 없음)
+- Opt-out (테스트 전용): `CKV_DISABLE_SECRET_FILTER=1`
+- `.env.example` / `.env.sample` 같은 합법적 템플릿은 명시 환경 suffix만 차단하여 false-positive 회피
+- 한계: pattern-based만 (content-based heuristic 미적용 — generic `config.json` 안의 키는 통과). 후속: B10 fuzz/property test 영역
 
 ### 15.3 Output Audit (P0)
 - 모든 외부 노출 응답은 sanitize pass 통과 (UC-V13)

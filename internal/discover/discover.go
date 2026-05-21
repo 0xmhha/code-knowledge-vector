@@ -45,6 +45,48 @@ var DefaultIgnore = []string{
 	"__pycache__/",
 }
 
+// DefaultSecretPatterns matches files that commonly contain credentials,
+// private keys, or other secrets. Matches are excluded from indexing
+// regardless of .ckvignore configuration — embeddings persist in the
+// sqlite-vec store and a leaked secret in an embedding is recoverable
+// only by rotating the credential and rebuilding the entire index.
+// Cheaper to block at discovery time.
+//
+// Featurelist §15.2 P0. Backlog B9.
+// Opt-out (testing only): CKV_DISABLE_SECRET_FILTER=1.
+var DefaultSecretPatterns = []string{
+	".env",
+	".env.local",
+	".env.development",
+	".env.development.local",
+	".env.test",
+	".env.test.local",
+	".env.staging",
+	".env.staging.local",
+	".env.production",
+	".env.production.local",
+	"*.pem",
+	"*.key",
+	"*.p12",
+	"*.pfx",
+	"*.keystore",
+	"id_rsa",
+	"id_rsa.*",
+	"id_ed25519",
+	"id_ed25519.*",
+	"id_ecdsa",
+	"id_ecdsa.*",
+	"id_dsa",
+	"id_dsa.*",
+	"credentials.json",
+	"service-account*.json",
+	".npmrc",
+	".pypirc",
+	".netrc",
+	".aws/credentials",
+	".aws/config",
+}
+
 // Options control the walk. All fields are optional; the zero value is
 // the documented default.
 type Options struct {
@@ -89,6 +131,9 @@ func Walk(srcRoot string, opts Options) (files []File, errs []error, err error) 
 		errs = append(errs, err)
 	}
 	patterns = append(patterns, opts.Extra...)
+	if os.Getenv("CKV_DISABLE_SECRET_FILTER") != "1" {
+		patterns = append(patterns, DefaultSecretPatterns...)
+	}
 
 	walkErr := filepath.WalkDir(srcRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
