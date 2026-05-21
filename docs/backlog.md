@@ -37,8 +37,9 @@
 - ~~**A5** fixture N=34 → N=50+~~ — ✅ 2026-05-21 (commit `8c0555d`)
 - ~~**Roadmap #8** `ckv reindex` 도입~~ — ✅ 2026-05-21 (commit `f2bb8d2`)
 - ~~**#6** Rule-based contextual prefix~~ — ✅ 2026-05-21 (commit `1a5289d`)
+- ~~**E3** ADR 디렉토리 + 첫 5 ADR~~ — ✅ 2026-05-21 (commit `<TBD>`)
 
-→ **Tier 1 4건 + #6 (Phase D.1) 완료.** 다음 candidates: **E3** (ADR 디렉토리) / **B3** (snippet density 3-tier ladder) / **#7** (LLM prefix D.2, throughput buffer 후).
+→ **Tier 1 4건 + #6 + E3 (6 항목) 완료.** 다음 candidates: **B3** (snippet density 3-tier ladder) / **E1** (ARCHITECTURE.md) / **E2** (SCHEMA.md) / **#7** (LLM prefix, throughput buffer 후).
 
 ---
 
@@ -108,7 +109,7 @@
 |---|---|---|---|---|
 | **E1** | `docs/ARCHITECTURE.md` 신설 | P1 | ⏳ | featurelist §18.2. 4-Layer 위치 + 모듈 도식. 현재 plan-S1-ckv.md가 일부 역할. |
 | **E2** | `docs/SCHEMA.md` 신설 | P1 | ⏳ | featurelist §18.3. chunk metadata schema + working memory entry + sanitize_report. 현재 plan-S1-ckv.md 에 분산. |
-| **E3** | ADR 디렉토리 신설 (`docs/adr/NNN-*.md`) | Mid | ⏳ | markdown parser 는 #3 에서 완료했으나 *실제 ADR 문서* 자체 미작성. 첫 ADR 후보: ADR-001 (sqlite-vec 선택), ADR-002 (bge-large-en-v1.5 pivot), ADR-003 (BM25 dual-track), ADR-004 (ckv reindex S1.5 승격), ADR-005 (CoreML MLProgram + static shapes — A1 결정사항). |
+| **E3** | ADR 디렉토리 신설 (`docs/adr/NNN-*.md`) | Mid | ✅ 2026-05-21 | `docs/adr/` 신설 + README (format / when-to-write 가이드 + index) + 5 ADR (001 sqlite-vec / 002 bge-large pivot / 003 BM25 dual-track / 004 ckv reindex S1.5 promotion / 005 CoreML MLProgram + static shapes). 모두 markdown parser 가 `KindADRSection` 으로 자동 분류해 검색 가능. |
 
 ### F. cks dogfood follow-ups (모두 closed)
 
@@ -178,7 +179,7 @@
 | **C1**~**C9, C11** | S2 이관 10건 | 신기능 | ⏳ | — | S2 milestone |
 | **C10** | JavaScript parser | 신기능 | ✅ | 2026-05-21 | commit `e4977fa` (S2 → S1 끌어옴) |
 | **D1**~**D4** | 외부 의존 4건 | 통합 | ⏳ | — | CKS / 외부 milestone |
-| **E1**~**E3** | 문서 신설 3건 | 문서화 | ⏳ | — | E3 ADR 디렉토리 시작 권장 (ADR-005 까지 후보 확보) |
+| **E1**, **E2** | 문서 신설 2건 잔여 (E3 완료) | 문서화 | ⏳ | — | E3 ✅ 2026-05-21. ARCHITECTURE.md (4-Layer 도식) + SCHEMA.md (chunk metadata) 잔여. |
 | **F (CKV-1~7)** | cks dogfood follow-ups | API + 운영 | ✅ | 2026-05-20~21 | 7 / 7 closed. commits `42bb7f2` / `7aa08d9` / `acaff74` / `7f2fab8` / `9474b4e` / `bd8f701` / `a45654b` |
 | **G (PRR-2~5)** | PR-regression follow-ups | 평가 | ✅ | 2026-05-20~21 | 4 / 5 closed. PRR-1 만 보류 (throughput buffer 부족) |
 
@@ -194,11 +195,13 @@
 | ~~**A5** fixture N=34 → N=50+~~ | ✅ 2026-05-21 | `validator.go` + `client.js` 신설, 16 신규 query, mock recall@5=0.68 |
 | ~~**Roadmap #8** `ckv reindex` 도입~~ | ✅ 2026-05-21 | `internal/build.Reindex` + `cmd/ckv reindex` impl + 7 unit test |
 | ~~**#6** 룰 기반 prefix~~ | ✅ 2026-05-21 | `internal/chunk/prefix.go` impl, mock N=50 r@1 +0.060 / MRR +0.053 |
-| **E3** ADR 디렉토리 + 첫 5 개 ADR | 즉시 | A1 결정사항을 ADR-005 로 봉인. 결정 누수 방지 |
+| ~~**E3** ADR 디렉토리 + 첫 5 개 ADR~~ | ✅ 2026-05-21 | `docs/adr/` + README + 5 ADR (sqlite-vec / bge-large pivot / BM25 dual-track / reindex S1.5 / CoreML MLProgram+static) |
 | **B3** Snippet density 3-tier ladder | 즉시 | featurelist §4.3 / plan §6.1 ladder. 현재 `budget_tokens`만. |
 | **#7** LLM-generated prefix (Phase D.2) | 후속 | Anthropic 정식 패턴. throughput cost 큼 (0.2~0.4 c/s). D.1 효과 확정 후 검토. |
+| **E1** `docs/ARCHITECTURE.md` | 즉시 | featurelist §18.2. 4-Layer 위치 + 모듈 도식. |
+| **E2** `docs/SCHEMA.md` | 즉시 | featurelist §18.3. chunk metadata + working memory + sanitize_report. |
 
-→ **Tier 1 + 1 (5 항목) 완료.** 다음 candidate = **E3** (ADR 문서) / **B3** (snippet ladder) / **#7** (LLM prefix, throughput buffer 후).
+→ **Tier 1 4 + #6 + E3 (6 항목) 완료.** 다음 candidate = **B3** (snippet ladder) / **E1** (ARCHITECTURE.md) / **E2** (SCHEMA.md) / **#7** (LLM prefix, throughput buffer 후).
 
 ---
 
@@ -247,7 +250,7 @@
 | D4 | (CKG 책임) | — | CKG `pkg/bm25/scorer.go` |
 | E1 | §18.2 ❌ | — | — |
 | E2 | §18.3 ❌ | — | — |
-| E3 | (markdown parser 완료 후 ADR 문서 자체 미작성) | — | — |
+| E3 | ✅ 2026-05-21 — `docs/adr/{README,001..005}.md` 신설, ADRSection 자동 인덱싱 | — | — |
 | CKV-1 | (consumer 측 hang) | — | `testdata/mcp-repro/` 검증 스크립트 |
 | CKV-2 | (no public API) | — | `pkg/ckv/` 신설 |
 | CKV-3 | (no consumer docs) | — | `docs/embedder-integration.md` |
