@@ -83,6 +83,20 @@ type Response = query.Response
 // snippet, normalized score, and symbol metadata.
 type Hit = query.Hit
 
+// DensityTier names the 3-tier snippet ladder. Set on every Hit so
+// callers know which compression level the engine rendered at, and
+// pass via SearchOptions.MaxDensity to cap the maximum tier (e.g.
+// list-mode UIs that want signatures only).
+type DensityTier = query.DensityTier
+
+// DensityFull / DensitySignature5 / DensitySignatureOnly are the
+// three ladder rungs from least to most compressed.
+const (
+	DensityFull          = query.DensityFull
+	DensitySignature5    = query.DensitySignature5
+	DensitySignatureOnly = query.DensitySignatureOnly
+)
+
 // Manifest reports the index's identity at build time: embedding
 // model name and dimension, indexed git head, chunk count, source
 // root. Engine.Manifest returns a copy.

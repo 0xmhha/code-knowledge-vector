@@ -64,6 +64,21 @@ type Options struct {
 	// them mixed, top-5 can be diluted by 2-3 test results that compete
 	// for context window space.
 	ExamplesK int
+
+	// MaxDensity caps the snippet rendering tier (B3 ladder).
+	// "" / DensityFull → no cap, downgrade only under budget pressure
+	// (the documented default). DensitySignature5 → start every hit at
+	// signature+N and downgrade to signature_only under pressure.
+	// DensitySignatureOnly → emit signatures only, never bodies; useful
+	// when the caller already has the chunk body cached and just wants
+	// pointers (e.g. CLI list-mode).
+	MaxDensity DensityTier
+
+	// SignatureContextLines tunes the SignatureWithContext tier (number
+	// of non-blank lines kept after the signature). 0 →
+	// DefaultSignatureContextLines (5). Larger values keep more body
+	// in the middle tier at the cost of fewer hits fitting the budget.
+	SignatureContextLines int
 }
 
 // Hit is the response-shaped record: only what callers (LLM, CLI) need.
@@ -72,6 +87,12 @@ type Hit struct {
 	ChunkID    string           `json:"chunk_id"`
 	Citation   types.Citation   `json:"citation"`
 	Snippet    string           `json:"snippet"`
+	// Density names which 3-tier ladder rung this Snippet was rendered
+	// at (DensityFull / DensitySignature5 / DensitySignatureOnly).
+	// Useful for downstream UIs that want to badge compressed hits or
+	// for eval pipelines counting how often the budget forced a
+	// downgrade. Omitted when empty (e.g. callers building Hit by hand).
+	Density    DensityTier      `json:"density,omitempty"`
 	Score      types.HitScore   `json:"score"`
 	Language   string           `json:"language"`
 	IsTest     bool             `json:"is_test,omitempty"`
@@ -399,7 +420,7 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	// DensityAdjust call so the token budget is shared across both
 	// groups (primary downgrades last because it's earlier in the slice).
 	combined := append(append([]types.Hit{}, primary...), examples...)
-	combinedHits, tokensUsed := DensityAdjust(combined, budget)
+	combinedHits, tokensUsed := DensityAdjustWith(combined, budget, opts.MaxDensity, opts.SignatureContextLines)
 
 	hits := combinedHits[:len(primary)]
 	var exampleHits []Hit

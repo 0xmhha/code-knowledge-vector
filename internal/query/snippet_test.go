@@ -98,3 +98,75 @@ func TestSignatureWithContext(t *testing.T) {
 		t.Errorf("expected ≤3 lines, got %d: %v", len(lines), lines)
 	}
 }
+
+// TestDensityReportsTierPerHit verifies each Hit carries the tier it
+// was rendered at. Featurelist §4.3 / backlog B3: consumers need to
+// know whether a snippet was downgraded so they can render badges,
+// log compression statistics, or decide whether to fetch the body
+// out-of-band.
+func TestDensityReportsTierPerHit(t *testing.T) {
+	long := strings.Repeat("// comment line\n", 50)
+	hits := []types.Hit{
+		mkHit("a", "func A() {\n"+long+"}", 1, 0.1),
+		mkHit("b", "func B() {\n"+long+"}", 2, 0.2),
+	}
+	// Generous budget → everyone stays full.
+	out, _ := DensityAdjust(hits, 10000)
+	for i, h := range out {
+		if h.Density != DensityFull {
+			t.Errorf("hit[%d] should be Full under generous budget, got %q", i, h.Density)
+		}
+	}
+	// Tight budget → both collapse to signature_only.
+	out, _ = DensityAdjust(hits, 5)
+	for i, h := range out {
+		if h.Density != DensitySignatureOnly {
+			t.Errorf("hit[%d] should be SignatureOnly under tight budget, got %q", i, h.Density)
+		}
+	}
+}
+
+// TestDensityMaxDensityCap exercises the MaxDensity override: callers
+// can force a tier ceiling regardless of budget headroom. Use case:
+// CLI list-mode wants signatures only; never a multi-line body.
+func TestDensityMaxDensityCap(t *testing.T) {
+	hits := []types.Hit{
+		mkHit("a", "func A() {\n  return 1\n}", 1, 0.1),
+		mkHit("b", "func B() {\n  return 2\n}", 2, 0.2),
+	}
+	// Budget is plenty, but cap is SignatureOnly.
+	out, _ := DensityAdjustWith(hits, 10000, DensitySignatureOnly, 0)
+	for i, h := range out {
+		if h.Density != DensitySignatureOnly {
+			t.Errorf("hit[%d] should respect SignatureOnly cap, got %q", i, h.Density)
+		}
+		if strings.Contains(h.Snippet, "return") {
+			t.Errorf("hit[%d] cap leaked body: %q", i, h.Snippet)
+		}
+	}
+
+	// Cap = Signature5 means full is never reached; pressure can still
+	// downgrade further to signature_only.
+	out, _ = DensityAdjustWith(hits, 10000, DensitySignature5, 0)
+	for i, h := range out {
+		if h.Density == DensityFull {
+			t.Errorf("hit[%d] should not be Full when cap=Signature5: %q", i, h.Density)
+		}
+	}
+}
+
+// TestDensitySignatureContextLinesIsConfigurable verifies the +N knob.
+// Default is 5; passing 1 should produce a noticeably shorter middle
+// tier than passing 10.
+func TestDensitySignatureContextLinesIsConfigurable(t *testing.T) {
+	body := "func Foo() {\n" + strings.Repeat("  line\n", 20) + "}"
+	hits := []types.Hit{mkHit("a", body, 1, 0.1)}
+
+	short, _ := DensityAdjustWith(hits, 10000, DensitySignature5, 1)
+	long, _ := DensityAdjustWith(hits, 10000, DensitySignature5, 10)
+
+	if len(short[0].Snippet) >= len(long[0].Snippet) {
+		t.Errorf("ctxLines=1 snippet len %d should be shorter than ctxLines=10 len %d",
+			len(short[0].Snippet), len(long[0].Snippet))
+	}
+}

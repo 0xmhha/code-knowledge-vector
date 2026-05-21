@@ -55,7 +55,7 @@
 | §3.5 | 영속화 (atomic rename + manifest) | P0 | ✅ | |
 | §4.1 | Semantic search | P0 | ✅ | `internal/query/engine.go` |
 | §4.2 | Code-as-Query mode (UC-V4) | P1 | ❌-S2 | |
-| §4.3 | Snippet density 3-tier | P0 | ⚠️ | `budget_tokens`만 적용 (full/sig+5/sig ladder 미구현) |
+| §4.3 | Snippet density 3-tier | P0 | ✅ 2026-05-21 | `DensityTier` (Full / Signature5 / SignatureOnly) — Hit 마다 `density` 필드 노출 + `SearchOptions.MaxDensity` cap + `SearchOptions.SignatureContextLines` (+N 튜닝). `internal/query/snippet.go` + `pkg/ckv` 재노출. |
 | §4.4 | Score 정규화 (0~1) + raw distance | P0 | ✅ | `Hit.Score.Normalized` |
 | §4.5 | Query plan (intent classification) | P1 | ❌-S2 | |
 | §5.1 | 인용 강제 부착 | P0 | ✅ | |
@@ -233,8 +233,21 @@ type VectorStore interface {
 - UC-V4 (pattern similarity) 지원
 
 ### 4.3 Snippet Density 조정 (P0)
-- token budget 대응: full body → signature + 5 lines → signature only
-- 항상 citation 은 budget 외(추가 hook)
+
+3-tier ladder (impl 2026-05-21, B3 commit `<TBD>`):
+
+| Tier | 내용 | 토큰 비중 |
+|---|---|---|
+| `DensityFull` | chunk 의 full body | 기본값. 예산 여유 시. |
+| `DensitySignature5` | signature line + 비공백 N (기본 5) | 중간 압축 tier. |
+| `DensitySignatureOnly` | signature 한 줄 | 최소. citation 로 body 회수 가능. |
+
+- 항상 citation 은 budget 외 hook
+- 다운그레이드 순서: full → signature+N → signature only. rank 낮은 hit 부터.
+- `Hit.Density` 필드로 tier per-hit 노출 — 컨슈머가 badge 렌더링 / 압축 통계 활용 가능.
+- `SearchOptions.MaxDensity` 으로 ceiling cap (`DensitySignatureOnly` 설정 시 본문 절대 안 나옴).
+- `SearchOptions.SignatureContextLines` 으로 +N 라인 수 튜닝 (default 5).
+- pkg/ckv 에 `DensityTier` + 상수 3 종 재노출.
 
 ### 4.4 Score 정규화 / 노출 (P0)
 - 0–1 정규화 score

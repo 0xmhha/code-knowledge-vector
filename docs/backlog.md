@@ -38,8 +38,9 @@
 - ~~**Roadmap #8** `ckv reindex` 도입~~ — ✅ 2026-05-21 (commit `f2bb8d2`)
 - ~~**#6** Rule-based contextual prefix~~ — ✅ 2026-05-21 (commit `1a5289d`)
 - ~~**E3** ADR 디렉토리 + 첫 5 ADR~~ — ✅ 2026-05-21 (commit `a4cd5d9`)
+- ~~**B3** Snippet density 3-tier ladder~~ — ✅ 2026-05-21 (commit `<TBD>`)
 
-→ **Tier 1 4건 + #6 + E3 (6 항목) 완료.** 다음 candidates: **B3** (snippet density 3-tier ladder) / **E1** (ARCHITECTURE.md) / **E2** (SCHEMA.md) / **#7** (LLM prefix, throughput buffer 후).
+→ **Tier 1 4건 + #6 + E3 + B3 (7 항목) 완료.** 다음 candidates: **E1** (ARCHITECTURE.md) / **E2** (SCHEMA.md) / **#7** (LLM prefix, throughput buffer 후).
 
 ---
 
@@ -65,7 +66,7 @@
 |---|---|---|---|---|
 | **B1** | §1.3 큰 함수 sliding window split | Mid | ⏳ | head-truncate만 적용. AST top-level statement 단위 split 필요. = Roadmap §12 #10 (Phase A). plan §5.4 약속. |
 | **B2** | §3.4 Filter — commit_hash filtering | Low | ⏳ | metadata 저장만, 실제 filter 미연결. incremental snapshot 용도. |
-| **B3** | §4.3 Snippet density 3-tier ladder | Mid | ⏳ | 현재 `budget_tokens`만. full body / signature+5lines / signature only 3단계 ladder 미구현. |
+| **B3** | §4.3 Snippet density 3-tier ladder | Mid | ✅ 2026-05-21 | `DensityTier` (Full / Signature5 / SignatureOnly) — `internal/query/snippet.go`. Hit 마다 `Density` 필드 노출 + `Options.MaxDensity` cap + `Options.SignatureContextLines` 튜닝. `pkg/ckv` 재노출. 3 신규 unit test (per-hit reporting / cap override / ctxLines knob). |
 | **B4** | §5.2 인용 실재성 — commit_hash 매칭 | Low | ⏳ | file existence만, commit_hash mismatch 미검증. stale citation 감지 약함. |
 | **B5** | §8.2 Envelope — `trace_id`/`dry_run` | Low | ⏳ | `budget_tokens`만. trace_id 일관성, dry_run mode 미구현. observability에 영향. |
 | **B6** | §8.4 Error model 6종 중 5종 미구현 | Mid | ✅ 2026-05-21 | 6 종 sentinel `internal/query/errors.go` + `pkg/ckv` 재노출. Raise points 4 종 wired (IndexUnavailable / BudgetExceeded `MinBudgetTokens=20` / CitationNotFound 전수-drop / FreshnessStale via `Engine.CheckFreshness`). SanitizeFailed / PolicyError sentinel only (S2 / S6 도착 시 raise). 7 unit test (4 internal + 3 facade). |
@@ -196,7 +197,7 @@
 | ~~**Roadmap #8** `ckv reindex` 도입~~ | ✅ 2026-05-21 | `internal/build.Reindex` + `cmd/ckv reindex` impl + 7 unit test |
 | ~~**#6** 룰 기반 prefix~~ | ✅ 2026-05-21 | `internal/chunk/prefix.go` impl, mock N=50 r@1 +0.060 / MRR +0.053 |
 | ~~**E3** ADR 디렉토리 + 첫 5 개 ADR~~ | ✅ 2026-05-21 | `docs/adr/` + README + 5 ADR (sqlite-vec / bge-large pivot / BM25 dual-track / reindex S1.5 / CoreML MLProgram+static) |
-| **B3** Snippet density 3-tier ladder | 즉시 | featurelist §4.3 / plan §6.1 ladder. 현재 `budget_tokens`만. |
+| ~~**B3** Snippet density 3-tier ladder~~ | ✅ 2026-05-21 | `DensityTier` 노출 + cap / ctxLines 옵션 |
 | **#7** LLM-generated prefix (Phase D.2) | 후속 | Anthropic 정식 패턴. throughput cost 큼 (0.2~0.4 c/s). D.1 효과 확정 후 검토. |
 | **E1** `docs/ARCHITECTURE.md` | 즉시 | featurelist §18.2. 4-Layer 위치 + 모듈 도식. |
 | **E2** `docs/SCHEMA.md` | 즉시 | featurelist §18.3. chunk metadata + working memory + sanitize_report. |
