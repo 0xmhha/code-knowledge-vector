@@ -36,7 +36,7 @@
 - ~~**B6** Error model 5 종~~ — ✅ 2026-05-21 (commit `c7f8969`)
 - ~~**A5** fixture N=34 → N=50+~~ — ✅ 2026-05-21 (commit `8c0555d`)
 - ~~**Roadmap #8** `ckv reindex` 도입~~ — ✅ 2026-05-21 (commit `f2bb8d2`)
-- ~~**#6** Rule-based contextual prefix~~ — ✅ 2026-05-21 (commit `<TBD>`)
+- ~~**#6** Rule-based contextual prefix~~ — ✅ 2026-05-21 (commit `1a5289d`)
 
 → **Tier 1 4건 + #6 (Phase D.1) 완료.** 다음 candidates: **E3** (ADR 디렉토리) / **B3** (snippet density 3-tier ladder) / **#7** (LLM prefix D.2, throughput buffer 후).
 

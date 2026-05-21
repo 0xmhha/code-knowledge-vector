@@ -460,7 +460,7 @@ Phase B/C/D 적용 + throughput 0.2~0.4 c/s
 | Phase A | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | sliding split |
 | Phase B | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | multi-granularity |
 | Phase C | TBD | + why-queries.yaml | TBD | TBD | TBD | TBD | TBD | PR/commit corpus |
-| Phase D.1 (rule-based prefix) — mock | 2026-05-21 | queries.yaml N=50 | 0.360 | 1.000 | 0.494 | instant | — | mock baseline N=50 r@1=0.300 → 0.360 (+0.060), r@5 0.680 → 0.740 (+0.060), MRR 0.4403 → 0.4937 (+0.053). prefix format: "language: X. file: Y. symbol: Z (Kind)." 한 줄. impl commit `<TBD>`. |
+| Phase D.1 (rule-based prefix) — mock | 2026-05-21 | queries.yaml N=50 | 0.360 | 1.000 | 0.494 | instant | — | mock baseline N=50 r@1=0.300 → 0.360 (+0.060), r@5 0.680 → 0.740 (+0.060), MRR 0.4403 → 0.4937 (+0.053). prefix format: "language: X. file: Y. symbol: Z (Kind)." 한 줄. impl commit `1a5289d`. |
 | Phase D.1 (rule-based prefix) — bgeonnx | TBD | queries.yaml N=50 | TBD | TBD | TBD | TBD | TBD | bge-large 실측은 별도 세션 (mock + prefix가 +0.053 MRR 보였으므로 bge-large 위에선 더 크게 기대) |
 | Phase D.2 (LLM prefix) | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | Anthropic 패턴 |
 | Phase E (CKS hybrid) | TBD | 동일 | TBD | TBD | TBD | (CKV 동일) | TBD | CKS 통합 후 |
