@@ -135,7 +135,7 @@
 
 ### 1.3 Chunking 전략 (P0)
 - 1차 단위: function / method / type / contract 선언
-- 큰 함수: line-window split (impl 2026-05-21, B1 commit `<TBD>`)
+- 큰 함수: line-window split (impl 2026-05-21, B1 commit `6dc7225`)
   - 임계: `len(text) > MaxInputTokens * charsPerToken` (bge-large 512 tokens × 4 chars/token = 2048 chars)
   - 분할: avg-chars-per-line 기반 window line 수 계산, 균등 line 분할 (no overlap; overlap은 측정 후 추가 검토)
   - 각 sub-chunk: `ChunkKind=ChunkFunctionSplit`, `SymbolName="<orig>:chunk:N"` (1-indexed), 실제 file `start_line/end_line`, distinct `chunk_id`

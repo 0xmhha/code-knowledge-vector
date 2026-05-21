@@ -42,7 +42,7 @@
 - ~~**E1** `docs/ARCHITECTURE.md`~~ — ✅ 2026-05-21 (commit `6466815`)
 - ~~**E2-chunk** `docs/SCHEMA.md`~~ — ✅ 2026-05-21 (commit `484b171`)
 - ~~**B2 / B4 / B5 / B8** 잔여 B 그룹 4건~~ — ✅ 2026-05-21 (commits `209ba70` / `8fc478a` / `5efa2c1` / `0241a25`)
-- ~~**B1** sliding split (Phase A)~~ — ✅ 2026-05-21 (commit `<TBD>`)
+- ~~**B1** sliding split (Phase A)~~ — ✅ 2026-05-21 (commit `6dc7225`)
 
 → **Tier 1 4건 + #6 + E3 + B3 + E1 + E2-chunk + B2 + B4 + B5 + B8 + B1 (14 항목) 완료.** 잔여: **B7** (Symbol ID, CKG 협업 필요) / **B10** (Fuzz 인프라) / **#7** (LLM prefix D.2, bgeonnx throughput buffer 후).
 
