@@ -32,8 +32,8 @@
 **현재 진행 중**: Group α 완료 (#1 / #3 / #5 부분 ✅), Group β 진입 가능. F / G 두 그룹은 2026-05-20~21 세션에서 전면 처리. 자세히 §4 마스터 표.
 
 **가장 시급한 항목** (사용자 결정 또는 작업 의존성 trigger):
-- ~~**B9** Secret 회피 패턴~~ — ✅ 2026-05-21 (commit `<TBD>`)
-- **B6** Error model 5 종 — API 완성도, `pkg/ckv` 표면에 명시
+- ~~**B9** Secret 회피 패턴~~ — ✅ 2026-05-21 (commit `b1ad8aa`)
+- ~~**B6** Error model 5 종~~ — ✅ 2026-05-21 (commit `<TBD>`)
 - **A5** fixture N=34 → N=50+ — 모든 retrieval 측정의 baseline
 - **Roadmap #8** `ckv reindex` 도입 — S1.5 승격, Phase B 도입 *전* architectural 전제
 
@@ -64,7 +64,7 @@
 | **B3** | §4.3 Snippet density 3-tier ladder | Mid | ⏳ | 현재 `budget_tokens`만. full body / signature+5lines / signature only 3단계 ladder 미구현. |
 | **B4** | §5.2 인용 실재성 — commit_hash 매칭 | Low | ⏳ | file existence만, commit_hash mismatch 미검증. stale citation 감지 약함. |
 | **B5** | §8.2 Envelope — `trace_id`/`dry_run` | Low | ⏳ | `budget_tokens`만. trace_id 일관성, dry_run mode 미구현. observability에 영향. |
-| **B6** | §8.4 Error model 6종 중 5종 미구현 | Mid | ⏳ | `IndexUnavailable`만. `FreshnessStale`/`BudgetExceeded`/`CitationNotFound`/`SanitizeFailed`/`PolicyError` 미구현. |
+| **B6** | §8.4 Error model 6종 중 5종 미구현 | Mid | ✅ 2026-05-21 | 6 종 sentinel `internal/query/errors.go` + `pkg/ckv` 재노출. Raise points 4 종 wired (IndexUnavailable / BudgetExceeded `MinBudgetTokens=20` / CitationNotFound 전수-drop / FreshnessStale via `Engine.CheckFreshness`). SanitizeFailed / PolicyError sentinel only (S2 / S6 도착 시 raise). 7 unit test (4 internal + 3 facade). |
 | **B7** | §10.2 Symbol ID 호환 정규화 규칙 | Low | ⏳ | `ckg_node_id` 필드만. CKG와 join 위한 normalize 규칙 미합의. CKG 측과 협업 필요. |
 | **B8** | §11.2 공통 플래그 (`--log-level`, `--profile`) | Low | ⏳ | `--json`만 일관 적용. log-level 환경변수, profile output 미구현. |
 | **B9** | §15.2 Secret 회피 패턴 (.env / *.pem) | High (보안) | ✅ 2026-05-21 | `internal/discover.DefaultSecretPatterns` 25개 패턴 — `.env*` env variants / `*.pem` `*.key` `*.p12` `*.pfx` `*.keystore` / SSH keys / `credentials.json` `service-account*.json` / `.npmrc` `.pypirc` `.netrc` / `.aws/credentials`. opt-out: `CKV_DISABLE_SECRET_FILTER=1`. 3개 신규 unit test (block all / allow template / opt-out). |
@@ -187,13 +187,13 @@
 | ID | 작업 | 시작 가능 시점 | 추천 사유 |
 |---|---|---|---|
 | ~~**B9** Secret 회피 패턴~~ | ✅ 2026-05-21 | `internal/discover.DefaultSecretPatterns` impl |
-| **B6** Error model 5 종 | 즉시 | API 완성도, `pkg/ckv` 표면에 명시. consumer (cks) 가 활용 |
+| ~~**B6** Error model 5 종~~ | ✅ 2026-05-21 | `internal/query/errors.go` 6 sentinel + raise points 4 종 wired |
 | **A5** fixture N=34 → N=50+ | 즉시 | 모든 retrieval 측정의 baseline. #6 / #9 진행 전 권장 |
 | **#6** 룰 기반 prefix | 즉시 (A5 후 측정 가능) | Roadmap §12 Group β 진입 |
 | **Roadmap #8** `ckv reindex` 도입 | 즉시 (architectural) | S1.5 승격. Phase B 도입 *전* 전제 |
 | **E3** ADR 디렉토리 + 첫 5 개 ADR | 즉시 | A1 결정사항을 ADR-005 로 봉인. 결정 누수 방지 |
 
-→ 본 세션의 다음 candidate = **B6** (API 완성도) 또는 **A5** (측정 baseline) 또는 **Roadmap #8** (architectural).
+→ 본 세션의 다음 candidate = **A5** (측정 baseline) 또는 **Roadmap #8** (architectural).
 
 ---
 

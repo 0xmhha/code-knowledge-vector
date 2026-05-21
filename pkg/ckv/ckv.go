@@ -32,11 +32,42 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
-// ErrIndexUnavailable signals that the on-disk index cannot be served
-// by the supplied Embedder. Most commonly: the indexed model differs
-// from the query-time model, or there is no manifest at path. Use
-// errors.Is to test for it.
+// The error model (featurelist §8.4). Each sentinel documents its
+// raise condition and caller-handling guidance — test with errors.Is.
+// Source of truth: internal/query/errors.go.
+
+// ErrIndexUnavailable: the on-disk index cannot be served by the
+// supplied Embedder. Most commonly: indexed model differs from query
+// model, dim mismatch, or no manifest. Caller: run `ckv build`.
 var ErrIndexUnavailable = query.ErrIndexUnavailable
+
+// ErrFreshnessStale: index's IndexedHead is behind current git HEAD.
+// Returned by Engine.CheckFreshness when callers opt in to strict
+// freshness checks. Caller: stale results usually still usable for
+// most retrieval; schedule `ckv build` when convenient.
+var ErrFreshnessStale = query.ErrFreshnessStale
+
+// ErrBudgetExceeded: SearchOptions.BudgetTokens too small for engine
+// to render even a signature-only response. Caller: raise BudgetTokens
+// (default 4000), or set BudgetTokens<0 to disable budgeting.
+var ErrBudgetExceeded = query.ErrBudgetExceeded
+
+// ErrCitationNotFound: every threshold-passing candidate was dropped
+// because its file could not be located under recorded src_root.
+// Almost always means the source tree was moved/deleted without
+// rebuilding. Caller: rebuild with `ckv build --src <current path>`.
+var ErrCitationNotFound = query.ErrCitationNotFound
+
+// ErrSanitizeFailed: sanitize pipeline (UC-V13) rejected the response
+// payload. Reserved for S2; defined for forward-compatible callers.
+// Caller: log sanitize_report.reason; do not retry with same intent.
+var ErrSanitizeFailed = query.ErrSanitizeFailed
+
+// ErrPolicyError: policy or authorization check rejected the request
+// (mTLS SAN mismatch, content policy, internal-tool exposure).
+// Reserved for S6; defined for forward-compatible callers. Caller:
+// hard rejection — do not retry; surface to operator.
+var ErrPolicyError = query.ErrPolicyError
 
 // SearchOptions configures a single SemanticSearch call. Zero values
 // resolve to documented defaults (K=10, Threshold=0.4, BudgetTokens=4000).
@@ -116,6 +147,21 @@ func (e *Engine) Manifest() Manifest {
 		return Manifest{}
 	}
 	return e.inner.Manifest()
+}
+
+// CheckFreshness compares the manifest's IndexedHead against the
+// source tree's current git HEAD. Returns nil when fresh, ErrFreshnessStale
+// (wrapped with head identifiers and change count) when stale. Returns
+// a non-Is(ErrFreshnessStale) error when git itself is unavailable.
+//
+// Use this when the caller wants to know "should I trust this index" —
+// the response's Metadata.Fresh bool is a soft hint, CheckFreshness
+// is the strict variant.
+func (e *Engine) CheckFreshness() error {
+	if e == nil || e.inner == nil {
+		return errors.New("ckv: engine is closed")
+	}
+	return e.inner.CheckFreshness()
 }
 
 // Close releases the underlying store. Idempotent — calling twice is

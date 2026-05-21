@@ -73,7 +73,7 @@
 | §8.1 | `cks.ops.health` (실측 추가) | — | ✅ | featurelist 누락 항목, 코드에 존재 |
 | §8.2 | Envelope/Budget 검증 (trace_id/dry_run) | P0 | ⚠️ | `budget_tokens`만, trace_id/dry_run 미구현 |
 | §8.3 | mTLS auth | P1 | ❌-S6 | plan §8.4 |
-| §8.4 | Error model (FreshnessStale, BudgetExceeded, CitationNotFound, SanitizeFailed, IndexUnavailable, PolicyError) | P0 | ⚠️ | `IndexUnavailable`만 구현, 나머지 미구현 |
+| §8.4 | Error model (FreshnessStale, BudgetExceeded, CitationNotFound, SanitizeFailed, IndexUnavailable, PolicyError) | P0 | ✅ | 6 종 모두 `internal/query/errors.go` 에 sentinel + `pkg/ckv` 재노출. Raise points: IndexUnavailable (Open), BudgetExceeded (Search), CitationNotFound (Search 카타스트로픽), FreshnessStale (Engine.CheckFreshness). SanitizeFailed / PolicyError 는 sentinel만 (S2 / S6 모듈 도착 시 raise). |
 | §8.5 | Health (실측) | P1 | ✅ | `cks.ops.health` |
 | §8.5 | `cks.ops.stats` | P1 | ❌-S2 | |
 | §9 | Sanitize (5 sub-section) — 전체 | P0 | ❌-S2 | plan §13 명시 |
@@ -322,8 +322,18 @@ type VectorStore interface {
 - caller cert SAN ↔ envelope `caller` 일치 검증
 
 ### 8.4 Error Model (P0)
-- `FreshnessStale`, `BudgetExceeded`, `CitationNotFound`, `SanitizeFailed`, `IndexUnavailable`, `PolicyError`
-- 각 에러는 호출자 처리 가이드와 함께 반환 (use-cases.md §error model)
+6 종 모두 `internal/query/errors.go` sentinel + `pkg/ckv` 재노출 (impl 2026-05-21, B6):
+
+| Sentinel | Raise point | 호출자 가이드 |
+|---|---|---|
+| `ErrIndexUnavailable` | `query.Open` — manifest 없음 / 모델 dim·name 불일치 | `ckv build` 재실행. 재시도 무의미. |
+| `ErrFreshnessStale` | `Engine.CheckFreshness` — manifest.IndexedHead ≠ git HEAD | 결과 여전히 사용 가능. 편할 때 reindex 스케줄. |
+| `ErrBudgetExceeded` | `Engine.Search` — `BudgetTokens > 0 && BudgetTokens < MinBudgetTokens(20)` | `BudgetTokens` 올리거나 `<0` 으로 비활성. |
+| `ErrCitationNotFound` | `Engine.Search` — threshold 통과 후 citation 강제로 전수 drop | `ckv build --src <현재경로>` 로 src_root 재정렬. |
+| `ErrSanitizeFailed` | (예약, S2 sanitize 모듈) | sanitize_report.reason 로깅, 동일 intent 재시도 금지. |
+| `ErrPolicyError` | (예약, S6 mTLS / policy 게이트) | 하드 거부. 재시도 금지. 운영자 surface. |
+
+- 호출자는 `errors.Is(err, ckv.ErrXxx)` 로 분기. wrapping safe (errors.Join / fmt.Errorf %w 모두 OK).
 
 ### 8.5 Health / Stats (P1)
 - `/healthz` (HTTP), `cks.ops.stats` (chunk 수, last index time, embedding model)
@@ -471,7 +481,7 @@ type VectorStore interface {
 - write 는 `--out` 데이터 디렉터리에 한정
 
 ### 15.2 Secret 회피 (P0)
-- `internal/discover.DefaultSecretPatterns` 25개 사전 정의 패턴이 indexing 입구에서 secret 파일 차단 (impl 2026-05-21, commit `<TBD>`)
+- `internal/discover.DefaultSecretPatterns` 25개 사전 정의 패턴이 indexing 입구에서 secret 파일 차단 (impl 2026-05-21, commit `b1ad8aa`)
 - 적용 순서: `DefaultIgnore` → `.ckvignore` → `Options.Extra` → `DefaultSecretPatterns` (마지막 적용으로 user override 영향 없음)
 - Opt-out (테스트 전용): `CKV_DISABLE_SECRET_FILTER=1`
 - `.env.example` / `.env.sample` 같은 합법적 템플릿은 명시 환경 suffix만 차단하여 false-positive 회피

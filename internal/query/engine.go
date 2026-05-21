@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
+	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
@@ -40,12 +41,6 @@ const DefaultK = 10
 // store so the post-filter / citation / threshold pipeline has enough
 // candidates to satisfy K. Plan §6.1.
 const overfetchFactor = 3
-
-// ErrIndexUnavailable signals that the on-disk index cannot be served
-// by the supplied Embedder — most commonly because the indexed model
-// differs from the query-time model. Surfaces directly through MCP as
-// the IndexUnavailable error variant (plan §8.4).
-var ErrIndexUnavailable = errors.New("query: index unavailable")
 
 // Options configure a single Search invocation. Zero values resolve to
 // the documented defaults.
@@ -193,6 +188,30 @@ func (e *Engine) Manifest() manifest.Manifest {
 	return *e.man
 }
 
+// CheckFreshness compares the loaded manifest's IndexedHead against
+// the source tree's current git HEAD and returns ErrFreshnessStale
+// (wrapped with the diff) when they differ. Returns nil when fresh,
+// no error and no report when git is unavailable (callers who need
+// the Report directly should use internal/freshness.Check).
+//
+// Caller guidance for ErrFreshnessStale: stale results are usually
+// still usable for most retrieval (recent edits affect a small subset
+// of files), but the caller should schedule `ckv build` when convenient.
+func (e *Engine) CheckFreshness() error {
+	if e == nil || e.man == nil {
+		return errors.New("query: engine has no manifest")
+	}
+	report, err := freshness.Check(e.srcRoot, e.man.IndexedHead)
+	if err != nil {
+		return err
+	}
+	if report.Stale {
+		return fmt.Errorf("%w: indexed=%s current=%s (%d changed files)",
+			ErrFreshnessStale, report.IndexedHead, report.CurrentHead, len(report.ChangedFiles))
+	}
+	return nil
+}
+
 // EmbedderInfo is the health-endpoint view of the embedder this Engine
 // was opened with. Status answers "is this embedder useful for real
 // semantic search?" — operators can distinguish "ckv alive but mock
@@ -301,8 +320,15 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		threshold = DefaultThreshold
 	}
 	budget := opts.BudgetTokens
-	if budget <= 0 {
+	if budget == 0 {
 		budget = DefaultBudgetTokens
+	}
+	// budget < 0 means "disable budgeting"; engine returns hits at full
+	// density. budget > 0 but tiny is a contract violation — the engine
+	// can't represent even one signature-only hit below MinBudgetTokens.
+	if budget > 0 && budget < MinBudgetTokens {
+		return nil, fmt.Errorf("%w: budget=%d, minimum=%d (pass <0 to disable budgeting)",
+			ErrBudgetExceeded, budget, MinBudgetTokens)
 	}
 
 	// Step 1: embed
@@ -345,6 +371,14 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	enforced, droppedCitations := EnforceCitations(passed, srcRoot)
 	if droppedCitations > 0 {
 		warnings = append(warnings, fmt.Sprintf("dropped_%d_unverified_citations", droppedCitations))
+	}
+	// Catastrophic citation failure: we had threshold-passing candidates
+	// but lost every one to citation enforcement. Almost always means the
+	// source tree was moved or deleted without rebuilding the index — the
+	// remaining response would be empty and the cause non-obvious. Raise.
+	if len(passed) > 0 && len(enforced) == 0 {
+		return nil, fmt.Errorf("%w: dropped all %d candidate hits — source root may be missing or out of sync (rebuild with `ckv build --src <path>`)",
+			ErrCitationNotFound, droppedCitations)
 	}
 
 	// Step 5: split tests out of primary hits when ExamplesK > 0.

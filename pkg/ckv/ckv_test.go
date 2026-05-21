@@ -163,6 +163,60 @@ func TestEngine_WarmupAfterCloseFails(t *testing.T) {
 	}
 }
 
+// TestErrorModel_AllSentinelsExported verifies the 6 error variants
+// from featurelist §8.4 are reachable via pkg/ckv with errors.Is
+// semantics. Forward-compat: consumers writing switch errors.Is(...)
+// today must continue to work as we wire raise points for SanitizeFailed
+// (S2) and PolicyError (S6).
+func TestErrorModel_AllSentinelsExported(t *testing.T) {
+	sentinels := map[string]error{
+		"IndexUnavailable": ckv.ErrIndexUnavailable,
+		"FreshnessStale":   ckv.ErrFreshnessStale,
+		"BudgetExceeded":   ckv.ErrBudgetExceeded,
+		"CitationNotFound": ckv.ErrCitationNotFound,
+		"SanitizeFailed":   ckv.ErrSanitizeFailed,
+		"PolicyError":      ckv.ErrPolicyError,
+	}
+	for name, err := range sentinels {
+		if err == nil {
+			t.Errorf("%s sentinel is nil — must be a non-nil error value", name)
+		}
+		// Wrap and re-test: errors.Is must roundtrip the wrapped form
+		// so callers can format-wrap freely without breaking detection.
+		wrapped := errors.Join(err, errors.New("context detail"))
+		if !errors.Is(wrapped, err) {
+			t.Errorf("%s does not satisfy errors.Is after wrap", name)
+		}
+	}
+}
+
+// TestSearch_BudgetExceeded_PropagatesThroughCKVFacade ensures the
+// pkg/ckv surface (not just internal/query) returns ErrBudgetExceeded
+// when consumers pass a too-small budget. Catches accidental error
+// translation in the wrapper.
+func TestSearch_BudgetExceeded_PropagatesThroughCKVFacade(t *testing.T) {
+	out := buildSampleIndex(t)
+	engine, _ := ckv.Open(out, ckv.OpenOptions{Embedder: ckv.MockEmbedder()})
+	defer engine.Close()
+
+	_, err := engine.SemanticSearch(context.Background(), "x",
+		ckv.SearchOptions{BudgetTokens: 5})
+	if !errors.Is(err, ckv.ErrBudgetExceeded) {
+		t.Errorf("expected ErrBudgetExceeded propagated via ckv facade, got %v", err)
+	}
+}
+
+// TestCheckFreshness_AfterCloseFails ensures CheckFreshness fails
+// gracefully on a closed engine (no nil deref).
+func TestCheckFreshness_AfterCloseFails(t *testing.T) {
+	out := buildSampleIndex(t)
+	engine, _ := ckv.Open(out, ckv.OpenOptions{Embedder: ckv.MockEmbedder()})
+	engine.Close()
+	if err := engine.CheckFreshness(); err == nil {
+		t.Fatal("expected CheckFreshness after Close to error")
+	}
+}
+
 func TestEngine_Manifest(t *testing.T) {
 	out := buildSampleIndex(t)
 	engine, _ := ckv.Open(out, ckv.OpenOptions{Embedder: ckv.MockEmbedder()})
