@@ -33,8 +33,8 @@
 
 **가장 시급한 항목** (사용자 결정 또는 작업 의존성 trigger):
 - ~~**B9** Secret 회피 패턴~~ — ✅ 2026-05-21 (commit `b1ad8aa`)
-- ~~**B6** Error model 5 종~~ — ✅ 2026-05-21 (commit `<TBD>`)
-- **A5** fixture N=34 → N=50+ — 모든 retrieval 측정의 baseline
+- ~~**B6** Error model 5 종~~ — ✅ 2026-05-21 (commit `c7f8969`)
+- ~~**A5** fixture N=34 → N=50+~~ — ✅ 2026-05-21 (commit `<TBD>`)
 - **Roadmap #8** `ckv reindex` 도입 — S1.5 승격, Phase B 도입 *전* architectural 전제
 
 ---
@@ -51,7 +51,7 @@
 | **A2** | D1-FU-4 `ckv model fetch` CLI 완성 | Medium (D2) | ⏳ stub | `cmd/ckv/model.go` 현재 `"not yet implemented"` 반환. `hf` 의존 제거 위함. |
 | **A3** | D1-FU-5 linux/amd64+arm64 CI matrix | Low | ⏳ | cross-build with `libonnxruntime` + `libtokenizers`. macOS 외 OS 미검증. |
 | **A4** | D1-FU-6 bge-code-v1 Qwen2 adapter | Mid (D2) | ⏳ | ModelDim=1536, ModelMaxInput=32k, last-token pooling, Qwen2 ONNX export (~5GB). 모델 이미 `~/.cache/ckv/models/bge-code-v1/` 다운로드됨. code retrieval 정확도 잠재 우위. |
-| **A5** | D1-FU-7 fixture corpus 확장 (N=34 → N=50+) | Medium | ⚠️ N=34 도달 | 현 testdata/sample 4 파일 + markdown 1 파일로 N=34가 한계. corpus 자체를 확장 (추가 sample 파일 또는 second sample repo 도입) 필요. |
+| **A5** | D1-FU-7 fixture corpus 확장 (N=34 → N=50+) | Medium | ✅ 2026-05-21 | N=50 도달. 신규 sample 파일 2 개 (`validator.go` 4 Go 심볼, `client.js` 4 JS 심볼 — C10 파서 exercise) + 4 markdown 쿼리 (decisions.md) + 4 기존 파일 gap-fill. mock 임베더 baseline: recall@5=0.68, MRR=0.44, citation_acc=1.00. bge-large 실측은 별도 세션. |
 
 ### B. featurelist §0.1 ⚠️ 부분구현 (S1 finalize 후보)
 
@@ -188,12 +188,12 @@
 |---|---|---|---|
 | ~~**B9** Secret 회피 패턴~~ | ✅ 2026-05-21 | `internal/discover.DefaultSecretPatterns` impl |
 | ~~**B6** Error model 5 종~~ | ✅ 2026-05-21 | `internal/query/errors.go` 6 sentinel + raise points 4 종 wired |
-| **A5** fixture N=34 → N=50+ | 즉시 | 모든 retrieval 측정의 baseline. #6 / #9 진행 전 권장 |
-| **#6** 룰 기반 prefix | 즉시 (A5 후 측정 가능) | Roadmap §12 Group β 진입 |
+| ~~**A5** fixture N=34 → N=50+~~ | ✅ 2026-05-21 | `validator.go` + `client.js` 신설, 16 신규 query, mock recall@5=0.68 |
+| **#6** 룰 기반 prefix | 즉시 (A5 완료, 측정 가능) | Roadmap §12 Group β 진입 |
 | **Roadmap #8** `ckv reindex` 도입 | 즉시 (architectural) | S1.5 승격. Phase B 도입 *전* 전제 |
 | **E3** ADR 디렉토리 + 첫 5 개 ADR | 즉시 | A1 결정사항을 ADR-005 로 봉인. 결정 누수 방지 |
 
-→ 본 세션의 다음 candidate = **A5** (측정 baseline) 또는 **Roadmap #8** (architectural).
+→ 본 세션의 다음 candidate = **Roadmap #8** (architectural) — Tier 1 마지막.
 
 ---
 
