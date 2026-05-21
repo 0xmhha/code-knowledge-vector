@@ -4,7 +4,7 @@
 > **결과물**: `go build -tags bgeonnx ./...` 성공 + `ckv build/eval --embedder=bgeonnx` 동작.
 > **소요 시간**: ~5–10분 (네트워크 속도에 따라).
 >
-> **2026-05-18 업데이트**: 모델이 bge-code-v1 (Qwen2 5.8GB) → **bge-large-en-v1.5 (BERT 2.5GB)** 로 전환. 자세한 사유는 `docs/d1-onnx-poc.md` Decision Log 참조. **bge-large-en-v1.5는 ONNX 파일이 HF repo에 사전 포함돼 있어 Python 변환 단계가 불필요**.
+> **2026-05-18 업데이트**: 모델이 bge-code-v1 (Qwen2 5.8GB) → **bge-large-en-v1.5 (BERT 2.5GB)** 로 전환. **bge-large-en-v1.5는 ONNX 파일이 HF repo에 사전 포함돼 있어 Python 변환 단계가 불필요**.
 
 코드 자체는 `bgeonnx` 빌드 태그로 게이트돼 있어, **이 가이드를 따르지 않아도 기본
 빌드(`go build ./...`)는 영향 받지 않는다**. CKV의 mock embedder는 그대로 동작.

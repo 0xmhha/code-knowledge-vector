@@ -303,6 +303,5 @@ throughput = total_chunks / build_duration_seconds
 ## 7. Related
 
 - 평가 fixture 형식: `testdata/queries.yaml` 헤더 주석
-- 임베더 비교 결과 history: `docs/d1-onnx-poc.md` §3.3
-- 향후 fixture 확장: FU-7 (`docs/d1-onnx-poc.md` §6)
+- 임베더 비교 결과 history 와 fixture 확장 (FU-7) 은 git commit history 와 [`backlog.md`](./backlog.md) 참조.
 - build throughput 개선: FU-8 (배치 + CoreML EP)

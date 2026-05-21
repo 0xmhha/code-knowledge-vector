@@ -1,60 +1,145 @@
 # Code Knowledge Vector (CKV)
 
-> **Status**: pre-α (S1-W1 skeleton)
-> **Sibling**: [`code-knowledge-graph`](https://github.com/0xmhha/code-knowledge-graph) (CKG)
-> **System**: CKS Layer 1 — Vector DB + semantic retrieval
+Semantic code search over a local vector index. CKV indexes a source
+repository as embedding vectors at function / type / heading
+granularity, stores them in an embedded SQLite + `sqlite-vec`
+database, and serves retrieval over a CLI, an in-process Go API, and
+an MCP server. The companion project
+[`code-knowledge-graph`](https://github.com/0xmhha/code-knowledge-graph)
+(CKG) provides symbol-graph search; the two are designed to be
+combined by larger systems (CKS) for hybrid retrieval.
 
-CKV indexes a code repository as embedding vectors (function/method/contract granularity), persists them in an embedded SQLite + `sqlite-vec` store, and exposes semantic search via CLI and MCP. Designed to be imported by **CKS** alongside CKG for hybrid (vector + graph + BM25) retrieval.
+## Features
 
-See [`docs/use-cases.md`](docs/use-cases.md), [`docs/featurelist.md`](docs/featurelist.md), and [`docs/plan-S1-ckv.md`](docs/plan-S1-ckv.md) for the full design.
+- **Languages**: Go (`go/parser`), TypeScript / TSX, JavaScript / JSX / MJS / CJS, Solidity, Markdown.
+- **Embedders**: `mock` (no system dependencies, deterministic feature-hash) and `bgeonnx` (ONNX Runtime + HuggingFace tokenizers, BERT-class models).
+- **CLI**: `build`, `query`, `eval`, `freshness`, `mcp`, `model`.
+- **MCP server**: stdio JSON-RPC. Tools: `cks.context.semantic_search`, `cks.ops.health`, `cks.ops.warmup`, `cks.ops.get_freshness`. Every response carries a top-level `schema_version`.
+- **Go API**: import `github.com/0xmhha/code-knowledge-vector/pkg/ckv` for `Open` / `SemanticSearch` / `Warmup` / `Manifest` / `Close` in the calling process.
+- **Operational**: host memory pre-check + adaptive batching (`CKV_MEM_GUARD`), CoreML execution provider tuning on macOS (`CKV_COREML_*`), ORT thread overrides, panic-safe MCP middleware.
 
 ## Quickstart
 
+### CLI with the mock embedder (no system dependencies)
+
 ```bash
 make build
-./bin/ckv --help
-
-# Build an index over a Go repo
 ./bin/ckv build --src /path/to/repo --out ./ckv-data
-
-# Ask a natural-language question (W3+)
-./bin/ckv query "TCP socket bind on port"
-
-# Start MCP server (W3+)
-./bin/ckv mcp
+./bin/ckv query "TCP socket bind on port" --out ./ckv-data
 ```
 
-## S1 scope
+### CLI with `bgeonnx` (real semantic embeddings)
 
-| Milestone | Status |
-|---|---|
-| M0 — Skeleton (Cobra CLI, Make, go.mod) | in progress |
-| M1 — Indexer α (tree-sitter + chunking) | planned |
-| M2 — Vector store (sqlite-vec, embedded) | planned |
-| M3 — Query α (`ckv query`) | planned |
-| M5 — MCP server (`ckv mcp`) + `query_code` | planned |
-| M6 (partial) — RRF hybrid hook | planned |
+Requires `libonnxruntime`, `libtokenizers.a`, and a downloaded model.
+See [`docs/d1-installation-guide.md`](docs/d1-installation-guide.md).
 
-See [`docs/plan-S1-ckv.md`](docs/plan-S1-ckv.md) for the week-by-week plan.
-
-## Architecture (briefly)
-
-```
-ckv build → discover → parse (tree-sitter) → chunk → embed → store (sqlite-vec)
-                                                     │
-                                                     └→ manifest.json
-ckv query  → embed(query) → store.Search → citation enforce → ranked hits
-ckv mcp    → JSON-RPC stdio → cks.context.* / cks.ops.* tools
+```bash
+CGO_LDFLAGS="-L$HOME/lib" go build -tags bgeonnx -o ./bin/ckv ./cmd/ckv
+./bin/ckv build --embedder bgeonnx --src /path/to/repo --out ./ckv-data
+./bin/ckv query "..." --embedder bgeonnx --out ./ckv-data
 ```
 
-Detailed schema and decision matrix: [`docs/plan-S1-ckv.md`](docs/plan-S1-ckv.md).
+### In-process Go API
+
+```go
+import (
+    "context"
+
+    "github.com/0xmhha/code-knowledge-vector/pkg/ckv"
+)
+
+func search() error {
+    engine, err := ckv.Open(".ckv-data", ckv.OpenOptions{
+        Embedder: ckv.MockEmbedder(),
+    })
+    if err != nil {
+        return err
+    }
+    defer engine.Close()
+
+    if err := engine.Warmup(context.Background()); err != nil {
+        // log and continue; first query will pay the cost instead
+    }
+
+    resp, err := engine.SemanticSearch(context.Background(),
+        "TCP socket bind on port",
+        ckv.SearchOptions{K: 5})
+    if err != nil {
+        return err
+    }
+    _ = resp.Hits // []ckv.Hit — citation, snippet, score per result
+    return nil
+}
+```
+
+See [`docs/embedder-integration.md`](docs/embedder-integration.md)
+for the production embedder path, environment overrides, and
+migration off subprocess MCP.
+
+### MCP server
+
+```bash
+./bin/ckv mcp --out ./ckv-data
+```
+
+Speaks MCP JSON-RPC over stdio. Register with Claude Code:
+
+```bash
+claude mcp add ckv --command "$(pwd)/bin/ckv mcp --out=$(pwd)/ckv-data"
+```
+
+## Supported languages
+
+| Language | Parser | Extensions |
+|---|---|---|
+| Go | `go/parser` | `.go` |
+| TypeScript | tree-sitter | `.ts`, `.tsx` |
+| JavaScript | tree-sitter (via TS grammar) | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| Solidity | tree-sitter | `.sol` |
+| Markdown | heading-section chunks | `.md`, `.markdown` |
+
+## Embedders
+
+| Backend | Build tag | System deps | Use case |
+|---|---|---|---|
+| `mock` | none (default) | none | tests, smoke checks — no semantic signal |
+| `bgeonnx` | `-tags bgeonnx` | `libonnxruntime`, `libtokenizers.a`, model files | production semantic search |
+
+The `bgeonnx` registry contains two model configs:
+`bge-large-en-v1.5` (default, BERT-class, 1024 dim) and
+`embeddinggemma-300m` (Gemma-class, 768 dim). Model files live under
+`~/.cache/ckv/models/<name>/`. The Gemma config is registered; the
+weights are not bundled with this repository.
+
+## Architecture
+
+```
+ckv build   discover ── parse ── chunk ── embed ── sqlite-vec
+                                                    │
+                                                    └─ manifest.json
+ckv query   embed(intent) ── store.Search ── citation enforce ── snippet ── top-K
+ckv mcp     JSON-RPC stdio ── cks.context.* / cks.ops.*
+pkg/ckv     Engine wrapper around internal/query (in-process consumers)
+```
 
 ## Build requirements
 
-- Go 1.23+ (target 1.25 once CKG dependency lands in W3)
+- Go 1.25+
 - CGO enabled (for `sqlite-vec` via `mattn/go-sqlite3`)
 - `gcc` or `clang` toolchain
+- `libonnxruntime` and `libtokenizers.a` only when building with
+  `-tags bgeonnx`
+
+## Documentation
+
+- [`docs/embedder-integration.md`](docs/embedder-integration.md) — consumer integration: in-process API, MCP, environment overrides, migration off the subprocess proxy.
+- [`docs/d1-installation-guide.md`](docs/d1-installation-guide.md) — building `bgeonnx`, downloading models, system dependencies.
+- [`docs/use-cases.md`](docs/use-cases.md) — design use cases.
+- [`docs/featurelist.md`](docs/featurelist.md), [`docs/backlog.md`](docs/backlog.md) — feature and work tracking.
+- [`docs/retrieval-quality-roadmap.md`](docs/retrieval-quality-roadmap.md) — retrieval-quality work plan.
+- [`docs/plan-S1-ckv.md`](docs/plan-S1-ckv.md) — S1 architectural plan.
+- [`docs/eval-metrics.md`](docs/eval-metrics.md) — evaluation methodology.
 
 ## License
 
-See [`LICENSE`](LICENSE).
+AGPL-3.0. See [`LICENSE`](LICENSE).

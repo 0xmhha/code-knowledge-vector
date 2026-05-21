@@ -239,7 +239,7 @@ ckv build ...
 ## 5. Performance baseline (2026-05-20)
 
 `testdata/sample` (5 source files, 37 chunks) 기준. 자세한 측정 history는
-`docs/issue-coreml-compile-io-error.md` §5 참조.
+CoreML 디버깅 history 는 git commit log 의 `feat(bgeonnx)` 시리즈 참조.
 
 | 설정 | Wall | chunks/s | 비고 |
 |---|---|---|---|
@@ -304,7 +304,4 @@ resp, err := engine.SemanticSearch(ctx, query, ckv.SearchOptions{K: 10})
 ## 8. 관련 문서
 
 - `d1-installation-guide.md` — ckv 자체 빌드/실행 가이드 (개발자 시점)
-- `issue-coreml-compile-io-error.md` — CoreML 디버깅 history 와 가설 검증 로그
-- `fp16-model-evaluation.md` — FP16 / INT8 모델 후보 비교
-- `followups-from-cks-dogfood-2026-05-19.md` — cks consumer 측 gap 추적 (이 문서가 CKV-3 closure)
 - `testdata/mcp-repro/` — stdio MCP 검증 스크립트

@@ -70,7 +70,7 @@
 
 ### 권장 (S1 default) — **결정됨 2026-05-18**
 
-**default = `bge-large-en-v1.5`** (BERT, 1024d, CLS pooling). 이전 권고였던 `bge-code-v1`(Qwen2 1.5B, 1024d, last-token pooling)은 D1 PoC 단계 (2026-05-18) 에서 어댑터 정합성·다운로드 크기(5.8GB) 사유로 pivot. 자세한 결정 근거는 [`d1-onnx-poc.md §4 Decision Log`](./d1-onnx-poc.md) (2026-05-18 row).
+**default = `bge-large-en-v1.5`** (BERT, 1024d, CLS pooling). 이전 권고였던 `bge-code-v1`(Qwen2 1.5B, 1024d, last-token pooling)은 D1 PoC 단계 (2026-05-18) 에서 어댑터 정합성·다운로드 크기(5.8GB) 사유로 pivot.
 
 | 항목 | 채택 | 사유 |
 |---|---|---|
@@ -532,7 +532,6 @@ featurelist §21의 q1~q5 + 추가:
 - **확정**: `bge-large-en-v1.5` (BERT, 1024d, CLS pooling, ~2.5GB). 어댑터 정합성 + ONNX in-repo + 다운로드 크기 우위로 D1 PoC pivot.
 - **이전 권고였던 `bge-code-v1`(Qwen2)** 은 D1-FU-6 (open, D2 scope) 으로 이관. recall@5=1.0 / MRR=0.77 (N=10) baseline 측정 완료.
 - **fallback**: BGE-M3 (multilingual 필요 시 — 한국어 주석 등).
-- 자세히: [`d1-onnx-poc.md §4 Decision Log`](./d1-onnx-poc.md) 2026-05-18 row.
 
 ### q3: sqlite-vec ANN 성능
 - **검증 필요**: 1M chunk 환경에서 latency p95 측정.

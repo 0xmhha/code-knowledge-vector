@@ -6,8 +6,7 @@
 > **연관 문서**:
 > - 직접 우선순위: [`retrieval-quality-roadmap.md §12`](./retrieval-quality-roadmap.md)
 > - 구현 상태: [`featurelist.md §0.1`](./featurelist.md)
-> - D1 PoC follow-ups: [`d1-onnx-poc.md §6`](./d1-onnx-poc.md)
-> - 사용자 결정 source: [`review-direction-2026-05-18.md`](./review-direction-2026-05-18.md)
+> - D1 PoC follow-ups 와 사용자 결정 source 원문은 본 backlog 작성 이후 정리됨 (git history 참조).
 
 > **역할 분리**:
 > - **본 문서 (backlog.md)** — 추적 항목 inventory + 진행 상태 + 카테고리별 정리 ⬅️ *new SoT*
@@ -41,7 +40,7 @@
 
 ### A. D1 PoC 잔여 follow-ups
 
-출처: [`d1-onnx-poc.md §6`](./d1-onnx-poc.md) + 본 세션 신규 발견.
+출처: 2026-05-19 backlog 작성 세션의 D1 PoC follow-up 정리 (commit history 참조).
 
 | ID | 작업 | 우선순위 | 상태 | 비고 |
 |---|---|---|---|---|
@@ -102,7 +101,7 @@
 | ID | 작업 | 우선순위 | 상태 | 비고 |
 |---|---|---|---|---|
 | **E1** | `docs/ARCHITECTURE.md` 신설 | P1 | ⏳ | featurelist §18.2. 4-Layer 위치 + 모듈 도식. 현재 plan-S1-ckv.md가 일부 역할. |
-| **E2** | `docs/SCHEMA.md` 신설 | P1 | ⏳ | featurelist §18.3. chunk metadata schema + working memory entry + sanitize_report. 현재 plan + d1-onnx-poc에 분산. |
+| **E2** | `docs/SCHEMA.md` 신설 | P1 | ⏳ | featurelist §18.3. chunk metadata schema + working memory entry + sanitize_report. 현재 plan-S1-ckv.md 에 분산. |
 | **E3** | ADR 디렉토리 신설 (`docs/adr/NNN-*.md`) | Mid | ⏳ | review-direction Appendix B 의도. markdown parser는 #3에서 했으나 *실제 ADR 문서* 자체 미작성. 첫 ADR 후보: ADR-001 (sqlite-vec 선택), ADR-002 (bge-large-en-v1.5 pivot), ADR-003 (BM25 dual-track), ADR-004 (ckv reindex S1.5 승격). |
 
 ---
@@ -170,16 +169,16 @@
 | #2 | (eval 영역 외) | 2 | review-direction Appendix C |
 | #3 | §1.2 markdown (신규) | 3 | review-direction Appendix B.1.b |
 | #4 | (corpus 신규 차원) | 4 | review-direction Appendix B.1.b |
-| #5 / A1 | §2.3 ⚠️ | 5 | d1-onnx-poc D1-FU-8 |
+| #5 / A1 | §2.3 ⚠️ | 5 | D1-FU-8 (throughput, batch + CoreML EP) |
 | #6 | (chunk text prefix 신규) | 6 | — |
 | #7 | (chunk text prefix 신규) | 7 | — |
-| #8 / C1 | §6.2 ❌-S1.5 | 8 | review-direction §6.6 |
+| #8 / C1 | §6.2 ❌-S1.5 | 8 | autoplan §6.6 |
 | #9 | (multi-granularity 신규) | 9 | — |
 | #10 / B1 | §1.3 ⚠️ | 10 | plan §5.4 |
-| A2 | §11.1 ⚠️ stub | — | d1-onnx-poc D1-FU-4 |
-| A3 | §17.2 ❌ | — | d1-onnx-poc D1-FU-5 |
-| A4 | (D2 scope) | — | d1-onnx-poc D1-FU-6 |
-| A5 | (측정 인프라) | (#1과 동일 phase) | d1-onnx-poc D1-FU-7 |
+| A2 | §11.1 ⚠️ stub | — | D1-FU-4 (model fetch helper) |
+| A3 | §17.2 ❌ | — | D1-FU-5 (CI matrix linux/amd64+arm64) |
+| A4 | (D2 scope) | — | D1-FU-6 (bge-code-v1 Qwen2 adapter) |
+| A5 | (측정 인프라) | (#1과 동일 phase) | D1-FU-7 (50+ query fixture 확장) |
 | B2 | §3.4 ⚠️ | — | — |
 | B3 | §4.3 ⚠️ | — | — |
 | B4 | §5.2 ⚠️ | — | — |

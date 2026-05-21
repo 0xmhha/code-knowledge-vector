@@ -111,7 +111,7 @@
 | §17.3 | Release (`make release` + CI matrix) | P2 | ❌ | |
 | §18.1 | README | P0 | ✅ | |
 | §18.2 | ARCHITECTURE.md | P1 | ❌ | (`plan-S1-ckv.md` 일부 역할) |
-| §18.3 | SCHEMA.md | P1 | ❌ | d1-onnx-poc + plan 분산 |
+| §18.3 | SCHEMA.md | P1 | ❌ | plan-S1-ckv.md에 분산 |
 | §18.4 | CKS integration guide | P2 | ❌-CKS | CKS repo 책임 |
 
 **S1 진행 요약**: P0 항목 중 ✅ = 35%, ⚠️ = 15%, ❌-S2 이관 결정 = 30%, ❌-planned/CKS = 20%. 본문 sub-section의 미구현 claim은 본 표의 "❌-..." 분류로 해석.
@@ -590,7 +590,7 @@ type VectorStore interface {
 | ID | 항목 | 결정 | 결정일 | 근거 |
 |---|---|---|---|---|
 | q1 | Solidity event/modifier chunk_kind | 별도 분리 (event/modifier 독립) | W3-T10 | plan §10 q1 |
-| **q2** | 기본 임베딩 모델 | **bge-large-en-v1.5** (1024d BERT, CLS pooling) | 2026-05-18 | D1 PoC pivot — bge-code-v1(Qwen2 5.8GB) 가설 검증 후 BERT 어댑터 정합성 우위로 전환. d1-onnx-poc.md §4 |
+| **q2** | 기본 임베딩 모델 | **bge-large-en-v1.5** (1024d BERT, CLS pooling) | 2026-05-18 | D1 PoC pivot — bge-code-v1(Qwen2 5.8GB) 가설 검증 후 BERT 어댑터 정합성 우위로 전환. |
 | q4 | MCP 라이브러리 | `mark3labs/mcp-go` (CKG와 일치) | M5 | plan §10 q4 |
 | **JS/Bash parser** | `*.js`/`*.jsx`/Bash 인덱싱 | **S2 이관** (S1 범위 밖) | 2026-05-19 | review-direction §6.1 사용자 결정 |
 | **BM25 위치** | CKV·CKG 양쪽 BM25 dual-track | 개발 단계 유지, 동작 검증 후 수렴 결정 | 2026-05-18 | review-direction §6.1 Challenge 1 |

@@ -3,7 +3,7 @@
 > **문서 버전**: 1.0
 > **작성일**: 2026-05-19
 > **목적**: CKV의 retrieval 정확도를 산업계 베스트 프랙티스 수준까지 끌어올리기 위한 5가지 패턴 적용 로드맵. 각 패턴의 외부 공개 측정값 + 우리 환경에서의 예상 효과 + 적용 순서 + A/B 측정 framework 정의.
-> **연관 문서**: [`plan-S1-ckv.md`](./plan-S1-ckv.md) §5 (chunking), [`d1-onnx-poc.md`](./d1-onnx-poc.md) §3.3 (현 baseline), [`eval-metrics.md`](./eval-metrics.md) (메트릭 정의), [`review-direction-2026-05-18.md`](./review-direction-2026-05-18.md) §6.1 Challenge 2 (corpus 확장).
+> **연관 문서**: [`plan-S1-ckv.md`](./plan-S1-ckv.md) §5 (chunking), [`eval-metrics.md`](./eval-metrics.md) (메트릭 정의), [`embedder-integration.md`](./embedder-integration.md) (consumer 통합 + env 튜닝).
 
 ---
 
@@ -470,7 +470,7 @@ Phase B/C/D 적용 + throughput 0.2~0.4 c/s
 
 **Fact** (None — 추론 아닌 사실, 출처 명시):
 - Anthropic Contextual Retrieval 공식 측정 (2024-09-19, 5 dataset 248 query, 코드 retrieval 포함): vector-only 대비 contextual embeddings **−35% failure**, + contextual BM25 **−49%**, + Cohere rerank-3 **−67%**. [출처](https://www.anthropic.com/news/contextual-retrieval)
-- CKV 현 baseline: N=10, recall@5=1.000 (ceiling), recall@1=0.600, MRR=0.770, citation@1=1.000, build 1.6 chunks/s, query p95 43ms ([`d1-onnx-poc.md §3.3`](./d1-onnx-poc.md))
+- CKV 2026-05-18 baseline: N=10, recall@5=1.000 (ceiling), recall@1=0.600, MRR=0.770, citation@1=1.000, build 1.6 chunks/s, query p95 43ms
 - CKV chunking은 단층 (function-level only) + file_header 50줄. multi-granularity / contextual prefix 모두 미적용. (`internal/chunk/chunk.go`)
 - `ckv reindex` (incremental) 는 S2 이관 결정 (`plan §13`, `featurelist §0.1`)
 
@@ -489,8 +489,8 @@ Phase B/C/D 적용 + throughput 0.2~0.4 c/s
 본 §는 retrieval quality 진화(§8) 외에도 사용자 instruction(review-direction §6.1 Challenges + Appendix C PR #70) 으로 결정된 직접 작업을 합쳐 *CKV의 다음 모든 작업을 한 순서로* 정렬한다. Roadmap §8의 6-phase 보다 broader scope.
 
 **세 source가 별도로 존재**:
-- **Challenges** (1·2·3) — `review-direction-2026-05-18.md §6.1`, 사용자 직접 선언
-- **Appendix C** — PR #70 회귀 테스트 구체 타겟, 사용자 직접 명시
+- **Challenges** (1·2·3) — autoplan 시점 사용자 직접 선언, 결정사항은 [`backlog.md`](./backlog.md) 와 commit history 에 흡수.
+- **Appendix C** — PR #70 회귀 테스트 구체 타겟. [`testdata/prs.yaml`](../testdata/prs.yaml) 에 4 entries (pr70/69/72/74) 로 구현됨.
 - **Roadmap §8** — 본 문서, 산업계 best practice 5 패턴
 
 세 source는 *다른 차원의 작업*을 다루므로 단순 합산이 아니라 *의존성 기준 통합*.
