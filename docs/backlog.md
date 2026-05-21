@@ -36,8 +36,9 @@
 - ~~**B6** Error model 5 종~~ — ✅ 2026-05-21 (commit `c7f8969`)
 - ~~**A5** fixture N=34 → N=50+~~ — ✅ 2026-05-21 (commit `8c0555d`)
 - ~~**Roadmap #8** `ckv reindex` 도입~~ — ✅ 2026-05-21 (commit `f2bb8d2`)
+- ~~**#6** Rule-based contextual prefix~~ — ✅ 2026-05-21 (commit `<TBD>`)
 
-→ **Tier 1 (4 항목) 모두 완료.** 다음 Tier candidates: **#6** (룰 기반 prefix, A5 완료 → 측정 가능) / **E3** (ADR 디렉토리) / **B3** (snippet density 3-tier ladder).
+→ **Tier 1 4건 + #6 (Phase D.1) 완료.** 다음 candidates: **E3** (ADR 디렉토리) / **B3** (snippet density 3-tier ladder) / **#7** (LLM prefix D.2, throughput buffer 후).
 
 ---
 
@@ -192,11 +193,12 @@
 | ~~**B6** Error model 5 종~~ | ✅ 2026-05-21 | `internal/query/errors.go` 6 sentinel + raise points 4 종 wired |
 | ~~**A5** fixture N=34 → N=50+~~ | ✅ 2026-05-21 | `validator.go` + `client.js` 신설, 16 신규 query, mock recall@5=0.68 |
 | ~~**Roadmap #8** `ckv reindex` 도입~~ | ✅ 2026-05-21 | `internal/build.Reindex` + `cmd/ckv reindex` impl + 7 unit test |
-| **#6** 룰 기반 prefix | 즉시 (A5 완료, 측정 가능) | Roadmap §12 Group β 진입 |
+| ~~**#6** 룰 기반 prefix~~ | ✅ 2026-05-21 | `internal/chunk/prefix.go` impl, mock N=50 r@1 +0.060 / MRR +0.053 |
 | **E3** ADR 디렉토리 + 첫 5 개 ADR | 즉시 | A1 결정사항을 ADR-005 로 봉인. 결정 누수 방지 |
 | **B3** Snippet density 3-tier ladder | 즉시 | featurelist §4.3 / plan §6.1 ladder. 현재 `budget_tokens`만. |
+| **#7** LLM-generated prefix (Phase D.2) | 후속 | Anthropic 정식 패턴. throughput cost 큼 (0.2~0.4 c/s). D.1 효과 확정 후 검토. |
 
-→ **Tier 1 4건 모두 완료.** 다음 Tier candidate = **#6** (룰 기반 prefix, 측정 즉시 가능) / **E3** (ADR 문서) / **B3** (snippet ladder).
+→ **Tier 1 + 1 (5 항목) 완료.** 다음 candidate = **E3** (ADR 문서) / **B3** (snippet ladder) / **#7** (LLM prefix, throughput buffer 후).
 
 ---
 

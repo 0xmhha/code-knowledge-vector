@@ -460,7 +460,8 @@ Phase B/C/D 적용 + throughput 0.2~0.4 c/s
 | Phase A | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | sliding split |
 | Phase B | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | multi-granularity |
 | Phase C | TBD | + why-queries.yaml | TBD | TBD | TBD | TBD | TBD | PR/commit corpus |
-| Phase D.1 (rule-based prefix) | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | |
+| Phase D.1 (rule-based prefix) — mock | 2026-05-21 | queries.yaml N=50 | 0.360 | 1.000 | 0.494 | instant | — | mock baseline N=50 r@1=0.300 → 0.360 (+0.060), r@5 0.680 → 0.740 (+0.060), MRR 0.4403 → 0.4937 (+0.053). prefix format: "language: X. file: Y. symbol: Z (Kind)." 한 줄. impl commit `<TBD>`. |
+| Phase D.1 (rule-based prefix) — bgeonnx | TBD | queries.yaml N=50 | TBD | TBD | TBD | TBD | TBD | bge-large 실측은 별도 세션 (mock + prefix가 +0.053 MRR 보였으므로 bge-large 위에선 더 크게 기대) |
 | Phase D.2 (LLM prefix) | TBD | 동일 | TBD | TBD | TBD | TBD | TBD | Anthropic 패턴 |
 | Phase E (CKS hybrid) | TBD | 동일 | TBD | TBD | TBD | (CKV 동일) | TBD | CKS 통합 후 |
 
@@ -574,7 +575,7 @@ Group δ (인프라 + retrieval 마무리):
 | 3 | ✅ | 2026-05-19 | 2026-05-19 | Phase 0a N=34 row (markdown corpus 포함) | commit `4a5dc3a`. `internal/parse/markdown/` 신설 + heading-level split |
 | 4 | ⏳ | — | — | — | #2 후 (git/gh fetch 모듈 재사용) |
 | 5 | ⚠️ 부분 | 사용자 별도 세션 | 2026-05-19 부분 | Phase 0a N=34 throughput 1.0 c/s | main `555b0c4`로 CoreML 코드 적용 완료. but N=34 측정 시 **CoreML compile I/O error** → CKV_DISABLE_COREML=1 fallback. Phase 0b 잔여 = backlog **A1** |
-| 6 | 📌 | — | — | — | Group α 완료 직후 진행 가능 — Group β 진입 OK |
+| 6 | ✅ | 2026-05-21 | 2026-05-21 | Phase D.1 row | rule-based prefix (`internal/chunk/prefix.go`) — mock N=50 r@1 +0.060, MRR +0.053. opt-out: `CKV_DISABLE_CONTEXTUAL_PREFIX=1`. |
 | 7 | ⏳ | — | — | — | A1 (CoreML 정상화) 후 (throughput buffer 확보) |
 | 8 | 📝 | — | — | — | **S1.5 승격 결정만 완료** (commit `c0689d7`). 코드 미진행. backlog **C1** |
 | 9 | ⏳ | — | — | — | #8 후 |

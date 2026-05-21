@@ -75,13 +75,14 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 	defer fp.Close()
 
 	res, err := build.Reindex(ctx, build.ReindexOptions{
-		SrcRoot:     opts.src,
-		OutDir:      opts.out,
-		Embedder:    emb,
-		Since:       opts.since,
-		Files:       opts.files,
-		Footprint:   fp,
-		ProgressOut: os.Stderr,
+		SrcRoot:                 opts.src,
+		OutDir:                  opts.out,
+		Embedder:                emb,
+		Since:                   opts.since,
+		Files:                   opts.files,
+		Footprint:               fp,
+		ProgressOut:             os.Stderr,
+		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
 	})
 	if err != nil {
 		// Surface the two domain errors with operator-friendly hints.

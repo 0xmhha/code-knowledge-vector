@@ -73,11 +73,12 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 	defer fp.Close()
 
 	res, err := build.Run(ctx, build.Options{
-		SrcRoot:     opts.src,
-		OutDir:      opts.out,
-		Embedder:    emb,
-		Footprint:   fp,
-		ProgressOut: os.Stderr,
+		SrcRoot:                 opts.src,
+		OutDir:                  opts.out,
+		Embedder:                emb,
+		Footprint:               fp,
+		ProgressOut:             os.Stderr,
+		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
 	})
 	if err != nil {
 		return err

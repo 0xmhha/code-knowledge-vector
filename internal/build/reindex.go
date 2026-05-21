@@ -66,6 +66,13 @@ type ReindexOptions struct {
 	// ProgressOut receives human-readable per-file progress lines.
 	// nil disables progress entirely (library-mode default).
 	ProgressOut io.Writer
+
+	// DisableContextualPrefix mirrors Options.DisableContextualPrefix
+	// for the reindex path so partial rebuilds match what the original
+	// build produced. Keep both at the same value across build+reindex
+	// — mixing prefixed and raw embeddings in one store would degrade
+	// retrieval.
+	DisableContextualPrefix bool
 }
 
 // ReindexResult is what Reindex returns to the caller.
@@ -189,6 +196,11 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		FileHeaderLines: cfg.Chunking.FileHeaderLines,
 	})
 
+	embedTextFn := chunk.BuildEmbedText
+	if o.DisableContextualPrefix {
+		embedTextFn = chunk.RawEmbedText
+	}
+
 	result := &ReindexResult{
 		PrevHead: prevHead,
 		NewHead:  newHead,
@@ -281,7 +293,7 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		if len(chunks) == 0 {
 			continue // empty file or all parse spans dropped
 		}
-		if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, nil); err != nil {
+		if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, nil, embedTextFn); err != nil {
 			return nil, fmt.Errorf("embed/upsert %s: %w", rel, err)
 		}
 		if containsString(changes.added, rel) {

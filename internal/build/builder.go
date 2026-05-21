@@ -44,6 +44,14 @@ type Options struct {
 	// embedded callers don't get surprise stderr writes). The CLI
 	// sets this to os.Stderr; tests can inject a bytes.Buffer.
 	ProgressOut io.Writer
+
+	// DisableContextualPrefix turns off the rule-based contextual prefix
+	// (Phase D.1). The default (zero value, prefix on) prepends a one-line
+	// "language: X. file: Y. symbol: Z." sentence to each chunk's embed
+	// text — improving recall@1 on natural-language queries at ~5%
+	// throughput cost. Disable for A/B measurement against the raw-text
+	// baseline. Chunk IDs and the stored Text are unaffected either way.
+	DisableContextualPrefix bool
 }
 
 // Result is what Run returns to the CLI for the summary log.
@@ -188,6 +196,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	chunker := chunk.New(chunkOpts)
 
+	// Phase D.1 contextual prefix: default on, opt-out via Options.
+	// The chunk's raw Text is still what gets persisted and returned in
+	// snippets — only the *embedder input* changes.
+	embedTextFn := chunk.BuildEmbedText
+	if o.DisableContextualPrefix {
+		embedTextFn = chunk.RawEmbedText
+	}
+
 	// progress writes a throttled stderr-side status line so the user
 	// can watch ckv build advance. Library callers leave ProgressOut
 	// nil and get a silent no-op.
@@ -237,7 +253,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if len(chunks) == 0 {
 				return
 			}
-			if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, memSig); err != nil {
+			if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, memSig, embedTextFn); err != nil {
 				perFileErr = fmt.Errorf("embed/upsert %s: %w", f.RelPath, err)
 				return
 			}
@@ -307,8 +323,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}, nil
 }
 
-// embedAndUpsert batches the chunks' Text through the embedder and
-// upserts the resulting (chunk, vector) pairs into the store.
+// embedAndUpsert batches the chunks through the embedder and upserts
+// the resulting (chunk, vector) pairs into the store. embedTextFn picks
+// what gets sent to the embedder per chunk; callers pass chunk.BuildEmbedText
+// for the Phase D.1 contextual prefix or chunk.RawEmbedText for the
+// raw-baseline behavior. The persisted chunk Text is unchanged either
+// way so snippet display and chunk IDs stay stable.
 //
 // Adaptive batching: when sig reports memory pressure, the working
 // batch halves (floor 1) before the next embed call. Recovery is
@@ -316,7 +336,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 // fresh embedAndUpsert call, so transient pressure doesn't permanently
 // throttle the build. sig may be nil (guard disabled); underPressure()
 // handles that.
-func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embedder, chunks []types.Chunk, batch int, sig *memSignal) error {
+func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embedder, chunks []types.Chunk, batch int, sig *memSignal, embedTextFn func(types.Chunk) string) error {
+	if embedTextFn == nil {
+		embedTextFn = chunk.RawEmbedText
+	}
 	effectiveBatch := batch
 	for i := 0; i < len(chunks); {
 		if sig.underPressure() && effectiveBatch > 1 {
@@ -328,7 +351,7 @@ func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embed
 		end := min(i+effectiveBatch, len(chunks))
 		texts := make([]string, end-i)
 		for j, c := range chunks[i:end] {
-			texts[j] = c.Text
+			texts[j] = embedTextFn(c)
 		}
 		vecs, err := emb.Embed(ctx, texts)
 		if err != nil {
