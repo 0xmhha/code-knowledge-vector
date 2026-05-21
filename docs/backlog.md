@@ -46,6 +46,9 @@
 
 → **Tier 1 4건 + #6 + E3 + B3 + E1 + E2-chunk + B2 + B4 + B5 + B8 + B1 (14 항목) 완료.** 잔여: **B7** (Symbol ID, CKG 협업 필요) / **B10** (Fuzz 인프라) / **#7** (LLM prefix D.2, bgeonnx throughput buffer 후).
 
+> 잔여 작업 + CKG cross-tool evaluation gap 상세는
+> [`docs/pending-work-2026-05-21.md`](./pending-work-2026-05-21.md) 참조.
+
 ---
 
 ## 2. 카테고리별 항목
