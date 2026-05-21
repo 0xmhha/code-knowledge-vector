@@ -89,7 +89,7 @@
 | §11.1 | `ckv eval` (실측 추가) | — | ✅ | featurelist 누락 항목 |
 | §11.1 | `ckv model fetch/list` | — | ⚠️ | stub만 (D1-FU-4 open, D2 scope) |
 | §11.1 | `ckv bootstrap --report` (UC-V12) | P0 | ❌-S4 | plan M7 |
-| §11.2 | 공통 플래그 (--json, --log-level, --profile) | P0 | ⚠️ | `--json` 일부만 |
+| §11.2 | 공통 플래그 (--json, --log-level, --profile) | P0 | ✅ 2026-05-21 | `--log-level` (debug/info/warn/error, `$CKV_LOG_LEVEL` fallback) + `--profile <path>` (per-event count + p50/p95/sum ms를 profile.json 에 dump). `--json` 은 각 subcommand가 기존 적용. |
 | §11.3 | Configuration (`ckv.yaml`) | P0 | ✅ | `internal/projectcfg` (W3-T15) |
 | §12 | HTTP API 전체 | P1 | ❌-S2 | |
 | §13 | Bootstrap & Systemization Report | P0/P2 | ❌-S4 | |

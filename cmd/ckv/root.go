@@ -13,6 +13,8 @@ type rootFlags struct {
 	noFootprint bool
 	embedder    string // mock | bgeonnx
 	modelDir    string // override default ~/.cache/ckv/models/<name>
+	logLevel    string // debug | info | warn | error; empty → $CKV_LOG_LEVEL → info
+	profile     string // path to write profile.json on Close (empty = disabled)
 }
 
 var globalFlags rootFlags
@@ -33,6 +35,10 @@ func newRootCmd() *cobra.Command {
 		"embedder backend: mock (default, no deps) or bgeonnx (requires model + libonnxruntime)")
 	cmd.PersistentFlags().StringVar(&globalFlags.modelDir, "model-dir", "",
 		"override the model directory (default ~/.cache/ckv/models/<name>)")
+	cmd.PersistentFlags().StringVar(&globalFlags.logLevel, "log-level", "",
+		"slog minimum level: debug | info | warn | error (default info; falls back to $CKV_LOG_LEVEL)")
+	cmd.PersistentFlags().StringVar(&globalFlags.profile, "profile", "",
+		"write per-event latency profile (count + p50/p95/sum ms) to this path on exit; empty = disabled")
 
 	cmd.AddCommand(
 		newBuildCmd(),

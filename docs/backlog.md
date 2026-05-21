@@ -41,8 +41,9 @@
 - ~~**B3** Snippet density 3-tier ladder~~ — ✅ 2026-05-21 (commit `5f8f024`)
 - ~~**E1** `docs/ARCHITECTURE.md`~~ — ✅ 2026-05-21 (commit `6466815`)
 - ~~**E2-chunk** `docs/SCHEMA.md`~~ — ✅ 2026-05-21 (commit `484b171`)
+- ~~**B2 / B4 / B5 / B8** 잔여 B 그룹 4건~~ — ✅ 2026-05-21 (commits `209ba70` / `8fc478a` / `5efa2c1` / `<TBD>`)
 
-→ **Tier 1 4건 + #6 + E3 + B3 + E1 + E2-chunk (9 항목) 완료.** 다음 candidates: **#7** (LLM prefix D.2, throughput buffer 후) / 잔여 B 그룹.
+→ **Tier 1 4건 + #6 + E3 + B3 + E1 + E2-chunk + B2 + B4 + B5 + B8 (13 항목) 완료.** 잔여: **B1** (sliding split = Phase A 별도 세션) / **B7** (Symbol ID, CKG 협업 필요) / **B10** (Fuzz 인프라) / **#7** (LLM prefix D.2).
 
 ---
 
@@ -73,7 +74,7 @@
 | **B5** | §8.2 Envelope — `trace_id`/`dry_run` | Low | ✅ 2026-05-21 | `Options.TraceID` (caller / intent-hash fallback) + `Options.DryRun` (metadata-only response). Footprint span + `Response.Metadata` echo. CLI `--trace-id` / `--dry-run` + MCP `trace_id` / `dry_run` args. 2 unit test. |
 | **B6** | §8.4 Error model 6종 중 5종 미구현 | Mid | ✅ 2026-05-21 | 6 종 sentinel `internal/query/errors.go` + `pkg/ckv` 재노출. Raise points 4 종 wired (IndexUnavailable / BudgetExceeded `MinBudgetTokens=20` / CitationNotFound 전수-drop / FreshnessStale via `Engine.CheckFreshness`). SanitizeFailed / PolicyError sentinel only (S2 / S6 도착 시 raise). 7 unit test (4 internal + 3 facade). |
 | **B7** | §10.2 Symbol ID 호환 정규화 규칙 | Low | ⏳ | `ckg_node_id` 필드만. CKG와 join 위한 normalize 규칙 미합의. CKG 측과 협업 필요. |
-| **B8** | §11.2 공통 플래그 (`--log-level`, `--profile`) | Low | ⏳ | `--json`만 일관 적용. log-level 환경변수, profile output 미구현. |
+| **B8** | §11.2 공통 플래그 (`--log-level`, `--profile`) | Low | ✅ 2026-05-21 | `--log-level` (debug/info/warn/error, `$CKV_LOG_LEVEL` fallback) + `--profile <path>` (per-event count + p50/p95/sum ms를 profile.json 에 aggregate). Root PersistentFlag → footprint.Options.Level + ProfilePath. 2 신규 unit test + CLI smoke 확인. |
 | **B9** | §15.2 Secret 회피 패턴 (.env / *.pem) | High (보안) | ✅ 2026-05-21 | `internal/discover.DefaultSecretPatterns` 25개 패턴 — `.env*` env variants / `*.pem` `*.key` `*.p12` `*.pfx` `*.keystore` / SSH keys / `credentials.json` `service-account*.json` / `.npmrc` `.pypirc` `.netrc` / `.aws/credentials`. opt-out: `CKV_DISABLE_SECRET_FILTER=1`. 3개 신규 unit test (block all / allow template / opt-out). |
 | **B10** | §16.4 Fuzz / Property tests | Low | ⏳ | parser fuzz 미구현. 랜덤 입력 panic 부재 확인. |
 

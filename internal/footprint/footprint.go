@@ -21,6 +21,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"path/filepath"
 	"sync"
 	"time"
@@ -54,16 +55,42 @@ type Options struct {
 	// RunID is propagated onto every event so memory recall can group
 	// by session. Optional; auto-generated when empty.
 	RunID string
+	// Level controls the minimum slog level emitted to stderr. Zero
+	// value (slog.LevelInfo) keeps the documented default. Operators
+	// raise to LevelWarn for noisier-tool integrations or lower to
+	// LevelDebug for incident triage.
+	Level slog.Level
+	// ProfilePath, when non-empty, instructs Close to aggregate every
+	// emitted event by name (count + latency_ms p50/p95/sum) and
+	// write the summary as JSON to this path. Useful for build /
+	// query throughput audits without parsing the raw JSONL.
+	ProfilePath string
 }
 
 // Logger fans events out to its configured sinks. Safe for concurrent
 // use; the JSONL file is guarded by a sync.Mutex (writes are O(event
 // size) so contention is negligible vs the embedding/store work).
 type Logger struct {
-	slog  *slog.Logger
-	jsonl io.WriteCloser
-	mu    sync.Mutex
-	runID string
+	slog        *slog.Logger
+	jsonl       io.WriteCloser
+	mu          sync.Mutex
+	runID       string
+	profilePath string
+	// profile aggregates per-event latencies in memory; Close serializes
+	// it to profilePath when set. Indexed by event name.
+	profile map[string]*profileBucket
+}
+
+// profileBucket is the per-event-name aggregator behind --profile.
+// Bounded memory: one bucket per distinct event name in this run,
+// holding every latency we saw. For typical builds that's <20 names
+// with <100 latencies each — well within budget.
+type profileBucket struct {
+	Count     int     `json:"count"`
+	SumMs     int64   `json:"latency_ms_sum"`
+	P50Ms     int64   `json:"latency_ms_p50"`
+	P95Ms     int64   `json:"latency_ms_p95"`
+	samples   []int64 // raw latencies; finalize sorts + percentiles
 }
 
 // New constructs a Logger. The slog sink is always installed (stderr
@@ -71,13 +98,16 @@ type Logger struct {
 // optional. Errors opening the JSONL file are returned; the slog sink
 // stays operational either way.
 func New(opts Options) (*Logger, error) {
-	l := &Logger{runID: opts.RunID}
+	l := &Logger{runID: opts.RunID, profilePath: opts.ProfilePath}
 	if l.runID == "" {
 		l.runID = newID()
 	}
+	if opts.ProfilePath != "" {
+		l.profile = map[string]*profileBucket{}
+	}
 	if opts.Stderr {
 		l.slog = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
+			Level: opts.Level,
 		}))
 	} else {
 		l.slog = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -104,14 +134,65 @@ func Discard() *Logger {
 	}
 }
 
-// Close flushes/closes the JSONL sink. Idempotent.
+// Close flushes/closes the JSONL sink and, when ProfilePath was set,
+// writes the aggregated profile JSON. Idempotent.
 func (l *Logger) Close() error {
-	if l == nil || l.jsonl == nil {
+	if l == nil {
+		return nil
+	}
+	if err := l.writeProfile(); err != nil {
+		// Profile failure is non-fatal — we still want to flush JSONL.
+		l.slog.Warn("footprint: profile write failed", "error", err)
+	}
+	if l.jsonl == nil {
 		return nil
 	}
 	err := l.jsonl.Close()
 	l.jsonl = nil
 	return err
+}
+
+// writeProfile finalizes percentile math and writes profile.json. Called
+// once from Close; safe when ProfilePath was empty (no-op).
+func (l *Logger) writeProfile() error {
+	if l == nil || l.profilePath == "" || l.profile == nil {
+		return nil
+	}
+	l.mu.Lock()
+	for _, b := range l.profile {
+		finalizePercentiles(b)
+	}
+	out := struct {
+		RunID    string                    `json:"run_id"`
+		Events   map[string]*profileBucket `json:"events"`
+	}{RunID: l.runID, Events: l.profile}
+	l.mu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(l.profilePath), 0o755); err != nil {
+		return fmt.Errorf("mkdir profile: %w", err)
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal profile: %w", err)
+	}
+	return os.WriteFile(l.profilePath, data, 0o644)
+}
+
+// finalizePercentiles sorts the bucket's samples and stamps p50 / p95
+// onto the bucket. Samples are kept (not zeroed) so a future caller
+// could re-aggregate without rerunning the build.
+func finalizePercentiles(b *profileBucket) {
+	n := len(b.samples)
+	if n == 0 {
+		return
+	}
+	slices.Sort(b.samples)
+	b.P50Ms = b.samples[(n-1)/2]
+	idx95 := (n * 95) / 100
+	if idx95 >= n {
+		idx95 = n - 1
+	}
+	b.P95Ms = b.samples[idx95]
 }
 
 // RunID returns the per-Logger run id; callers (MCP server, eval) may
@@ -189,6 +270,22 @@ func (l *Logger) write(e Event) {
 		args = append(args, k, v)
 	}
 	l.slog.Info("ckv", args...)
+
+	// Profile aggregation: only events that carry a latency contribute,
+	// and only when ProfilePath was set on construction. Bucket key is
+	// the event name (e.g. "query.search.done").
+	if l.profile != nil && e.LatencyMs > 0 {
+		l.mu.Lock()
+		b, ok := l.profile[e.Event]
+		if !ok {
+			b = &profileBucket{}
+			l.profile[e.Event] = b
+		}
+		b.Count++
+		b.SumMs += e.LatencyMs
+		b.samples = append(b.samples, e.LatencyMs)
+		l.mu.Unlock()
+	}
 
 	if l.jsonl == nil {
 		return

@@ -9,6 +9,94 @@ import (
 	"time"
 )
 
+// TestProfileAggregatesByEvent exercises B8 --profile: latencies from
+// every Span done event group by event name, percentile math runs at
+// Close, and the JSON output round-trips.
+func TestProfileAggregatesByEvent(t *testing.T) {
+	dir := t.TempDir()
+	jsonl := filepath.Join(dir, "footprint.jsonl")
+	profile := filepath.Join(dir, "profile.json")
+
+	l, err := New(Options{JSONLPath: jsonl, ProfilePath: profile})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// 3 search spans with measurable latency.
+	for range 3 {
+		done := l.Span("query.search")
+		time.Sleep(2 * time.Millisecond)
+		done()
+	}
+	// 1 build span, different name.
+	done := l.Span("build")
+	time.Sleep(1 * time.Millisecond)
+	done()
+
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	data, err := os.ReadFile(profile)
+	if err != nil {
+		t.Fatalf("read profile: %v", err)
+	}
+	var got struct {
+		RunID  string                    `json:"run_id"`
+		Events map[string]*profileBucket `json:"events"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal profile: %v", err)
+	}
+	if got.RunID == "" {
+		t.Errorf("profile missing run_id")
+	}
+	searchBucket, ok := got.Events["query.search.done"]
+	if !ok {
+		t.Fatalf("expected query.search.done bucket; got keys %v", keys(got.Events))
+	}
+	if searchBucket.Count != 3 {
+		t.Errorf("query.search.done count = %d, want 3", searchBucket.Count)
+	}
+	if searchBucket.SumMs <= 0 {
+		t.Errorf("query.search.done sum should be positive: %d", searchBucket.SumMs)
+	}
+	if searchBucket.P95Ms <= 0 {
+		t.Errorf("query.search.done p95 should be positive: %d", searchBucket.P95Ms)
+	}
+	if _, ok := got.Events["build.done"]; !ok {
+		t.Errorf("expected build.done bucket; got keys %v", keys(got.Events))
+	}
+}
+
+// TestProfileDisabledByDefault verifies that without ProfilePath, no
+// profile file gets written even when spans happen.
+func TestProfileDisabledByDefault(t *testing.T) {
+	dir := t.TempDir()
+	l, err := New(Options{JSONLPath: filepath.Join(dir, "footprint.jsonl")})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	done := l.Span("query.search")
+	done()
+	l.Close()
+
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Name() == "profile.json" {
+			t.Errorf("profile.json should not exist when ProfilePath unset")
+		}
+	}
+}
+
+func keys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func TestEmitWritesJSONLLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "footprint.jsonl")
