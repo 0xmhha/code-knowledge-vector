@@ -211,6 +211,55 @@ func TestGetFreshnessHandlerExecutes(t *testing.T) {
 	}
 }
 
+// CKV-7: every tool response must carry a top-level schema_version
+// string so downstream consumers (cks) can detect breaking changes
+// instead of silently misparsing.
+func TestAllToolResponsesCarrySchemaVersion(t *testing.T) {
+	eng := buildSample(t)
+	s := NewServer(eng)
+	ctx := context.Background()
+
+	cases := []struct {
+		name string
+		call func() (*mcpgo.CallToolResult, error)
+	}{
+		{"semantic_search", func() (*mcpgo.CallToolResult, error) {
+			return s.handleSemanticSearch(ctx, callRequest("cks.context.semantic_search",
+				map[string]any{"intent": "schema check"}))
+		}},
+		{"health", func() (*mcpgo.CallToolResult, error) {
+			return s.handleHealth(ctx, callRequest("cks.ops.health", nil))
+		}},
+		{"warmup", func() (*mcpgo.CallToolResult, error) {
+			return s.handleWarmup(ctx, callRequest("cks.ops.warmup", nil))
+		}},
+		{"get_freshness", func() (*mcpgo.CallToolResult, error) {
+			return s.handleGetFreshness(ctx, callRequest("cks.ops.get_freshness", nil))
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := tc.call()
+			if err != nil {
+				t.Fatalf("call: %v", err)
+			}
+			body := textContent(t, res)
+			var m map[string]any
+			if err := json.Unmarshal([]byte(body), &m); err != nil {
+				t.Fatalf("decode: %v: %s", err, body)
+			}
+			sv, ok := m["schema_version"].(string)
+			if !ok || sv == "" {
+				t.Errorf("schema_version missing or empty in %s response: %s", tc.name, body)
+			}
+			if sv != ResponseSchemaVersion {
+				t.Errorf("%s schema_version=%q, want %q", tc.name, sv, ResponseSchemaVersion)
+			}
+		})
+	}
+}
+
 func TestServerConstructs(t *testing.T) {
 	eng := buildSample(t)
 	s := NewServer(eng)

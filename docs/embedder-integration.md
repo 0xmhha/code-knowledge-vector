@@ -166,6 +166,13 @@ stdio 위에서 MCP JSON-RPC. tool 이름:
 - `cks.ops.warmup` — embedder cold start 비용을 미리 지불.
   initialize 직후 1회 호출 권장. 응답 `{ready, duration_ms, embedder}`
 
+**Schema versioning**: 모든 tool response 의 top-level 에
+`schema_version` 문자열이 들어간다 (현재 `"1"`). 정책 — minor (1 → 1.1)
+= additive (필드 추가, 새 tool), major (1 → 2) = breaking (필드 제거 / 타입
+변경 / 의미 변경). 안정적 consumer 는 major 만 비교하고 mismatch 시 last-known-good
+parser 로 fallback 하면 된다. ckv 가 새 tool 을 추가해도 schema_version 누락은
+`pkg/mcp/server.go::jsonResult` 차원에서 구조적으로 보장된다.
+
 검증 스크립트는 `testdata/mcp-repro/` (serial + concurrent).
 
 **한 줄 권고**: 동일 module 안에서 ckv를 쓸 수 있으면 pkg/ckv가 stdio buffer /

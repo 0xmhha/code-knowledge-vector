@@ -40,6 +40,20 @@ const (
 	ServerVersion = "0.1.0-S1W3"
 )
 
+// ResponseSchemaVersion is the version tag every tool response carries
+// in the top-level "schema_version" field. Bumps follow CKV-7:
+//
+//   - patch (1.0 → 1.0.1) is reserved; we don't ship patch bumps.
+//   - minor (1 → 1.1): purely additive — new fields, new tools, new
+//     nested objects. Old parsers keep working.
+//   - major (1 → 2): breaking change — field removal, type change,
+//     semantic change. Consumers must update parsing.
+//
+// Read-side contract: callers should compare the major version and
+// degrade gracefully on mismatch (e.g. cks could log a warning and
+// fall back to last-known-good fields).
+const ResponseSchemaVersion = "1"
+
 // Server owns the long-lived query engine + the underlying MCP server
 // object. One Server per --out directory.
 type Server struct {
@@ -231,8 +245,27 @@ func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpg
 
 // jsonResult marshals payload into a CallToolResult.Text. MCP tools
 // today exchange strings; we use JSON so clients can parse structurally.
+//
+// Every response carries a top-level "schema_version" field (CKV-7).
+// The injection is centralized here so adding a new tool can't forget
+// the contract. Implementation does a json round-trip rather than
+// reflection so it works uniformly for map payloads and named structs
+// (query.Response, freshness.Report, etc.); the extra encode cycle is
+// negligible compared to the upstream embed/search cost.
 func jsonResult(payload any) (*mcpgo.CallToolResult, error) {
-	data, err := json.MarshalIndent(payload, "", "  ")
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("encode result: %v", err)), nil
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		// payload didn't decode as a JSON object — likely a primitive
+		// or top-level array, which none of ckv's tools return. Return
+		// the raw form rather than dropping the response.
+		return mcpgo.NewToolResultText(string(raw)), nil
+	}
+	envelope["schema_version"] = ResponseSchemaVersion
+	data, err := json.MarshalIndent(envelope, "", "  ")
 	if err != nil {
 		return mcpgo.NewToolResultError(fmt.Sprintf("encode result: %v", err)), nil
 	}
