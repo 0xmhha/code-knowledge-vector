@@ -65,6 +65,22 @@ type Options struct {
 	// for context window space.
 	ExamplesK int
 
+	// TraceID is a caller-supplied correlation ID propagated to the
+	// footprint span and echoed in Response.Metadata.TraceID. Useful
+	// when a single user action fans out into multiple Search calls
+	// (CKS multiplex, retries) and the operator wants to grep all
+	// related log entries together. Empty → engine generates one from
+	// the intent hash + a monotonic suffix.
+	TraceID string
+
+	// DryRun, when true, validates the request (intent, embedder,
+	// manifest identity) but skips embedding, store search, citation
+	// enforcement, and density adjustment. The response carries
+	// metadata only — Hits and Examples are empty. Useful for caller-
+	// side budget / plan validation without paying the query cost
+	// or polluting the footprint log with hot-path entries.
+	DryRun bool
+
 	// MaxDensity caps the snippet rendering tier (B3 ladder).
 	// "" / DensityFull → no cap, downgrade only under budget pressure
 	// (the documented default). DensitySignature5 → start every hit at
@@ -126,6 +142,13 @@ type ResponseMetadata struct {
 	TokensUsed     int    `json:"tokens_used"`
 	IndexedHeadCKV string `json:"indexed_head_ckv"`
 	Fresh          bool   `json:"fresh"`
+	// TraceID echoes Options.TraceID (or the engine-generated fallback)
+	// so callers can correlate this response with their footprint log
+	// entries. Always set; non-empty.
+	TraceID string `json:"trace_id,omitempty"`
+	// DryRun mirrors Options.DryRun so callers reading only the
+	// response can tell whether Hits actually came from the index.
+	DryRun bool `json:"dry_run,omitempty"`
 }
 
 // Engine is the long-lived query handler. Hold one per --out directory.
@@ -330,13 +353,41 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		return nil, errors.New("query: empty intent")
 	}
 
+	// Resolve trace_id: caller-supplied wins; engine-generated fallback
+	// is the same intent_hash used in spans so existing log queries
+	// keep working.
+	traceID := opts.TraceID
+	if traceID == "" {
+		traceID = intentHash(intent)
+	}
+
 	doneSearch := e.fp.Span("query.search",
+		"trace_id", traceID,
 		"intent_hash", intentHash(intent),
 		"intent_preview", preview(intent, 80),
 		"k", opts.K,
 		"threshold", opts.Threshold,
 		"language", opts.Filter.Language,
+		"dry_run", opts.DryRun,
 	)
+
+	// Dry-run short-circuit: skip embed, store, citation, density.
+	// Return metadata-only response so the caller can validate envelope
+	// shape, intent, and embedder identity without paying the query
+	// cost. Useful for plan/budget validation in CKS multiplex flows.
+	if opts.DryRun {
+		response := &Response{
+			Hits: []Hit{}, // never nil
+			Metadata: ResponseMetadata{
+				IndexedHeadCKV: e.man.IndexedHead,
+				Fresh:          true,
+				TraceID:        traceID,
+				DryRun:         true,
+			},
+		}
+		doneSearch("dry_run", true, "trace_id", traceID)
+		return response, nil
+	}
 
 	k := opts.K
 	if k <= 0 {
@@ -452,6 +503,7 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 			TokensUsed:     tokensUsed,
 			IndexedHeadCKV: e.man.IndexedHead,
 			Fresh:          true, // freshness check arrives with `ckv freshness`
+			TraceID:        traceID,
 		},
 	}
 	doneSearch(

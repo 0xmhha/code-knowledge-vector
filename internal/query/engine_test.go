@@ -178,6 +178,62 @@ func TestSearchHonorsCommitHashFilter(t *testing.T) {
 	}
 }
 
+// TestSearch_DryRunSkipsEmbedAndStore verifies B5 dry_run mode:
+// engine validates the request (intent, manifest identity) but skips
+// embed + store.Search + citation + density. Response carries
+// metadata only — Hits empty, DryRun=true.
+func TestSearch_DryRunSkipsEmbedAndStore(t *testing.T) {
+	out, _ := buildSample(t)
+	eng, _ := Open(out, mock.Default())
+	defer eng.Close()
+
+	res, err := eng.Search(context.Background(), "TCP socket bind on port",
+		Options{K: 5, DryRun: true})
+	if err != nil {
+		t.Fatalf("DryRun Search: %v", err)
+	}
+	if len(res.Hits) != 0 {
+		t.Errorf("DryRun should return 0 hits, got %d", len(res.Hits))
+	}
+	if !res.Metadata.DryRun {
+		t.Errorf("Response.Metadata.DryRun should be true")
+	}
+	if res.Metadata.TraceID == "" {
+		t.Errorf("DryRun must still set a trace_id")
+	}
+	if res.Metadata.IndexedHeadCKV == "" {
+		t.Errorf("DryRun should still report manifest.IndexedHead")
+	}
+}
+
+// TestSearch_TraceIDIsEchoed verifies caller-supplied trace_id rides
+// through to the response. Empty input falls back to engine-generated.
+func TestSearch_TraceIDIsEchoed(t *testing.T) {
+	out, _ := buildSample(t)
+	eng, _ := Open(out, mock.Default())
+	defer eng.Close()
+
+	caller := "trace-from-cks-12345"
+	res, err := eng.Search(context.Background(), "TCP socket bind on port",
+		Options{K: 3, Threshold: -1, TraceID: caller})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if res.Metadata.TraceID != caller {
+		t.Errorf("TraceID should echo caller value; got %q want %q", res.Metadata.TraceID, caller)
+	}
+
+	// Empty caller TraceID → engine generates one.
+	res, err = eng.Search(context.Background(), "TCP socket bind on port",
+		Options{K: 3, Threshold: -1})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if res.Metadata.TraceID == "" {
+		t.Errorf("engine should generate a TraceID when caller omits it")
+	}
+}
+
 func TestSearchEmptyIntentRejected(t *testing.T) {
 	out, _ := buildSample(t)
 	eng, _ := Open(out, mock.Default())

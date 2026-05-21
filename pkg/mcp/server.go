@@ -136,6 +136,12 @@ func (s *Server) registerTools() {
 		mcpgo.WithString("commit_hash",
 			mcpgo.Description("Filter by commit_hash — pin results to chunks indexed at a specific historical commit. Empty (default) matches every commit."),
 		),
+		mcpgo.WithString("trace_id",
+			mcpgo.Description("Caller-supplied correlation ID echoed in the response and the footprint log. Empty (default) → engine generates one from the intent hash."),
+		),
+		mcpgo.WithBoolean("dry_run",
+			mcpgo.Description("When true, validates the request shape and embedder identity but skips embedding + retrieval. Response carries metadata only (no hits). Useful for budget / plan validation."),
+		),
 		mcpgo.WithNumber("budget_tokens",
 			mcpgo.Description("Snippet density budget in tokens (default 4000)."),
 		),
@@ -197,6 +203,12 @@ func (s *Server) handleSemanticSearch(ctx context.Context, req mcpgo.CallToolReq
 	}
 	if v, ok := args["commit_hash"].(string); ok {
 		opts.Filter.CommitHash = v
+	}
+	if v, ok := args["trace_id"].(string); ok {
+		opts.TraceID = v
+	}
+	if v, ok := args["dry_run"].(bool); ok {
+		opts.DryRun = v
 	}
 
 	res, err := s.engine.Search(ctx, intent, opts)

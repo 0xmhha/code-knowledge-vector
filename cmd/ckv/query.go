@@ -24,6 +24,8 @@ type queryOpts struct {
 	budgetTokens int
 	threshold    float64
 	srcRoot      string
+	traceID      string
+	dryRun       bool
 	jsonOut      bool
 }
 
@@ -50,6 +52,8 @@ func newQueryCmd() *cobra.Command {
 	f.IntVar(&opts.budgetTokens, "budget-tokens", query.DefaultBudgetTokens, "token budget for snippet density")
 	f.Float64Var(&opts.threshold, "threshold", query.DefaultThreshold, "min normalized score (<0 disables)")
 	f.StringVar(&opts.srcRoot, "src", "", "source root used for citation verification (default: manifest.src_root)")
+	f.StringVar(&opts.traceID, "trace-id", "", "correlation id echoed in response.metadata and footprint log (default: engine-generated from intent hash)")
+	f.BoolVar(&opts.dryRun, "dry-run", false, "validate request shape only; skip embed + retrieval (response has metadata only)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable output")
 
 	return cmd
@@ -93,6 +97,8 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 		BudgetTokens: opts.budgetTokens,
 		Threshold:    opts.threshold,
 		SrcRoot:      opts.srcRoot,
+		TraceID:      opts.traceID,
+		DryRun:       opts.dryRun,
 	})
 	if err != nil {
 		return err

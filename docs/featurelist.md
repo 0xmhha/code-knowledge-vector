@@ -71,7 +71,7 @@
 | §8.1 | `cks.context.get_context_for_task` | P0 | ❌-S2 | sanitize 의존 |
 | §8.1 | `cks.memory.*` (3종) | P0 | ❌-planned | |
 | §8.1 | `cks.ops.health` (실측 추가) | — | ✅ | featurelist 누락 항목, 코드에 존재 |
-| §8.2 | Envelope/Budget 검증 (trace_id/dry_run) | P0 | ⚠️ | `budget_tokens`만, trace_id/dry_run 미구현 |
+| §8.2 | Envelope/Budget 검증 (trace_id/dry_run) | P0 | ✅ 2026-05-21 | `Options.TraceID` (caller-supplied or intent-hash fallback) + `Options.DryRun` (skip embed/store/citation/density, metadata-only response). Footprint span에 trace_id 포함. CLI: `--trace-id` / `--dry-run`. MCP: `trace_id` / `dry_run` args. 2 신규 unit test. |
 | §8.3 | mTLS auth | P1 | ❌-S6 | plan §8.4 |
 | §8.4 | Error model (FreshnessStale, BudgetExceeded, CitationNotFound, SanitizeFailed, IndexUnavailable, PolicyError) | P0 | ✅ | 6 종 모두 `internal/query/errors.go` 에 sentinel + `pkg/ckv` 재노출. Raise points: IndexUnavailable (Open), BudgetExceeded (Search), CitationNotFound (Search 카타스트로픽), FreshnessStale (Engine.CheckFreshness). SanitizeFailed / PolicyError 는 sentinel만 (S2 / S6 모듈 도착 시 raise). |
 | §8.5 | Health (실측) | P1 | ✅ | `cks.ops.health` |
