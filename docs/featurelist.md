@@ -559,12 +559,12 @@ type VectorStore interface {
 - 지원 언어, 기본 모델, 백엔드
 
 ### 18.2 ARCHITECTURE.md (P1)
-- 4-Layer 중 본 프로젝트 위치, 모듈 도식 — `docs/ARCHITECTURE.md` (impl 2026-05-21, commit `<TBD>`)
+- 4-Layer 중 본 프로젝트 위치, 모듈 도식 — `docs/ARCHITECTURE.md` (impl 2026-05-21, commit `6466815`)
 - 내부 모듈 의존 그래프 + build / query / reindex 파이프라인의 패키지 시퀀스
 - ADR ↔ 패키지 매핑
 
 ### 18.3 SCHEMA.md (P1)
-- chunk metadata 스키마 — `docs/SCHEMA.md` (impl 2026-05-21, commit `<TBD>`)
+- chunk metadata 스키마 — `docs/SCHEMA.md` (impl 2026-05-21, commit `484b171`)
 - 포함 범위: `Chunk` / `Citation` / `Manifest` Go struct + sqlite-vec DDL + migration 정책 + 1.0 ↔ 1.x 버저닝 규칙
 - 제외 범위 (S2 모듈 도입 시 작성): working memory entry (`cks.memory.*`), sanitize_report (UC-V13). 도입 전 spec 만 쓰는 건 drift 위험으로 보류.
 

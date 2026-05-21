@@ -40,7 +40,7 @@
 - ~~**E3** ADR 디렉토리 + 첫 5 ADR~~ — ✅ 2026-05-21 (commit `a4cd5d9`)
 - ~~**B3** Snippet density 3-tier ladder~~ — ✅ 2026-05-21 (commit `5f8f024`)
 - ~~**E1** `docs/ARCHITECTURE.md`~~ — ✅ 2026-05-21 (commit `6466815`)
-- ~~**E2-chunk** `docs/SCHEMA.md`~~ — ✅ 2026-05-21 (commit `<TBD>`)
+- ~~**E2-chunk** `docs/SCHEMA.md`~~ — ✅ 2026-05-21 (commit `484b171`)
 
 → **Tier 1 4건 + #6 + E3 + B3 + E1 + E2-chunk (9 항목) 완료.** 다음 candidates: **#7** (LLM prefix D.2, throughput buffer 후) / 잔여 B 그룹.
 
