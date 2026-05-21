@@ -32,3 +32,27 @@ prs:
     base_sha: aa28927fb12048a59ac34608702eef5e1be90931
     threshold: 0.80
     notes: "fix: fill missing effectiveGasPrice in receipts on derivation"
+
+  - id: pr69
+    repo: stable-net/go-stablenet
+    pr_number: 69
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: 88fe52145e9dc07d6bad2b861468bcbbd271de60
+    threshold: 0.80
+    notes: "refactor: align genesis construction with Ethereum's decodePrealloc pattern — broader structural change, exercises plan-vs-refactor recognition"
+
+  - id: pr72
+    repo: stable-net/go-stablenet
+    pr_number: 72
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: c55bf2a86e21a12bb72126ac6eb05c1974e594b8
+    threshold: 0.80
+    notes: "feat: support eth_GetReceiptsByHash (#167) — new RPC method, multi-file feature, tests API surface design recall"
+
+  - id: pr74
+    repo: stable-net/go-stablenet
+    pr_number: 74
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: 319b84d113c5e34b35bdc24899e3b0b9609dd751
+    threshold: 0.80
+    notes: "fix: increase txMaxSize to 256KB to align with MaxCodeSize — small targeted fix, baseline for narrow-scope plans"
