@@ -35,7 +35,7 @@
 - ~~**B9** Secret 회피 패턴~~ — ✅ 2026-05-21 (commit `b1ad8aa`)
 - ~~**B6** Error model 5 종~~ — ✅ 2026-05-21 (commit `c7f8969`)
 - ~~**A5** fixture N=34 → N=50+~~ — ✅ 2026-05-21 (commit `8c0555d`)
-- ~~**Roadmap #8** `ckv reindex` 도입~~ — ✅ 2026-05-21 (commit `<TBD>`)
+- ~~**Roadmap #8** `ckv reindex` 도입~~ — ✅ 2026-05-21 (commit `f2bb8d2`)
 
 → **Tier 1 (4 항목) 모두 완료.** 다음 Tier candidates: **#6** (룰 기반 prefix, A5 완료 → 측정 가능) / **E3** (ADR 디렉토리) / **B3** (snippet density 3-tier ladder).
 
@@ -80,7 +80,7 @@
 
 | ID | 작업 | featurelist 출처 | 비고 |
 |---|---|---|---|
-| **C1** | `ckv reindex` (incremental, UC-V2) | §6.2 | ✅ 2026-05-21 (commit `<TBD>`). `internal/build.Reindex` + `cmd/ckv reindex`. git diff name-status 기반 변경 set + DeleteByFile + embed/upsert. Embedder identity 강제. = Roadmap §12 #8. |
+| **C1** | `ckv reindex` (incremental, UC-V2) | §6.2 | ✅ 2026-05-21 (commit `f2bb8d2`). `internal/build.Reindex` + `cmd/ckv reindex`. git diff name-status 기반 변경 set + DeleteByFile + embed/upsert. Embedder identity 강제. = Roadmap §12 #8. |
 | **C2** | `internal/sanitize/` 전체 (UC-V13) | §9 (5 sub-section) | external caller 도입 시. plan §13. |
 | **C3** | `internal/memory/` Working Memory (UC-V9/14) | §7 (5 sub-section) | `cks.memory.*` planned. plan §8.2. |
 | **C4** | `ckv serve` HTTP API | §12 | MCP 외 추가 transport. |
