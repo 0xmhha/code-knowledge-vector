@@ -113,16 +113,24 @@ func (s *ClaudeJudgeScorer) Score(ctx context.Context, e Entry, m Meta, plan Pla
 // buildJudgePrompt assembles the grading prompt. Rubric is deliberately
 // concrete (0.0 / 0.5 / 1.0 anchored to clear cases) so the LLM lands
 // on stable scores across reruns instead of drifting per-call.
+//
+// Alternative-solution policy (PRR-5): software problems usually admit
+// more than one correct fix. The rubric now credits plans whose
+// approach would actually solve the PROBLEM, even when the files they
+// touch differ from the merged diff. The diff is *one* known-good
+// solution, not the only one.
 func buildJudgePrompt(background, planMarkdown, diff string) string {
 	var b strings.Builder
 	b.WriteString("You are grading an AI-written implementation plan against the actual code change that solved the same problem. Output JSON only (no prose, no fences).\n\n")
 	b.WriteString("Schema: {\"score\": <float in [0.0, 1.0]>, \"rationale\": \"<one sentence>\"}\n\n")
-	b.WriteString("Rubric — rate semantic intent match, NOT code-level similarity:\n")
-	b.WriteString("  1.0 — plan and diff describe the same approach (same key files, same idea).\n")
-	b.WriteString("  0.8 — plan covers the core change; minor file or detail miss.\n")
-	b.WriteString("  0.5 — plan has the right files OR the right idea, but not both.\n")
-	b.WriteString("  0.2 — plan mentions related code but misses the actual fix.\n")
-	b.WriteString("  0.0 — plan is unrelated to what the diff does.\n\n")
+	b.WriteString("Rubric — rate whether the plan would *solve the PROBLEM*, not whether it reproduces the diff verbatim:\n")
+	b.WriteString("  1.0 — Plan and diff converge: same key files, same approach. Plan would clearly fix the problem.\n")
+	b.WriteString("  0.8 — Either (a) plan covers the core change with minor file or detail misses, OR (b) plan proposes a different-but-valid approach that would solve the problem (e.g., adds a guard at the caller instead of the callee; both ship a fix). Different files are OK if the engineering trade-off makes sense.\n")
+	b.WriteString("  0.5 — Plan identifies the right area (subsystem, package, layer) but the proposed change either misses the failure mode or contradicts the diff's intent without offering a valid alternative.\n")
+	b.WriteString("  0.2 — Plan mentions related code but the proposed change wouldn't actually fix the reported problem.\n")
+	b.WriteString("  0.0 — Plan is unrelated to what the diff does.\n\n")
+	b.WriteString("Alternative-solution rule: if the plan's approach would *actually fix the PROBLEM described in the PR Background* — verify by reading the plan against the problem, not against the diff — assign at least 0.8 even when the plan touches different files than the diff. The diff is one known-good answer; do not punish a different correct answer.\n\n")
+	b.WriteString("Avoid false-credit: a plan that lists the right files but proposes the wrong change (e.g., 'modify foo.go to add logging' when the actual fix is a bounds check) is 0.5, not 0.8. The approach has to actually solve the problem.\n\n")
 	b.WriteString("PROBLEM (PR Background):\n")
 	b.WriteString(background)
 	b.WriteString("\n\nPLAN:\n")
