@@ -38,7 +38,7 @@
 - ~~**Roadmap #8** `ckv reindex` 도입~~ — ✅ 2026-05-21 (commit `f2bb8d2`)
 - ~~**#6** Rule-based contextual prefix~~ — ✅ 2026-05-21 (commit `1a5289d`)
 - ~~**E3** ADR 디렉토리 + 첫 5 ADR~~ — ✅ 2026-05-21 (commit `a4cd5d9`)
-- ~~**B3** Snippet density 3-tier ladder~~ — ✅ 2026-05-21 (commit `<TBD>`)
+- ~~**B3** Snippet density 3-tier ladder~~ — ✅ 2026-05-21 (commit `5f8f024`)
 
 → **Tier 1 4건 + #6 + E3 + B3 (7 항목) 완료.** 다음 candidates: **E1** (ARCHITECTURE.md) / **E2** (SCHEMA.md) / **#7** (LLM prefix, throughput buffer 후).
 

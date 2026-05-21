@@ -234,7 +234,7 @@ type VectorStore interface {
 
 ### 4.3 Snippet Density 조정 (P0)
 
-3-tier ladder (impl 2026-05-21, B3 commit `<TBD>`):
+3-tier ladder (impl 2026-05-21, B3 commit `5f8f024`):
 
 | Tier | 내용 | 토큰 비중 |
 |---|---|---|
