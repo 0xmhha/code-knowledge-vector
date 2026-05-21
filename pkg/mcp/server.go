@@ -133,6 +133,9 @@ func (s *Server) registerTools() {
 		mcpgo.WithString("symbol_kind",
 			mcpgo.Description("Filter by symbol kind: Function | Method | Type | Struct | Interface | Contract | Event | Modifier | FileHeader | DocSection | ADRSection."),
 		),
+		mcpgo.WithString("commit_hash",
+			mcpgo.Description("Filter by commit_hash — pin results to chunks indexed at a specific historical commit. Empty (default) matches every commit."),
+		),
 		mcpgo.WithNumber("budget_tokens",
 			mcpgo.Description("Snippet density budget in tokens (default 4000)."),
 		),
@@ -191,6 +194,9 @@ func (s *Server) handleSemanticSearch(ctx context.Context, req mcpgo.CallToolReq
 	}
 	if v, ok := args["symbol_kind"].(string); ok && v != "" {
 		opts.Filter.SymbolKinds = []types.SymbolKind{types.SymbolKind(v)}
+	}
+	if v, ok := args["commit_hash"].(string); ok {
+		opts.Filter.CommitHash = v
 	}
 
 	res, err := s.engine.Search(ctx, intent, opts)

@@ -20,6 +20,7 @@ type queryOpts struct {
 	lang         string
 	pathGlob     string
 	symbolKind   string
+	commitHash   string
 	budgetTokens int
 	threshold    float64
 	srcRoot      string
@@ -45,6 +46,7 @@ func newQueryCmd() *cobra.Command {
 	f.StringVar(&opts.lang, "lang", "", "filter by language (go|typescript|javascript|solidity|markdown)")
 	f.StringVar(&opts.pathGlob, "path", "", "filter by path glob (filepath.Match, single-star)")
 	f.StringVar(&opts.symbolKind, "kind", "", "filter by symbol kind (Function|Method|Type|Struct|Interface|DocSection|ADRSection)")
+	f.StringVar(&opts.commitHash, "commit", "", "filter by commit_hash (incremental snapshot view; pin to a historical commit)")
 	f.IntVar(&opts.budgetTokens, "budget-tokens", query.DefaultBudgetTokens, "token budget for snippet density")
 	f.Float64Var(&opts.threshold, "threshold", query.DefaultThreshold, "min normalized score (<0 disables)")
 	f.StringVar(&opts.srcRoot, "src", "", "source root used for citation verification (default: manifest.src_root)")
@@ -76,8 +78,9 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 	defer eng.Close()
 
 	filter := types.Filter{
-		Language: opts.lang,
-		PathGlob: opts.pathGlob,
+		Language:   opts.lang,
+		PathGlob:   opts.pathGlob,
+		CommitHash: opts.commitHash,
 	}
 	if opts.symbolKind != "" {
 		filter.SymbolKinds = []types.SymbolKind{types.SymbolKind(opts.symbolKind)}

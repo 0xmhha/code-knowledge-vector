@@ -133,6 +133,51 @@ func TestSearchHonorsFilter(t *testing.T) {
 	}
 }
 
+// TestSearchHonorsCommitHashFilter exercises B2: chunks carry the
+// commit_hash they were indexed at; filter.CommitHash should restrict
+// results to that snapshot. Mismatched commit_hash returns zero hits
+// (and the warning surface from the threshold path stays clean).
+func TestSearchHonorsCommitHashFilter(t *testing.T) {
+	out, _ := buildSample(t)
+	eng, _ := Open(out, mock.Default())
+	defer eng.Close()
+
+	// First confirm baseline: an unfiltered search returns hits.
+	res, err := eng.Search(context.Background(), "TCP socket bind on port",
+		Options{K: 5, Threshold: -1})
+	if err != nil {
+		t.Fatalf("baseline Search: %v", err)
+	}
+	if len(res.Hits) == 0 {
+		t.Fatal("baseline returned 0 hits; commit_hash filter test invalid")
+	}
+	indexedCommit := res.Hits[0].Citation.CommitHash
+	if indexedCommit == "" {
+		t.Skip("testdata/sample isn't in a git repo; commit_hash empty so filter test moot")
+	}
+
+	// Filtering to the same commit must keep the hit.
+	res, err = eng.Search(context.Background(), "TCP socket bind on port",
+		Options{K: 5, Threshold: -1, Filter: types.Filter{CommitHash: indexedCommit}})
+	if err != nil {
+		t.Fatalf("same-commit Search: %v", err)
+	}
+	if len(res.Hits) == 0 {
+		t.Errorf("filter to indexed commit %q dropped every hit", indexedCommit)
+	}
+
+	// Filtering to a sentinel commit that does not match any chunk
+	// returns nothing.
+	res, err = eng.Search(context.Background(), "TCP socket bind on port",
+		Options{K: 5, Threshold: -1, Filter: types.Filter{CommitHash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}})
+	if err != nil {
+		t.Fatalf("foreign-commit Search: %v", err)
+	}
+	if len(res.Hits) != 0 {
+		t.Errorf("foreign commit_hash should drop every hit, got %d", len(res.Hits))
+	}
+}
+
 func TestSearchEmptyIntentRejected(t *testing.T) {
 	out, _ := buildSample(t)
 	eng, _ := Open(out, mock.Default())

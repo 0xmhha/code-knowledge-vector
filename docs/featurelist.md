@@ -51,7 +51,7 @@
 | §3.1 | VectorStore 인터페이스 | P0 | ✅ | |
 | §3.2 | sqlite-vec 기본 백엔드 | P0 | ✅ | `internal/store/sqlitevec` |
 | §3.4 | Filter (lang/path/symbol_kind) | P0 | ✅ | |
-| §3.4 | Filter — commit_hash | P0 | ⚠️ | metadata만 저장, 필터링 미연결 |
+| §3.4 | Filter — commit_hash | P0 | ✅ 2026-05-21 | `types.Filter.CommitHash` (post-filter) + CLI `--commit` + MCP `commit_hash` arg. 1 integration test. |
 | §3.5 | 영속화 (atomic rename + manifest) | P0 | ✅ | |
 | §4.1 | Semantic search | P0 | ✅ | `internal/query/engine.go` |
 | §4.2 | Code-as-Query mode (UC-V4) | P1 | ❌-S2 | |
