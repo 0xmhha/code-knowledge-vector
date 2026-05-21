@@ -307,6 +307,7 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		result.Chunks.Symbol += s.Symbol
 		result.Chunks.FileHeader += s.FileHeader
 		result.Chunks.Doc += s.Doc
+		result.Chunks.FunctionSplit += s.FunctionSplit
 		result.Chunks.Truncated += s.Truncated
 		languageCounts[lang] += s.Total
 	}

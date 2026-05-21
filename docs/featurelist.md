@@ -39,7 +39,7 @@
 | §1.2 | JavaScript parser | P0 | ✅ | `internal/parse/javascript/` (commit `e4977fa`, 2026-05-21). tree-sitter-typescript binding delegation; `.js` / `.jsx` / `.mjs` / `.cjs` 인덱싱. S2 → S1 끌어옴 (TS parser 패턴 재사용 비용 작음). |
 | §1.2 | Bash parser | P0 | ❌-S2 | 사용자 결정 2026-05-19 (S2 이관) |
 | §1.3 | Chunking — symbol + file_header | P0 | ✅ | `internal/chunk` |
-| §1.3 | Chunking — 큰 함수 sliding window | P0 | ⚠️ | head-truncate만 (sliding split deferred to W3 enhancement) |
+| §1.3 | Chunking — 큰 함수 sliding window | P0 | ✅ 2026-05-21 | `splitLongSpan` — Function/Method 가 `MaxInputTokens * charsPerToken` 초과 시 line-window 분할. 각 split: `ChunkKind=ChunkFunctionSplit`, `SymbolName="<orig>:chunk:N"`, distinct chunk_id, 실제 file line_range. Non-function kind 와 single-line은 truncate fallback. 4 신규 unit test. |
 | §1.4 | Compiler/LSP hook | P1 | ❌-S3+ | 인터페이스 미정의 |
 | §1.5 | `ckv build` CLI | P0 | ✅ | `cmd/ckv/build.go` |
 | §1.6 | manifest 메타 저장 | P0 | ✅ | `internal/manifest` |
@@ -135,7 +135,13 @@
 
 ### 1.3 Chunking 전략 (P0)
 - 1차 단위: function / method / type / contract 선언
-- 큰 함수: sliding window (default 50 LOC, 10 LOC overlap, configurable)
+- 큰 함수: line-window split (impl 2026-05-21, B1 commit `<TBD>`)
+  - 임계: `len(text) > MaxInputTokens * charsPerToken` (bge-large 512 tokens × 4 chars/token = 2048 chars)
+  - 분할: avg-chars-per-line 기반 window line 수 계산, 균등 line 분할 (no overlap; overlap은 측정 후 추가 검토)
+  - 각 sub-chunk: `ChunkKind=ChunkFunctionSplit`, `SymbolName="<orig>:chunk:N"` (1-indexed), 실제 file `start_line/end_line`, distinct `chunk_id`
+  - 적용 범위: `KindFunction` / `KindMethod` 만. Struct / Type / Interface / Contract / Event / Modifier / DocSection / FileHeader 는 truncate path 유지
+  - Single-line giant: degenerate case → truncate fallback
+  - Signature 중복 prepend 없음 — Phase D.1 `BuildEmbedText` 가 embed 시점에 "symbol: X.Y" prefix 추가하므로 identity 보존됨
 - 작은 파일/주석 군집: file-level fallback chunk
 - 각 chunk 메타: `chunk_id`, `file`, `start_line`, `end_line`, `lang`, `symbol_name`, `symbol_kind`, `commit_hash`
 - chunk_id 결정성: `sha256(file + start_line + end_line + content_hash)` (재인덱싱 시 안정 식별)

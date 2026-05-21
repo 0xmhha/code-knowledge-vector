@@ -264,6 +264,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			totalStats.Symbol += s.Symbol
 			totalStats.FileHeader += s.FileHeader
 			totalStats.Doc += s.Doc
+			totalStats.FunctionSplit += s.FunctionSplit
 			totalStats.Truncated += s.Truncated
 		}()
 		if perFileErr != nil {

@@ -87,6 +87,150 @@ func TestTruncationKeepsHeadAndMarker(t *testing.T) {
 	}
 }
 
+// TestLongFunctionSplitsIntoMultipleChunks exercises B1 (Phase A):
+// a multi-line function body that exceeds MaxInputTokens gets split
+// into N ChunkFunctionSplit chunks instead of being head-truncated.
+func TestLongFunctionSplitsIntoMultipleChunks(t *testing.T) {
+	// 60 distinct lines, each ~20 chars → ~1200 chars total.
+	bodyLines := []string{}
+	for range 60 {
+		bodyLines = append(bodyLines, "  doWork(stepNum)  ")
+	}
+	long := "func Big() {\n" + strings.Join(bodyLines, "\n") + "\n}"
+
+	// MaxInputTokens=50 → ~200 char cap. Body is ~1200 chars → must split.
+	chunks := New(Options{MaxInputTokens: 50}).Chunk(Input{
+		File:       "x.go",
+		Language:   "go",
+		CommitHash: "abc",
+		Source:     []byte("package x\n"),
+		Spans: []parse.SymbolSpan{
+			{Name: "Big", Kind: types.KindFunction, StartLine: 10, EndLine: 71, Text: long},
+		},
+	})
+
+	// Find every function_split chunk.
+	splits := []types.Chunk{}
+	for _, c := range chunks {
+		if c.ChunkKind == types.ChunkFunctionSplit {
+			splits = append(splits, c)
+		}
+	}
+	if len(splits) < 2 {
+		t.Fatalf("expected ≥2 function_split chunks; got %d (chunks=%d)", len(splits), len(chunks))
+	}
+
+	// Every split must carry the :chunk:N suffix and a distinct line range.
+	seenLines := map[int]bool{}
+	for i, c := range splits {
+		want := "Big:chunk:" + itoa(i+1)
+		if c.SymbolName != want {
+			t.Errorf("splits[%d].SymbolName = %q, want %q", i, c.SymbolName, want)
+		}
+		if c.SymbolKind != types.KindFunction {
+			t.Errorf("splits[%d].SymbolKind = %q, want Function", i, c.SymbolKind)
+		}
+		if c.StartLine < 10 || c.EndLine > 71 {
+			t.Errorf("splits[%d] line range out of span: %d-%d (span 10-71)", i, c.StartLine, c.EndLine)
+		}
+		if seenLines[c.StartLine] {
+			t.Errorf("splits[%d] StartLine=%d duplicated; windows must be disjoint", i, c.StartLine)
+		}
+		seenLines[c.StartLine] = true
+		if c.ID == "" {
+			t.Errorf("splits[%d] missing chunk_id", i)
+		}
+	}
+	// Splits must be ordered by start_line so reassembly is trivial.
+	for i := 1; i < len(splits); i++ {
+		if splits[i].StartLine <= splits[i-1].StartLine {
+			t.Errorf("splits not in line order: [%d].StartLine=%d ≤ [%d].StartLine=%d",
+				i, splits[i].StartLine, i-1, splits[i-1].StartLine)
+		}
+	}
+}
+
+// TestShortFunctionNotSplit verifies the threshold side: a function
+// comfortably under MaxInputTokens still goes through the regular
+// single-chunk path (ChunkSymbol, no :chunk:N suffix).
+func TestShortFunctionNotSplit(t *testing.T) {
+	short := "func Small() {\n  return 1\n}"
+	chunks := New(Options{MaxInputTokens: 50}).Chunk(Input{
+		File: "x.go", Language: "go", CommitHash: "abc",
+		Source: []byte("package x\n"),
+		Spans: []parse.SymbolSpan{
+			{Name: "Small", Kind: types.KindFunction, StartLine: 1, EndLine: 3, Text: short},
+		},
+	})
+	for _, c := range chunks {
+		if c.ChunkKind == types.ChunkFunctionSplit {
+			t.Errorf("short function should not split; got %+v", c)
+		}
+		if strings.Contains(c.SymbolName, ":chunk:") {
+			t.Errorf("short function should not carry chunk suffix; got %q", c.SymbolName)
+		}
+	}
+}
+
+// TestSplitOnlyForFunctionLikeKinds verifies splitting is restricted
+// to Function/Method. Types, structs, interfaces, contracts, and
+// markdown sections fall back to truncation — splitting prose loses
+// structure and Solidity/TS types are typically short anyway.
+func TestSplitOnlyForFunctionLikeKinds(t *testing.T) {
+	long := "struct Big {\n" + strings.Repeat("  field T\n", 60) + "}"
+	chunks := New(Options{MaxInputTokens: 50}).Chunk(Input{
+		File: "x.go", Language: "go", CommitHash: "abc",
+		Source: []byte("package x\n"),
+		Spans: []parse.SymbolSpan{
+			{Name: "BigStruct", Kind: types.KindStruct, StartLine: 1, EndLine: 62, Text: long},
+		},
+	})
+	for _, c := range chunks {
+		if c.ChunkKind == types.ChunkFunctionSplit {
+			t.Errorf("non-function kind should not split; got %+v", c)
+		}
+	}
+}
+
+// TestSplitChunkIDsAreDistinct ensures every split gets a unique
+// chunk_id. Critical for the store's PRIMARY KEY constraint and for
+// incremental reindex (DeleteByFile + Upsert sequence).
+func TestSplitChunkIDsAreDistinct(t *testing.T) {
+	bodyLines := []string{}
+	for range 80 {
+		bodyLines = append(bodyLines, "  step()")
+	}
+	long := "func Big() {\n" + strings.Join(bodyLines, "\n") + "\n}"
+	chunks := New(Options{MaxInputTokens: 30}).Chunk(Input{
+		File: "x.go", Language: "go", CommitHash: "abc",
+		Source: []byte("package x\n"),
+		Spans: []parse.SymbolSpan{
+			{Name: "Big", Kind: types.KindFunction, StartLine: 1, EndLine: 82, Text: long},
+		},
+	})
+	ids := map[string]bool{}
+	for _, c := range chunks {
+		if ids[c.ID] {
+			t.Errorf("duplicate chunk_id: %s", c.ID)
+		}
+		ids[c.ID] = true
+	}
+}
+
+// itoa is a tiny helper kept local so the test file doesn't pull in
+// strconv just for one call site.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	out := []byte{}
+	for n > 0 {
+		out = append([]byte{byte('0' + n%10)}, out...)
+		n /= 10
+	}
+	return string(out)
+}
+
 func TestEmptyFileNoHeader(t *testing.T) {
 	chunks := New(Options{}).Chunk(Input{File: "empty.go", Language: "go", CommitHash: "x", Source: nil})
 	if len(chunks) != 0 {

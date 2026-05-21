@@ -42,8 +42,9 @@
 - ~~**E1** `docs/ARCHITECTURE.md`~~ — ✅ 2026-05-21 (commit `6466815`)
 - ~~**E2-chunk** `docs/SCHEMA.md`~~ — ✅ 2026-05-21 (commit `484b171`)
 - ~~**B2 / B4 / B5 / B8** 잔여 B 그룹 4건~~ — ✅ 2026-05-21 (commits `209ba70` / `8fc478a` / `5efa2c1` / `0241a25`)
+- ~~**B1** sliding split (Phase A)~~ — ✅ 2026-05-21 (commit `<TBD>`)
 
-→ **Tier 1 4건 + #6 + E3 + B3 + E1 + E2-chunk + B2 + B4 + B5 + B8 (13 항목) 완료.** 잔여: **B1** (sliding split = Phase A 별도 세션) / **B7** (Symbol ID, CKG 협업 필요) / **B10** (Fuzz 인프라) / **#7** (LLM prefix D.2).
+→ **Tier 1 4건 + #6 + E3 + B3 + E1 + E2-chunk + B2 + B4 + B5 + B8 + B1 (14 항목) 완료.** 잔여: **B7** (Symbol ID, CKG 협업 필요) / **B10** (Fuzz 인프라) / **#7** (LLM prefix D.2, bgeonnx throughput buffer 후).
 
 ---
 
@@ -67,7 +68,7 @@
 
 | ID | 작업 | 우선순위 | 상태 | 비고 |
 |---|---|---|---|---|
-| **B1** | §1.3 큰 함수 sliding window split | Mid | ⏳ | head-truncate만 적용. AST top-level statement 단위 split 필요. = Roadmap §12 #10 (Phase A). plan §5.4 약속. |
+| **B1** | §1.3 큰 함수 sliding window split | Mid | ✅ 2026-05-21 | `splitLongSpan` — Function/Method 가 cap 초과 시 line-window 분할 (avg-chars-per-line 기반 window line 수 계산). `ChunkKind=ChunkFunctionSplit`, `SymbolName="<orig>:chunk:N"`, 실제 file line_range, distinct chunk_id. Non-function 과 single-line 은 truncate fallback. 4 신규 unit test + 5-split smoke 확인. = Roadmap §12 #10 (Phase A). |
 | **B2** | §3.4 Filter — commit_hash filtering | Low | ✅ 2026-05-21 | `Filter.CommitHash` 는 이미 `Matches` 에 연결돼 있었고, CLI `--commit` + MCP `commit_hash` arg 표면만 추가. 1 integration test. |
 | **B3** | §4.3 Snippet density 3-tier ladder | Mid | ✅ 2026-05-21 | `DensityTier` (Full / Signature5 / SignatureOnly) — `internal/query/snippet.go`. Hit 마다 `Density` 필드 노출 + `Options.MaxDensity` cap + `Options.SignatureContextLines` 튜닝. `pkg/ckv` 재노출. 3 신규 unit test (per-hit reporting / cap override / ctxLines knob). |
 | **B4** | §5.2 인용 실재성 — commit_hash 매칭 | Low | ✅ 2026-05-21 | `EnforceCitationsAt` 신설 — chunk.commit_hash ≠ 현재 git HEAD → `StaleCitation=true` 플래그 + warning `stale_N_citations`. drop은 안 함 (file은 유효). types.Hit + query.Hit 둘 다 필드 추가. 2 unit test. |

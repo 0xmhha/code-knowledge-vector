@@ -96,10 +96,103 @@ func (c *Chunker) Chunk(in Input) []types.Chunk {
 	}
 
 	for _, sp := range in.Spans {
+		// B1 (Phase A): when a function body exceeds the embedder's
+		// input cap, split it into multiple sub-chunks instead of
+		// head-truncating. Long doc sections / file headers stay on
+		// the truncate path — splitting prose loses structure.
+		if c.shouldSplit(sp) {
+			out = append(out, c.splitLongSpan(in, sp)...)
+			continue
+		}
 		text := c.maybeTruncate(sp.Text)
 		out = append(out, c.symbolChunk(in, sp, text))
 	}
 	return out
+}
+
+// shouldSplit reports whether a span gets the function-split treatment.
+// Only function-like kinds (Function / Method) are eligible: type
+// declarations and Solidity contracts/events are structurally too
+// short to benefit, and markdown sections don't have signatures to
+// preserve.
+func (c *Chunker) shouldSplit(sp parse.SymbolSpan) bool {
+	if c.opts.MaxInputTokens <= 0 {
+		return false
+	}
+	maxChars := c.opts.MaxInputTokens * charsPerToken
+	if len(sp.Text) <= maxChars {
+		return false
+	}
+	switch sp.Kind {
+	case types.KindFunction, types.KindMethod:
+		return true
+	default:
+		return false
+	}
+}
+
+// splitLongSpan slices the span body into multiple ChunkFunctionSplit
+// chunks. Each chunk carries:
+//
+//   - SymbolName = "<original>:chunk:<n>" (1-indexed) so callers can
+//     reassemble the order.
+//   - ChunkKind = ChunkFunctionSplit so consumers can filter or
+//     visually badge split results.
+//   - StartLine/EndLine = the window's actual lines in the source
+//     file. Citation lookups land on the right slice.
+//
+// The signature is *not* duplicated into each split's Text — the
+// Phase D.1 contextual prefix (BuildEmbedText) already prepends
+// "symbol: X.Y" at embed time so the embedder still sees the symbol
+// identity for every split. Snippet display reads Text directly, so
+// the user sees the actual window content (signature shows only on
+// chunk 1, which contains the function's opening line).
+//
+// Window math: divide len(sp.Text) by maxChars to get N (with one
+// extra chunk for the remainder), then split sp.Text by line count
+// evenly. No overlap — adding it is a future refinement when
+// measurement shows recall improvement.
+func (c *Chunker) splitLongSpan(in Input, sp parse.SymbolSpan) []types.Chunk {
+	maxChars := c.opts.MaxInputTokens * charsPerToken
+	lines := strings.Split(sp.Text, "\n")
+	if len(lines) <= 1 {
+		// Degenerate one-line giant — truncate as before.
+		return []types.Chunk{c.symbolChunk(in, sp, c.maybeTruncate(sp.Text))}
+	}
+
+	// Aim each window for ~maxChars of content. avg chars per line of
+	// this span gives us a windowSize that respects the cap.
+	avgCharsPerLine := max(1, (len(sp.Text)+len(lines)-1)/len(lines))
+	windowLines := max(1, maxChars/avgCharsPerLine)
+
+	chunks := make([]types.Chunk, 0, (len(lines)+windowLines-1)/windowLines)
+	for i, idx := 0, 0; i < len(lines); i += windowLines {
+		end := min(i+windowLines, len(lines))
+		windowText := strings.Join(lines[i:end], "\n")
+		// File-relative line range: span starts at sp.StartLine, so the
+		// window starts at sp.StartLine + i. Inclusive on both ends.
+		startLine := sp.StartLine + i
+		endLine := sp.StartLine + end - 1
+		idx++
+
+		contentHash := types.ContentSHA256(windowText)
+		id := types.ChunkID(in.File, startLine, endLine, contentHash)
+		chunks = append(chunks, types.Chunk{
+			ID:            id,
+			File:          in.File,
+			StartLine:     startLine,
+			EndLine:       endLine,
+			Language:      in.Language,
+			IsTest:        types.IsTestPath(in.File, in.Language),
+			SymbolName:    fmt.Sprintf("%s:chunk:%d", sp.Name, idx),
+			SymbolKind:    sp.Kind,
+			ChunkKind:     types.ChunkFunctionSplit,
+			CommitHash:    in.CommitHash,
+			ContentSHA256: contentHash,
+			Text:          windowText,
+		})
+	}
+	return chunks
 }
 
 // fileHeaderChunk emits the leading-lines chunk. Returns nil for empty
@@ -184,11 +277,12 @@ func (c *Chunker) maybeTruncate(text string) string {
 // Stats summarizes the output of one Chunk() call; useful for build
 // progress and the bootstrap report.
 type Stats struct {
-	Total       int
-	Symbol      int
-	FileHeader  int
-	Doc         int
-	Truncated   int
+	Total         int
+	Symbol        int
+	FileHeader    int
+	Doc           int
+	FunctionSplit int
+	Truncated     int
 }
 
 // Summarize counts chunk kinds. Cheap O(n) pass over the slice.
@@ -203,6 +297,8 @@ func Summarize(chunks []types.Chunk) Stats {
 			s.FileHeader++
 		case types.ChunkDoc:
 			s.Doc++
+		case types.ChunkFunctionSplit:
+			s.FunctionSplit++
 		}
 		if strings.Contains(c.Text, "[CKV-TRUNCATED]") {
 			s.Truncated++
