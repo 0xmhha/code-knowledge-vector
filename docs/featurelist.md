@@ -59,7 +59,7 @@
 | §4.4 | Score 정규화 (0~1) + raw distance | P0 | ✅ | `Hit.Score.Normalized` |
 | §4.5 | Query plan (intent classification) | P1 | ❌-S2 | |
 | §5.1 | 인용 강제 부착 | P0 | ✅ | |
-| §5.2 | 인용 실재성 cheap check | P0 | ⚠️ | file existence만, commit_hash 매칭 미구현 |
+| §5.2 | 인용 실재성 cheap check | P0 | ✅ 2026-05-21 | file existence + line-sanity (existing) + commit_hash mismatch → `StaleCitation` 플래그 + `stale_N_citations` warning. `EnforceCitationsAt` (B4). 2 신규 unit test. |
 | §5.3 | Citation test suite | P1 | ✅ | `internal/eval` citation accuracy |
 | §6.1 | 변경 감지 (git diff) | P0 | ⚠️ | freshness check만, fsnotify 미구현 |
 | §6.2 | `ckv reindex` (UC-V2) | P0 | ✅ 2026-05-21 | `internal/build.Reindex` + `cmd/ckv reindex`. git diff name-status 기반 changeSet (A/M/D/R/C/T) → DeleteByFile + embed/upsert. Flags: `--since` (diff base override), `--files` (force list, bypass git). Embedder identity match 강제 — mismatch 시 `ErrEmbedderMismatch`. 7 unit test. |

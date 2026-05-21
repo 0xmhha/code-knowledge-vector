@@ -52,8 +52,14 @@ func (f Filter) Matches(c Chunk) bool {
 // Hit is a single search result. Score values are normalized so callers
 // can compare across backends; raw distance is preserved for RRF input.
 type Hit struct {
-	Chunk     Chunk     `json:"chunk"`
-	Score     HitScore  `json:"score"`
+	Chunk Chunk    `json:"chunk"`
+	Score HitScore `json:"score"`
+	// StaleCitation is set by the citation-enforcement step when the
+	// chunk's recorded commit_hash differs from the source tree's
+	// current git HEAD. The hit is still returned — the file usually
+	// still has useful content at a different commit — but downstream
+	// consumers can warn the user or downgrade the snippet shape.
+	StaleCitation bool `json:"stale_citation,omitempty"`
 }
 
 // HitScore exposes both the normalized score (higher = better, range [0,1])

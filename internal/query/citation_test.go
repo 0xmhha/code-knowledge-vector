@@ -37,6 +37,58 @@ func TestEnforceCitationsPassesThroughWhenNoSrcRoot(t *testing.T) {
 	}
 }
 
+// TestEnforceCitationsAt_StaleCommitHashFlag exercises B4: when the
+// chunk's recorded commit_hash differs from currentHead, the hit
+// survives (file is fine) but carries StaleCitation=true and counts
+// toward the stale return.
+func TestEnforceCitationsAt_StaleCommitHashFlag(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits := []types.Hit{
+		{Chunk: types.Chunk{File: "x.go", StartLine: 1, EndLine: 1, CommitHash: "old-commit"}},
+		{Chunk: types.Chunk{File: "x.go", StartLine: 1, EndLine: 1, CommitHash: "new-commit"}},
+		{Chunk: types.Chunk{File: "x.go", StartLine: 1, EndLine: 1, CommitHash: ""}}, // unset, treat as fresh
+	}
+	keep, dropped, stale := EnforceCitationsAt(hits, dir, "new-commit")
+	if dropped != 0 {
+		t.Errorf("expected 0 dropped, got %d", dropped)
+	}
+	if stale != 1 {
+		t.Errorf("expected 1 stale, got %d", stale)
+	}
+	if len(keep) != 3 {
+		t.Errorf("expected all 3 hits to survive, got %d", len(keep))
+	}
+	if !keep[0].StaleCitation {
+		t.Errorf("keep[0] (old-commit) should be marked stale")
+	}
+	if keep[1].StaleCitation {
+		t.Errorf("keep[1] (new-commit) should NOT be stale")
+	}
+	if keep[2].StaleCitation {
+		t.Errorf("keep[2] (empty hash) should NOT be stale (no signal to compare)")
+	}
+}
+
+// TestEnforceCitationsAt_EmptyCurrentHeadSkipsStaleCheck verifies the
+// stale check is opt-in: empty currentHead means "we don't know what
+// fresh looks like" → don't mark anything stale.
+func TestEnforceCitationsAt_EmptyCurrentHeadSkipsStaleCheck(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits := []types.Hit{
+		{Chunk: types.Chunk{File: "x.go", StartLine: 1, EndLine: 1, CommitHash: "any-commit"}},
+	}
+	_, _, stale := EnforceCitationsAt(hits, dir, "")
+	if stale != 0 {
+		t.Errorf("empty currentHead must disable stale check, got stale=%d", stale)
+	}
+}
+
 func TestEnforceCitationsRejectsInvalidLineRange(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x"), 0o644); err != nil {

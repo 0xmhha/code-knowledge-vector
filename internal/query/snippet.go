@@ -126,15 +126,16 @@ func renderAt(text string, tier DensityTier, ctxLines int) string {
 func toResponseHit(h types.Hit, snippet string) Hit {
 	c := h.Chunk
 	return Hit{
-		ChunkID:    c.ID,
-		Citation:   c.Citation(),
-		Snippet:    snippet,
-		Score:      h.Score,
-		Language:   c.Language,
-		IsTest:     c.IsTest,
-		Symbol:     c.SymbolName,
-		SymbolKind: c.SymbolKind,
-		CKGNodeID:  c.CKGNodeID,
+		ChunkID:       c.ID,
+		Citation:      c.Citation(),
+		Snippet:       snippet,
+		Score:         h.Score,
+		Language:      c.Language,
+		IsTest:        c.IsTest,
+		Symbol:        c.SymbolName,
+		SymbolKind:    c.SymbolKind,
+		CKGNodeID:     c.CKGNodeID,
+		StaleCitation: h.StaleCitation,
 	}
 }
 

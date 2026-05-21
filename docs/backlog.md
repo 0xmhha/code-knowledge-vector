@@ -69,7 +69,7 @@
 | **B1** | §1.3 큰 함수 sliding window split | Mid | ⏳ | head-truncate만 적용. AST top-level statement 단위 split 필요. = Roadmap §12 #10 (Phase A). plan §5.4 약속. |
 | **B2** | §3.4 Filter — commit_hash filtering | Low | ✅ 2026-05-21 | `Filter.CommitHash` 는 이미 `Matches` 에 연결돼 있었고, CLI `--commit` + MCP `commit_hash` arg 표면만 추가. 1 integration test. |
 | **B3** | §4.3 Snippet density 3-tier ladder | Mid | ✅ 2026-05-21 | `DensityTier` (Full / Signature5 / SignatureOnly) — `internal/query/snippet.go`. Hit 마다 `Density` 필드 노출 + `Options.MaxDensity` cap + `Options.SignatureContextLines` 튜닝. `pkg/ckv` 재노출. 3 신규 unit test (per-hit reporting / cap override / ctxLines knob). |
-| **B4** | §5.2 인용 실재성 — commit_hash 매칭 | Low | ⏳ | file existence만, commit_hash mismatch 미검증. stale citation 감지 약함. |
+| **B4** | §5.2 인용 실재성 — commit_hash 매칭 | Low | ✅ 2026-05-21 | `EnforceCitationsAt` 신설 — chunk.commit_hash ≠ 현재 git HEAD → `StaleCitation=true` 플래그 + warning `stale_N_citations`. drop은 안 함 (file은 유효). types.Hit + query.Hit 둘 다 필드 추가. 2 unit test. |
 | **B5** | §8.2 Envelope — `trace_id`/`dry_run` | Low | ⏳ | `budget_tokens`만. trace_id 일관성, dry_run mode 미구현. observability에 영향. |
 | **B6** | §8.4 Error model 6종 중 5종 미구현 | Mid | ✅ 2026-05-21 | 6 종 sentinel `internal/query/errors.go` + `pkg/ckv` 재노출. Raise points 4 종 wired (IndexUnavailable / BudgetExceeded `MinBudgetTokens=20` / CitationNotFound 전수-drop / FreshnessStale via `Engine.CheckFreshness`). SanitizeFailed / PolicyError sentinel only (S2 / S6 도착 시 raise). 7 unit test (4 internal + 3 facade). |
 | **B7** | §10.2 Symbol ID 호환 정규화 규칙 | Low | ⏳ | `ckg_node_id` 필드만. CKG와 join 위한 normalize 규칙 미합의. CKG 측과 협업 필요. |

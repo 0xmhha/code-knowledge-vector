@@ -92,7 +92,13 @@ type Hit struct {
 	// Useful for downstream UIs that want to badge compressed hits or
 	// for eval pipelines counting how often the budget forced a
 	// downgrade. Omitted when empty (e.g. callers building Hit by hand).
-	Density    DensityTier      `json:"density,omitempty"`
+	Density       DensityTier `json:"density,omitempty"`
+	// StaleCitation propagates from types.Hit: the chunk's recorded
+	// commit_hash disagrees with the current source-tree HEAD. The
+	// citation file/lines still resolve — the content there may have
+	// shifted since the index was built. Consumers can render a badge
+	// or schedule a reindex. Omitted when false.
+	StaleCitation bool `json:"stale_citation,omitempty"`
 	Score      types.HitScore   `json:"score"`
 	Language   string           `json:"language"`
 	IsTest     bool             `json:"is_test,omitempty"`
@@ -389,9 +395,19 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	if srcRoot == "" {
 		srcRoot = e.srcRoot
 	}
-	enforced, droppedCitations := EnforceCitations(passed, srcRoot)
+	// Cheap stale detection (B4): pull the source tree's current HEAD
+	// once and compare against each chunk's CommitHash. Mismatch is a
+	// warning, not a drop — file content at the new commit is usually
+	// still relevant. The git call here is the same one freshness uses;
+	// we accept its 5-10ms cost on the query hot path because the
+	// signal is high-value for the caller deciding whether to reindex.
+	currentHead := currentGitHead(srcRoot)
+	enforced, droppedCitations, staleCitations := EnforceCitationsAt(passed, srcRoot, currentHead)
 	if droppedCitations > 0 {
 		warnings = append(warnings, fmt.Sprintf("dropped_%d_unverified_citations", droppedCitations))
+	}
+	if staleCitations > 0 {
+		warnings = append(warnings, fmt.Sprintf("stale_%d_citations", staleCitations))
 	}
 	// Catastrophic citation failure: we had threshold-passing candidates
 	// but lost every one to citation enforcement. Almost always means the

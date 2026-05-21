@@ -2,10 +2,27 @@ package query
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
+
+// currentGitHead returns `git rev-parse HEAD` for srcRoot, or empty
+// when git is unavailable or srcRoot is not a git repo. Used by
+// EnforceCitationsAt for stale-citation detection (B4). Failure is
+// silent — stale check is best-effort, not a hard requirement.
+func currentGitHead(srcRoot string) string {
+	if srcRoot == "" {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", srcRoot, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
 
 // EnforceCitations verifies every hit's citation against the on-disk
 // source tree at srcRoot, returning the surviving hits and the count of
@@ -13,31 +30,53 @@ import (
 // hit we can't verify is silently dropped (with a warning aggregated by
 // the caller).
 //
-// W2 verification is **cheap**:
-//   1. file exists at srcRoot/<rel>
-//   2. start_line ≥ 1 and end_line ≥ start_line
+// Verification:
 //
-// Commit-hash verification via `git cat-file` is deferred to W4 — it
-// requires shelling out per hit and would dominate query latency.
+//  1. file exists at srcRoot/<rel>
+//  2. start_line ≥ 1 and end_line ≥ start_line
+//
+// Commit-hash mismatch (stale citation) is NOT a drop — the file
+// almost always still has useful content, just at a different
+// commit than when it was indexed. Callers see the stale count
+// returned alongside dropped and surface a warning. Use
+// EnforceCitationsAt to enable the stale check.
 //
 // When srcRoot is empty (no source tree available; we're running
 // against a moved index), every hit is allowed through with a warning.
-// Callers can detect that case via the dropped count being 0 alongside
-// missing files.
 func EnforceCitations(hits []types.Hit, srcRoot string) (keep []types.Hit, dropped int) {
+	keep, dropped, _ = EnforceCitationsAt(hits, srcRoot, "")
+	return keep, dropped
+}
+
+// EnforceCitationsAt extends EnforceCitations with B4 stale detection:
+// when currentHead is non-empty, every surviving hit whose
+// Chunk.CommitHash differs gets Hit.StaleCitation=true and counts toward
+// the stale return. Useful diagnostic when callers can detect "the
+// index is post-reindex-needed but still served." Empty currentHead
+// disables the check; stale stays 0.
+//
+// The surviving slice's order matches the input; only the metadata on
+// each hit is touched. Dropped hits are removed as before — line
+// validity and file existence remain hard requirements.
+func EnforceCitationsAt(hits []types.Hit, srcRoot, currentHead string) (keep []types.Hit, dropped int, stale int) {
 	if srcRoot == "" {
-		// No source tree to verify against — pass through.
-		return hits, 0
+		// No source tree to verify against — pass through. Stale check
+		// also requires srcRoot context, so it's a single no-op.
+		return hits, 0, 0
 	}
 	keep = hits[:0] // reuse underlying array (caller doesn't reuse hits)
 	for _, h := range hits {
-		if verifyCitation(srcRoot, h.Chunk) {
-			keep = append(keep, h)
-		} else {
+		if !verifyCitation(srcRoot, h.Chunk) {
 			dropped++
+			continue
 		}
+		if currentHead != "" && h.Chunk.CommitHash != "" && h.Chunk.CommitHash != currentHead {
+			h.StaleCitation = true
+			stale++
+		}
+		keep = append(keep, h)
 	}
-	return keep, dropped
+	return keep, dropped, stale
 }
 
 // verifyCitation runs the cheap existence + line-sanity check. Returns
