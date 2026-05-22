@@ -49,14 +49,25 @@ type Fixture struct {
 
 // Entry is one PR's fixture row. Fields match testdata/prs.yaml; see
 // that file's header for semantics.
+//
+// IntentGroundTruth / ChangedSymbols / Category were added in the
+// 2026-05-22 fixture expansion (4 → 12, see evaluation-design §10.3)
+// so the upcoming Multi-stage evaluation (E1 intent / E2 symbol-level
+// location) has structured ground truth. All three are optional —
+// legacy entries (pr69 / pr70 / pr72 / pr74) load without them and
+// the score.go consumers fall back to file-set F1 when symbols are
+// absent.
 type Entry struct {
-	ID         string  `yaml:"id"`
-	Repo       string  `yaml:"repo"`        // owner/name
-	PRNumber   int     `yaml:"pr_number"`
-	SourcePath string  `yaml:"source_path"` // local clone path
-	BaseSHA    string  `yaml:"base_sha"`
-	Threshold  float64 `yaml:"threshold,omitempty"`
-	Notes      string  `yaml:"notes,omitempty"`
+	ID                string   `yaml:"id"`
+	Repo              string   `yaml:"repo"`        // owner/name
+	PRNumber          int      `yaml:"pr_number"`
+	SourcePath        string   `yaml:"source_path"` // local clone path
+	BaseSHA           string   `yaml:"base_sha"`
+	Threshold         float64  `yaml:"threshold,omitempty"`
+	Notes             string   `yaml:"notes,omitempty"`
+	IntentGroundTruth string   `yaml:"intent_ground_truth,omitempty"`
+	ChangedSymbols    []string `yaml:"changed_symbols,omitempty"`
+	Category          string   `yaml:"category,omitempty"`
 }
 
 // LoadFixture reads + validates a PR fixture YAML. Validation is

@@ -39,6 +39,92 @@ prs:
 	}
 }
 
+// TestLoadFixture_ParsesNewMultiStageFields verifies the NEW-5 fixture
+// expansion (2026-05-22) — Entry now carries intent_ground_truth /
+// changed_symbols / category, all optional. Legacy entries without
+// them must still load unchanged.
+func TestLoadFixture_ParsesNewMultiStageFields(t *testing.T) {
+	path := writeFixture(t, `
+schema_version: "1"
+prs:
+  - id: pr77
+    repo: stable-net/go-stablenet
+    pr_number: 77
+    source_path: /tmp/repo
+    base_sha: 0bf2f4d1bfeb6605006d556957ef8c045d8f8ed8
+    intent_ground_truth: |
+      Refresh AnzeonTipEnv currentBlock when header GasTip value changes.
+    changed_symbols:
+      - AnzeonTipEnv.SetCurrentBlock
+      - AnzeonTipEnv.gasTipChanged
+    category: gas_policy
+  - id: pr_legacy
+    repo: foo/bar
+    pr_number: 1
+    source_path: /tmp/repo
+    base_sha: aaaaaaa
+    threshold: 0.75
+`)
+	fx, err := LoadFixture(path)
+	if err != nil {
+		t.Fatalf("LoadFixture: %v", err)
+	}
+	if len(fx.PRs) != 2 {
+		t.Fatalf("want 2 entries, got %d", len(fx.PRs))
+	}
+	e := fx.PRs[0]
+	if e.Category != "gas_policy" {
+		t.Errorf("category = %q, want gas_policy", e.Category)
+	}
+	if len(e.ChangedSymbols) != 2 || e.ChangedSymbols[0] != "AnzeonTipEnv.SetCurrentBlock" {
+		t.Errorf("changed_symbols parsed wrong: %+v", e.ChangedSymbols)
+	}
+	if e.IntentGroundTruth == "" {
+		t.Errorf("intent_ground_truth not parsed: %q", e.IntentGroundTruth)
+	}
+	// Legacy entry: new fields must be zero, not error out the loader.
+	legacy := fx.PRs[1]
+	if legacy.Category != "" || len(legacy.ChangedSymbols) != 0 || legacy.IntentGroundTruth != "" {
+		t.Errorf("legacy entry should leave new fields empty: %+v", legacy)
+	}
+}
+
+// TestLoadFixture_RealCorpusHasTwelveEntries verifies the actual
+// testdata/prs.yaml shipped in the repo has exactly the 12 entries
+// promised by NEW-5. Catches accidental deletion / duplication during
+// future fixture edits.
+func TestLoadFixture_RealCorpusHasTwelveEntries(t *testing.T) {
+	// internal/eval/prregress/ → ../../../testdata/prs.yaml
+	path := filepath.Join("..", "..", "..", "testdata", "prs.yaml")
+	fx, err := LoadFixture(path)
+	if err != nil {
+		t.Fatalf("LoadFixture(%s): %v", path, err)
+	}
+	if got, want := len(fx.PRs), 12; got != want {
+		t.Errorf("entry count = %d, want %d (NEW-5 expansion)", got, want)
+	}
+	// Every new entry (PR# >= 55, except the 4 legacy) must carry the
+	// three new fields. Spot-check the structural promise.
+	newIDs := map[string]bool{
+		"pr77": true, "pr75": true, "pr73": true, "pr67": true,
+		"pr63": true, "pr58": true, "pr56": true, "pr55": true,
+	}
+	for _, e := range fx.PRs {
+		if !newIDs[e.ID] {
+			continue
+		}
+		if e.IntentGroundTruth == "" {
+			t.Errorf("%s: missing intent_ground_truth", e.ID)
+		}
+		if len(e.ChangedSymbols) == 0 {
+			t.Errorf("%s: missing changed_symbols", e.ID)
+		}
+		if e.Category == "" {
+			t.Errorf("%s: missing category", e.ID)
+		}
+	}
+}
+
 func TestLoadFixture_DefaultThreshold(t *testing.T) {
 	// Omitted threshold → DefaultThreshold (0.80) backfilled.
 	path := writeFixture(t, `

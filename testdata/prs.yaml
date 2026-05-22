@@ -15,13 +15,29 @@
 #   5. Threshold gate per entry (default 0.80).
 #
 # Fields:
-#   id          stable identifier used in logs/reports
-#   repo        owner/name on GitHub (gh CLI reads PR metadata from here)
-#   pr_number   the PR number (1.., as in github.com/<repo>/pull/<n>)
-#   source_path local clone path (worktree gets created next to it)
-#   base_sha    full SHA of the commit before the PR landed
-#   threshold   minimum acceptable similarity score (LLM-judge primary)
-#   notes       free-form description; not used by the harness
+#   id                    stable identifier used in logs/reports
+#   repo                  owner/name on GitHub (gh CLI reads PR metadata from here)
+#   pr_number             the PR number (1.., as in github.com/<repo>/pull/<n>)
+#   source_path           local clone path (worktree gets created next to it)
+#   base_sha              full SHA of the commit before the PR landed
+#   threshold             minimum acceptable similarity score (LLM-judge primary)
+#   notes                 free-form description; not used by the harness
+#   intent_ground_truth   structured restatement of the PR's purpose, used by
+#                         the Multi-stage E1 (intent capture) metric
+#                         (evaluation-design §10.2). Roughly = PR title + first
+#                         sentence of Background, hand-curated for clarity.
+#   changed_symbols       ground-truth list of code symbols the PR touched,
+#                         used by the E2 (symbol-level location) metric.
+#                         AST diff would extract these automatically; for the
+#                         initial fixture we hand-curate from the diff.
+#   category              loose domain bucket (consensus_wbft / gas_policy /
+#                         genesis_governance / hardfork / gov_minter /
+#                         chain_config / system_contract_init / etc.) — used
+#                         to slice eval reports by domain.
+#
+# 2026-05-22: expanded from 4 → 12 entries (evaluation-design §10.3, NEW-5).
+# base_sha for each new entry = parent of the merge commit:
+#   git -C <repo> log -1 --pretty=%P <merge_commit_sha>
 schema_version: "1"
 
 prs:
@@ -56,3 +72,134 @@ prs:
     base_sha: 319b84d113c5e34b35bdc24899e3b0b9609dd751
     threshold: 0.80
     notes: "fix: increase txMaxSize to 256KB to align with MaxCodeSize — small targeted fix, baseline for narrow-scope plans"
+
+  # ---- 2026-05-22 expansion (evaluation-design §10.3) ----
+  # stable-net 고유 영역 (WBFT / systemcontracts / gas / genesis / hardfork) fix PR 8 개.
+  # base_sha = `git log -1 --pretty=%P <merge_commit>`.
+
+  - id: pr77
+    repo: stable-net/go-stablenet
+    pr_number: 77
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: 0bf2f4d1bfeb6605006d556957ef8c045d8f8ed8
+    threshold: 0.80
+    notes: "fix: refresh AnzeonTipEnv current block when GasTip changes — non-validator txs were validated with stale GasTip after a governance change"
+    intent_ground_truth: |
+      Refresh AnzeonTipEnv currentBlock when header GasTip value changes,
+      not only on state root change. Without this, non-validator transactions
+      after a governance gasTip change are validated with stale GasTip.
+    changed_symbols:
+      - AnzeonTipEnv.SetCurrentBlock
+      - AnzeonTipEnv.gasTipChanged
+      - RemotesBelowTip
+    category: gas_policy
+
+  - id: pr75
+    repo: stable-net/go-stablenet
+    pr_number: 75
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: e5a6e9e14c1e1d225c341b55798f31cd07b0bfcd
+    threshold: 0.80
+    notes: "fix(wbft): prevent drop of valid next-sequence messages in future-view check — off-by-one in isTooFarFutureMessage"
+    intent_ground_truth: |
+      Off-by-one in isTooFarFutureMessage was dropping valid next-sequence
+      WBFT consensus messages.
+    changed_symbols:
+      - isTooFarFutureMessage
+    category: consensus_wbft
+
+  - id: pr73
+    repo: stable-net/go-stablenet
+    pr_number: 73
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: 8b895799e320ce762d441b39448ca27499b4a348
+    threshold: 0.80
+    notes: "fix: sync Account.Extra with GovCouncil contract slots on genesis init — blacklist/authorized state desync"
+    intent_ground_truth: |
+      Sync blacklist/authorized account state between Account.Extra and
+      GovCouncil contract storage slots at genesis init. Add Extra bit
+      validation and skip-zero-address handling.
+    changed_symbols:
+      - Account.Extra
+      - AccountExtraValidMask
+      - ValidateExtra
+      - GovCouncil.init
+    category: genesis_governance
+
+  - id: pr67
+    repo: stable-net/go-stablenet
+    pr_number: 67
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: c37ae123a15cb6417e94bf3943bfa2647ebff6b8
+    threshold: 0.80
+    notes: "fix: move secp256r1 precompile from Anzeon to Boho hardfork"
+    intent_ground_truth: |
+      Move secp256r1 precompile registration from Anzeon hardfork to
+      Boho hardfork.
+    changed_symbols:
+      - secp256r1 precompile registration
+    category: hardfork
+
+  - id: pr63
+    repo: stable-net/go-stablenet
+    pr_number: 63
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: ad0122af042d49022052a9783b3086d40d308db8
+    threshold: 0.80
+    notes: "fix: add burn refund mechanism via GovMinter v2 hardfork — refund locked native coins when burn proposals fail"
+    intent_ground_truth: |
+      Add refund mechanism for native coins locked in burnBalance when
+      burn proposals are cancelled/rejected/expired. GovMinter v1 → v2
+      via Boho hardfork.
+    changed_symbols:
+      - GovMinter._cleanupBurnDeposit
+      - GovMinter.claimBurnRefund
+      - BohoConfig.SystemContracts
+    category: gov_minter
+
+  - id: pr58
+    repo: stable-net/go-stablenet
+    pr_number: 58
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: db7c4b43cc63b322d54d59dd1633f7398402c745
+    threshold: 0.80
+    notes: "fix: chainconfig engine mismatch — Engine field was being set to the wrong value"
+    intent_ground_truth: Fix chainconfig engine field mismatch.
+    changed_symbols:
+      - chainConfig.Engine
+    category: chain_config
+
+  - id: pr56
+    repo: stable-net/go-stablenet
+    pr_number: 56
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: 6e41d966316b51a4e7f17b1ab82f5e5c293e2f33
+    threshold: 0.80
+    notes: "fix: normalize comma-separated config strings — whitespace caused inconsistent hashAlloc/root across systemcontracts init"
+    intent_ground_truth: |
+      Comma-separated config strings caused inconsistent hashAlloc/root
+      due to whitespace handling. Apply split + TrimSpace + drop empty
+      across systemcontracts init parsers.
+    changed_symbols:
+      - systemcontracts init parsers — members
+      - systemcontracts init parsers — validators
+      - systemcontracts init parsers — blsPublicKeys
+      - systemcontracts init parsers — blacklist
+      - systemcontracts init parsers — authorizedAccounts
+      - systemcontracts init parsers — minters
+    category: system_contract_init
+
+  - id: pr55
+    repo: stable-net/go-stablenet
+    pr_number: 55
+    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    base_sha: 8d7930a48a31601f4456fb34d526dd4a573d38e4
+    threshold: 0.80
+    notes: "fix: race condition on roundChangeTimer and roundState bigint access — proper locking + remove stateMu"
+    intent_ground_truth: |
+      Data race on WBFT roundChangeTimer and roundState bigint access.
+      Add proper locking and remove stateMu variable.
+    changed_symbols:
+      - roundChangeTimer
+      - roundState bigint
+    category: consensus_wbft_concurrency
