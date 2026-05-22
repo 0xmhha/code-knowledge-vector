@@ -2,13 +2,17 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/build"
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
+	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
@@ -203,6 +207,76 @@ func TestSearch_DryRunSkipsEmbedAndStore(t *testing.T) {
 	}
 	if res.Metadata.IndexedHeadCKV == "" {
 		t.Errorf("DryRun should still report manifest.IndexedHead")
+	}
+}
+
+// TestSearch_EmitsFiveSubSpans verifies Phase 1 (D4) footprint
+// granularity: every Search call emits the five query.* sub-spans
+// (embed / store.search / threshold.drop / citation.enforce /
+// density.adjust) alongside the existing top-level query.search.
+// Each sub-span carries the same trace_id so log readers can group
+// them.
+func TestSearch_EmitsFiveSubSpans(t *testing.T) {
+	out, _ := buildSample(t)
+
+	// Wire a real footprint logger to a tmp JSONL file so we can read
+	// back the emitted events. Stderr off to keep test output clean.
+	jsonl := filepath.Join(t.TempDir(), "footprint.jsonl")
+	fp, err := footprint.New(footprint.Options{JSONLPath: jsonl})
+	if err != nil {
+		t.Fatalf("footprint.New: %v", err)
+	}
+	defer fp.Close()
+
+	eng, err := Open(out, mock.Default(), WithFootprint(fp))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer eng.Close()
+
+	caller := "phase1-trace"
+	_, err = eng.Search(context.Background(), "TCP socket bind on port",
+		Options{K: 5, Threshold: -1, TraceID: caller})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	fp.Close() // flush JSONL
+
+	// Walk the JSONL and collect distinct *.done event names that
+	// carried our trace_id.
+	data, err := os.ReadFile(jsonl)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	wantSubSpans := map[string]bool{
+		"query.embed.done":            false,
+		"query.store.search.done":     false,
+		"query.threshold.drop.done":   false,
+		"query.citation.enforce.done": false,
+		"query.density.adjust.done":   false,
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if line == "" {
+			continue
+		}
+		var ev struct {
+			Event  string         `json:"event"`
+			Fields map[string]any `json:"fields"`
+		}
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		if _, tracked := wantSubSpans[ev.Event]; tracked {
+			gotTrace, _ := ev.Fields["trace_id"].(string)
+			if gotTrace == caller {
+				wantSubSpans[ev.Event] = true
+			}
+		}
+	}
+	for name, saw := range wantSubSpans {
+		if !saw {
+			t.Errorf("expected %s sub-span with trace_id=%s; not emitted", name, caller)
+		}
 	}
 }
 

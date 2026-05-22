@@ -409,26 +409,55 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 			ErrBudgetExceeded, budget, MinBudgetTokens)
 	}
 
-	// Step 1: embed
+	// Step 1: embed.
+	// Sub-span query.embed — tunable knob: --embedder, --model-dir,
+	// CKV_DISABLE_CONTEXTUAL_PREFIX. p95 outliers point to cold-start
+	// or CoreML compile churn.
+	doneEmbed := e.fp.Span("query.embed", "trace_id", traceID)
 	vecs, err := e.emb.Embed(ctx, []string{intent})
 	if err != nil {
+		doneEmbed("error", err.Error())
 		return nil, fmt.Errorf("embed intent: %w", err)
 	}
 	if len(vecs) == 0 {
+		doneEmbed("error", "no_vector")
 		return nil, errors.New("query: embedder returned no vector")
 	}
+	doneEmbed("dim", len(vecs[0]))
 
-	// Step 2: store-side ANN with over-fetch
+	// Step 2: store-side ANN with over-fetch.
+	// Sub-span query.store.search — tunable knob: overfetchFactor (k×3
+	// today) and Filter. candidates_out / fingerprint give cheap drift
+	// detection: same intent should produce the same top hit between
+	// rebuilds when the corpus is stable.
 	overfetch := k * overfetchFactor
+	doneStore := e.fp.Span("query.store.search",
+		"trace_id", traceID,
+		"k_overfetch", overfetch,
+		"filter_language", opts.Filter.Language,
+		"filter_commit_hash", opts.Filter.CommitHash,
+	)
 	rawHits, err := e.store.Search(ctx, vecs[0], overfetch, opts.Filter)
 	if err != nil {
+		doneStore("error", err.Error())
 		return nil, fmt.Errorf("store search: %w", err)
 	}
+	doneStore(
+		"candidates_out", len(rawHits),
+		"top_chunk_id", topChunkID(rawHits),
+		"top_score", topScore(rawHits),
+	)
 
 	warnings := []string{}
 
-	// Step 3: threshold drop (after store-side ANN so we keep the rank
-	// monotonicity for downstream RRF input).
+	// Step 3: threshold drop. Sub-span query.threshold.drop — tunable
+	// knob: --threshold. dropped count growing across runs means the
+	// distribution shifted (rebuild needed or model drift).
+	doneThreshold := e.fp.Span("query.threshold.drop",
+		"trace_id", traceID,
+		"threshold", threshold,
+		"candidates_in", len(rawHits),
+	)
 	var passed []types.Hit
 	for _, h := range rawHits {
 		if threshold > 0 && h.Score.Normalized < threshold {
@@ -436,12 +465,18 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		}
 		passed = append(passed, h)
 	}
+	doneThreshold(
+		"candidates_out", len(passed),
+		"dropped", len(rawHits)-len(passed),
+	)
 	if len(rawHits) > 0 && len(passed) == 0 {
 		warnings = append(warnings, "all_results_below_threshold")
 	}
 
 	// Step 4: citation enforcement — drop any hit whose file we can't
-	// resolve against the recorded src_root. Plan §5 + §7.4.
+	// resolve against the recorded src_root. Plan §5 + §7.4. Sub-span
+	// query.citation.enforce — tunable knob: --src override. dropped /
+	// stale counts feed the operator's reindex decision.
 	srcRoot := opts.SrcRoot
 	if srcRoot == "" {
 		srcRoot = e.srcRoot
@@ -452,8 +487,18 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	// still relevant. The git call here is the same one freshness uses;
 	// we accept its 5-10ms cost on the query hot path because the
 	// signal is high-value for the caller deciding whether to reindex.
+	doneCitation := e.fp.Span("query.citation.enforce",
+		"trace_id", traceID,
+		"candidates_in", len(passed),
+		"src_root", srcRoot,
+	)
 	currentHead := currentGitHead(srcRoot)
 	enforced, droppedCitations, staleCitations := EnforceCitationsAt(passed, srcRoot, currentHead)
+	doneCitation(
+		"candidates_out", len(enforced),
+		"dropped", droppedCitations,
+		"stale", staleCitations,
+	)
 	if droppedCitations > 0 {
 		warnings = append(warnings, fmt.Sprintf("dropped_%d_unverified_citations", droppedCitations))
 	}
@@ -486,8 +531,25 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	// Step 7: snippet density. Combine primary + examples into a single
 	// DensityAdjust call so the token budget is shared across both
 	// groups (primary downgrades last because it's earlier in the slice).
+	// Sub-span query.density.adjust — tunable knob: --budget-tokens.
+	// tier_full / tier_sig5 / tier_sig_only distribution shows whether
+	// the budget commonly bites; if mostly sig_only, raise budget or
+	// trim K.
 	combined := append(append([]types.Hit{}, primary...), examples...)
+	doneDensity := e.fp.Span("query.density.adjust",
+		"trace_id", traceID,
+		"candidates_in", len(combined),
+		"budget_tokens", budget,
+		"max_density", string(opts.MaxDensity),
+	)
 	combinedHits, tokensUsed := DensityAdjustWith(combined, budget, opts.MaxDensity, opts.SignatureContextLines)
+	tierFull, tierSig5, tierSigOnly := countTiers(combinedHits)
+	doneDensity(
+		"tokens_used", tokensUsed,
+		"tier_full", tierFull,
+		"tier_sig5", tierSig5,
+		"tier_sig_only", tierSigOnly,
+	)
 
 	hits := combinedHits[:len(primary)]
 	var exampleHits []Hit
@@ -560,4 +622,45 @@ func topFile(hits []Hit) string {
 		return ""
 	}
 	return hits[0].Citation.File
+}
+
+// topChunkID returns the first 12 hex chars of the top-ranked hit's
+// chunk_id, or empty when none. Used as a sub-span fingerprint so
+// log readers can spot drift between runs without dumping the full id.
+func topChunkID(hits []types.Hit) string {
+	if len(hits) == 0 {
+		return ""
+	}
+	id := hits[0].Chunk.ID
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+// topScore returns the normalized score of the top-ranked store hit,
+// or 0 when none. Logged as a sub-span field so threshold tuning has
+// a concrete number to anchor on.
+func topScore(hits []types.Hit) float64 {
+	if len(hits) == 0 {
+		return 0
+	}
+	return hits[0].Score.Normalized
+}
+
+// countTiers tallies the 3-tier density distribution across the
+// response hits. Surfaced in the query.density.adjust footprint so
+// operators can decide whether to raise --budget-tokens.
+func countTiers(hits []Hit) (full, sig5, sigOnly int) {
+	for _, h := range hits {
+		switch h.Density {
+		case DensityFull:
+			full++
+		case DensitySignature5:
+			sig5++
+		case DensitySignatureOnly:
+			sigOnly++
+		}
+	}
+	return full, sig5, sigOnly
 }

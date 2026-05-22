@@ -214,11 +214,16 @@ D5-C 는 *옵션 플래그* 로 유지 — 비용 큼.
 
 ## 5. 단계별 Deliverable + Entry Conditions
 
-### Phase 1 — query path footprint 세분화 (D4)
-- **산출**: 5 sub-span (embed / store.search / threshold.drop / citation.enforce / density.adjust). `--profile` aggregate.
-- **검증**: `ckv query` 한 번 → 5 sub-span 모두 latency + candidates 카운트 보유
-- **entry cond**: 없음 (즉시 시작 가능)
-- **LOC**: ~80
+### Phase 1 — query path footprint 세분화 (D4) ✅ 2026-05-22 (commit `<TBD>`)
+- **산출**: 5 sub-span (`query.embed` / `query.store.search` / `query.threshold.drop` / `query.citation.enforce` / `query.density.adjust`). 각 span: `latency_ms`, `candidates_in/out`, top hit fingerprint (chunk_id 12 prefix), tier 분포. `--profile` aggregate.
+- **부수 fix**: footprint profile aggregator 가 `latency_ms > 0` 대신 `.done` suffix 기반 필터링 — sub-ms 연산도 count 집계됨. 0-latency 도 정확한 신호 (sub-ms 였음).
+- **검증**: `TestSearch_EmitsFiveSubSpans` (JSONL 검증) + CLI smoke (5 sub-span 모두 stderr + profile.json 에 출력)
+- **튜닝 노브 ↔ metric 1:1 매핑**:
+  - `query.embed` → `--embedder`, `--model-dir`, `CKV_DISABLE_CONTEXTUAL_PREFIX`
+  - `query.store.search` → `overfetchFactor`, `--filter`
+  - `query.threshold.drop` → `--threshold`
+  - `query.citation.enforce` → `--src`
+  - `query.density.adjust` → `--budget-tokens`, `--max-density`, `--signature-context-lines`
 
 ### Phase 2 — BM25 rerank 통합 (D1-A + D2-A + D3-B)
 - **산출**: `internal/query/bm25/` 패키지. `Engine.Search` 가 store.Search 후 BM25 rerank.

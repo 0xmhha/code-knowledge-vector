@@ -21,8 +21,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"slices"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -271,10 +272,14 @@ func (l *Logger) write(e Event) {
 	}
 	l.slog.Info("ckv", args...)
 
-	// Profile aggregation: only events that carry a latency contribute,
-	// and only when ProfilePath was set on construction. Bucket key is
-	// the event name (e.g. "query.search.done").
-	if l.profile != nil && e.LatencyMs > 0 {
+	// Profile aggregation: every Span done event contributes a count
+	// regardless of measured latency. Filtering by name suffix (.done)
+	// instead of LatencyMs > 0 means sub-millisecond operations
+	// (mock embedder, hot caches) still show up in the profile with
+	// count > 0 and latency stats at 0 — accurately reflecting that
+	// they ran but were unmeasurably fast. Bucket key is the event
+	// name (e.g. "query.search.done").
+	if l.profile != nil && strings.HasSuffix(e.Event, ".done") {
 		l.mu.Lock()
 		b, ok := l.profile[e.Event]
 		if !ok {
