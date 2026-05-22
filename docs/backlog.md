@@ -48,6 +48,10 @@
 
 > 잔여 작업 + CKG cross-tool evaluation gap 상세는
 > [`docs/pending-work-2026-05-21.md`](./pending-work-2026-05-21.md) 참조.
+>
+> stable-net 대상 evaluation framework 설계 + ADR-003 supersede 권고는
+> [`docs/evaluation-design-2026-05-22.md`](./evaluation-design-2026-05-22.md)
+> 참조 — **사용자 결정 D1 (BM25 위치) + D6 (corpus 범위) 대기**.
 
 ---
 
