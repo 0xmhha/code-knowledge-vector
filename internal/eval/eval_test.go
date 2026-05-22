@@ -191,7 +191,7 @@ func TestScoreReportsRankAndCitation(t *testing.T) {
 			{Citation: types.Citation{File: "server.go", StartLine: 1, EndLine: 40}},
 		},
 	}
-	got := Score(q, resp, 5)
+	got := Score(q, resp, 5, "")
 	if got.FoundRank != 2 {
 		t.Errorf("FoundRank = %d, want 2", got.FoundRank)
 	}

@@ -232,11 +232,17 @@ D5-C 는 *옵션 플래그* 로 유지 — 비용 큼.
 - **LOC**: ~250 (BM25 + tokenizer + integration + test)
 - **ADR**: ADR-006 "BM25 통합 - ADR-003 supersede" 작성
 
-### Phase 3 — Hallucination 검증 framework (D5-A/B/D)
-- **산출**: `internal/query/hallucination.go` byte-exact check, `cmd/ckv eval --hallucination`, negative fixture 지원
-- **검증**: testdata/queries.yaml 의 모든 hit 가 hallucination=0
-- **entry cond**: 없음 (Phase 1/2 와 병렬 가능)
-- **LOC**: ~120
+### Phase 3 — Hallucination 검증 framework (D5-A/B) ✅ 2026-05-22 (commit `<TBD>`)
+- **산출**:
+  - `internal/query/hallucination.go` — `VerifyHit`, `VerifyResponse`, `HallucinationResult{Verified, Reason, ExpectedFile}`. 3 failure modes: `file_missing` / `out_of_range` / `snippet_not_found`. Whitespace 정규화로 tab/space cosmetics false-positive 회피.
+  - `internal/eval/score.go` — `PerQuery.HallucinationCount/Reason` + `Aggregate.HallucinationRate/Hits/TotalHits`. `Score(q, resp, k, srcRoot)` 시그니처에 srcRoot 추가.
+  - `cmd/ckv eval --src <path>` — 검증 활성. 비어있으면 metric omitted.
+  - `cmd/ckv eval --max-halluc <rate>` — CI gate (default 1.0 = disabled).
+  - Renderer human-friendly + JSON 양쪽에 metric 포함.
+- **검증**:
+  - 8 unit test (`hallucination_test.go`) — exact / signature-only / whitespace / file_missing / out_of_range / snippet_not_found / empty_src / aggregate.
+  - CLI smoke: testdata/queries.yaml N=50 × top-K → 250 hits, **halluc_rate 0.000** (모든 snippet 이 실 파일에 정확히 존재). indexing pipeline 자체 정합성 추가 확인.
+- **D5-D (negative fixture) 잔여**: 별도 작업 — fixture format 에 `negative: true` 플래그 추가 + Score 로직에 negative pass/fail 분기. Phase 4 (target corpus 작성) 시 함께 진행 권장.
 
 ### Phase 4 — stable-net 고유 영역 corpus + fixture (D6-B + G4)
 - **산출**:

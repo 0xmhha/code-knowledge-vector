@@ -20,9 +20,11 @@ import (
 type evalOpts struct {
 	out         string
 	fixturePath string
+	src         string  // optional source root — enables Phase 3 hallucination verification
 	k           int
 	threshold   float64
 	minRecall5  float64 // exit non-zero if recall@5 < this
+	maxHalluc   float64 // exit non-zero if hallucination_rate > this
 	judgeCmd    string  // empty → no judge; "claude" → invoke Claude Code CLI
 	judgeModel  string  // optional --model passthrough
 	jsonOut     bool
@@ -54,6 +56,8 @@ Default fixture path: ./testdata/queries.yaml`,
 	f.IntVarP(&opts.k, "top", "k", eval.DefaultK, "top-K used for recall counting")
 	f.Float64Var(&opts.threshold, "threshold", -1, "query threshold (default -1: disabled for eval)")
 	f.Float64Var(&opts.minRecall5, "min-recall5", 0.0, "fail with exit 1 if recall@5 < this")
+	f.StringVar(&opts.src, "src", "", "source root for hallucination verification (when empty, verification is skipped and hallucination metrics are omitted)")
+	f.Float64Var(&opts.maxHalluc, "max-halluc", 1.0, "fail with exit 1 if hallucination_rate > this (1.0 = disabled; only meaningful when --src is set)")
 	f.StringVar(&opts.judgeCmd, "judge", "", "LLM-as-judge command (empty=disabled; e.g. 'claude' for Claude Code CLI)")
 	f.StringVar(&opts.judgeModel, "judge-model", "", "model passed to the judge CLI (--model)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable output")
@@ -96,6 +100,7 @@ func runEval(ctx context.Context, opts *evalOpts) error {
 	evalOpts := eval.Options{
 		K:         opts.k,
 		Threshold: opts.threshold,
+		SrcRoot:   opts.src,
 	}
 	if opts.judgeCmd != "" {
 		evalOpts.Judge = &judge.ClaudeCLI{
@@ -124,6 +129,13 @@ func runEval(ctx context.Context, opts *evalOpts) error {
 		return fmt.Errorf("ckv eval: recall@5=%.3f < --min-recall5=%.3f",
 			res.Aggregate.RecallAt5, opts.minRecall5)
 	}
+	// Hallucination CI gate (Phase 3): only fires when --src was set
+	// (otherwise hallucination_rate is omitted and the comparison is
+	// meaningless). Default --max-halluc=1.0 means disabled.
+	if opts.src != "" && opts.maxHalluc < 1.0 && res.Aggregate.HallucinationRate > opts.maxHalluc {
+		return fmt.Errorf("ckv eval: hallucination_rate=%.3f > --max-halluc=%.3f",
+			res.Aggregate.HallucinationRate, opts.maxHalluc)
+	}
 	return nil
 }
 
@@ -149,6 +161,9 @@ func renderEvalHuman(res *eval.Result) {
 	fmt.Printf("  recall@5    %.3f\n", a.RecallAt5)
 	fmt.Printf("  MRR         %.3f\n", a.MRR)
 	fmt.Printf("  citation    %.3f  (over found)\n", a.CitationAccuracy)
+	if a.TotalHits > 0 {
+		fmt.Printf("  halluc_rate %.3f  (%d / %d hits)\n", a.HallucinationRate, a.HallucinationHits, a.TotalHits)
+	}
 	if len(res.Verdicts) > 0 {
 		fmt.Println()
 		fmt.Println("LLM judge verdicts:")

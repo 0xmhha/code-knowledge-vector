@@ -63,7 +63,7 @@ func Run(ctx context.Context, eng *query.Engine, fx *Fixture, opts Options) (*Re
 			})
 			continue
 		}
-		out.PerQuery = append(out.PerQuery, Score(q, resp, k))
+		out.PerQuery = append(out.PerQuery, Score(q, resp, k, opts.SrcRoot))
 		if opts.Judge != nil {
 			out.Verdicts = append(out.Verdicts, opts.Judge.Grade(ctx, q.ID, q.Intent, resp.Hits))
 		}

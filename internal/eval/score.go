@@ -14,22 +14,39 @@ type PerQuery struct {
 	TopHitScore     float64 `json:"top_hit_score"`
 	ReciprocalRank  float64 `json:"reciprocal_rank"`    // 1/found_rank, or 0
 	CitationCorrect bool    `json:"citation_correct"`   // hits-with-matching-file have valid file+line in expected range
+	// Hallucination metrics. Populated only when SrcRoot is set on the
+	// eval Options — without a source tree we can't verify a hit's
+	// snippet against actual file content. HallucinationCount is the
+	// number of returned hits whose snippet did not survive VerifyHit
+	// (file_missing / out_of_range / snippet_not_found).
+	HallucinationCount int    `json:"hallucination_count,omitempty"`
+	HallucinationReason string `json:"hallucination_reason,omitempty"` // first non-empty reason across hits, for triage
 }
 
 // Aggregate is the corpus-level summary across all queries.
 type Aggregate struct {
-	Total              int     `json:"total"`
-	Found              int     `json:"found"`                 // queries with ≥1 correct hit in top-K
-	RecallAt1          float64 `json:"recall_at_1"`
-	RecallAt3          float64 `json:"recall_at_3"`
-	RecallAt5          float64 `json:"recall_at_5"`
-	MRR                float64 `json:"mrr"`
-	CitationAccuracy   float64 `json:"citation_accuracy"`     // mean(citation_correct over queries that found a hit)
+	Total            int     `json:"total"`
+	Found            int     `json:"found"` // queries with ≥1 correct hit in top-K
+	RecallAt1        float64 `json:"recall_at_1"`
+	RecallAt3        float64 `json:"recall_at_3"`
+	RecallAt5        float64 `json:"recall_at_5"`
+	MRR              float64 `json:"mrr"`
+	CitationAccuracy float64 `json:"citation_accuracy"` // mean(citation_correct over queries that found a hit)
+	// HallucinationRate is the fraction of returned hits across all
+	// queries whose snippet did not align with the source file. 0
+	// means perfect — every snippet appears at the cited location.
+	// Populated only when Options.SrcRoot is set.
+	HallucinationRate float64 `json:"hallucination_rate,omitempty"`
+	HallucinationHits int     `json:"hallucination_hits,omitempty"` // numerator
+	TotalHits         int     `json:"total_hits,omitempty"`         // denominator (returned hits, not queries)
 }
 
 // Score compares one query's response against its expected target.
-// k is the effective top-K used for recall counting.
-func Score(q Query, resp *query.Response, k int) PerQuery {
+// k is the effective top-K used for recall counting. When srcRoot is
+// non-empty, every returned hit is also verified against the source
+// tree (Phase 3 / D5) and the per-query hallucination_count is
+// populated. Empty srcRoot leaves hallucination fields zero.
+func Score(q Query, resp *query.Response, k int, srcRoot string) PerQuery {
 	out := PerQuery{
 		QueryID:      q.ID,
 		Intent:       q.Intent,
@@ -52,6 +69,18 @@ func Score(q Query, resp *query.Response, k int) PerQuery {
 			break
 		}
 	}
+	if srcRoot != "" {
+		verdicts, halluc := query.VerifyResponse(resp, srcRoot)
+		out.HallucinationCount = halluc
+		// First non-empty reason gives operators a single triage hint
+		// without scrolling through every verdict.
+		for _, v := range verdicts {
+			if !v.Verified && v.Reason != "" {
+				out.HallucinationReason = v.Reason
+				break
+			}
+		}
+	}
 	return out
 }
 
@@ -70,6 +99,9 @@ func rangesOverlap(a1, a2, b1, b2 int) bool {
 
 // Summarize computes corpus-level metrics from per-query scores. k is
 // the K used at query time; recall@1/3/5 are derived from FoundRank.
+// Hallucination metrics are populated only when per-query
+// HallucinationCount values are present (Score was called with a
+// non-empty srcRoot).
 func Summarize(perQ []PerQuery) Aggregate {
 	a := Aggregate{Total: len(perQ)}
 	if a.Total == 0 {
@@ -77,6 +109,7 @@ func Summarize(perQ []PerQuery) Aggregate {
 	}
 	var sumRR float64
 	var foundWithCitation int
+	var anyHallucData bool
 	for _, p := range perQ {
 		if p.FoundRank > 0 {
 			a.Found++
@@ -94,6 +127,18 @@ func Summarize(perQ []PerQuery) Aggregate {
 				a.RecallAt5++
 			}
 		}
+		a.TotalHits += p.HitsReturned
+		if p.HitsReturned > 0 {
+			anyHallucData = anyHallucData || true
+		}
+		a.HallucinationHits += p.HallucinationCount
+		// HallucinationCount > 0 always implies hallucination data
+		// was collected; non-zero HitsReturned alone doesn't (Score
+		// may have skipped verify when srcRoot was empty). The
+		// HallucinationReason field is the authoritative signal.
+		if p.HallucinationReason != "" {
+			anyHallucData = true
+		}
 	}
 	total := float64(a.Total)
 	a.RecallAt1 /= total
@@ -102,6 +147,15 @@ func Summarize(perQ []PerQuery) Aggregate {
 	a.MRR = sumRR / total
 	if a.Found > 0 {
 		a.CitationAccuracy = float64(foundWithCitation) / float64(a.Found)
+	}
+	if anyHallucData && a.TotalHits > 0 {
+		a.HallucinationRate = float64(a.HallucinationHits) / float64(a.TotalHits)
+	} else {
+		// Reset hits/halluc to 0 so JSON omitempty hides them when no
+		// verification ran. Operators reading 0/0 would misread it as
+		// "perfect" — instead omit entirely.
+		a.TotalHits = 0
+		a.HallucinationHits = 0
 	}
 	return a
 }
