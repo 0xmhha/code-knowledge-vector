@@ -232,7 +232,7 @@ D5-C 는 *옵션 플래그* 로 유지 — 비용 큼.
 - **LOC**: ~250 (BM25 + tokenizer + integration + test)
 - **ADR**: ADR-006 "BM25 통합 - ADR-003 supersede" 작성
 
-### Phase 3 — Hallucination 검증 framework (D5-A/B) ✅ 2026-05-22 (commit `<TBD>`)
+### Phase 3 — Hallucination 검증 framework (D5-A/B) ✅ 2026-05-22 (commit `69e148a`)
 - **산출**:
   - `internal/query/hallucination.go` — `VerifyHit`, `VerifyResponse`, `HallucinationResult{Verified, Reason, ExpectedFile}`. 3 failure modes: `file_missing` / `out_of_range` / `snippet_not_found`. Whitespace 정규화로 tab/space cosmetics false-positive 회피.
   - `internal/eval/score.go` — `PerQuery.HallucinationCount/Reason` + `Aggregate.HallucinationRate/Hits/TotalHits`. `Score(q, resp, k, srcRoot)` 시그니처에 srcRoot 추가.
