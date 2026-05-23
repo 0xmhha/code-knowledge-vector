@@ -49,9 +49,14 @@
 > 잔여 작업 + CKG cross-tool evaluation gap 상세는
 > [`docs/pending-work-2026-05-21.md`](./pending-work-2026-05-21.md) 참조.
 >
-> stable-net 대상 evaluation framework 설계 + ADR-003 supersede 권고는
+> stable-net 대상 evaluation framework 설계 + 사용자 결정 D1/D6 답변은
 > [`docs/evaluation-design-2026-05-22.md`](./evaluation-design-2026-05-22.md)
-> 참조 — **사용자 결정 D1 (BM25 위치) + D6 (corpus 범위) 대기**.
+> 참조. D1 = 3-leg BM25 *임시* (영구 결정은 측정 후). D6 = skills 기반.
+>
+> 2026-05-22~23 세션 진행 상태 + 잔여 Wave B/C/D + 다음 세션 진입
+> 워크플로우는
+> [`docs/session-handoff-2026-05-23.md`](./session-handoff-2026-05-23.md)
+> 참조 — **신규 세션 시작 시 이 문서부터**.
 
 ---
 
