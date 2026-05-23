@@ -9,6 +9,11 @@ an MCP server. The companion project
 (CKG) provides symbol-graph search; the two are designed to be
 combined by larger systems (CKS) for hybrid retrieval.
 
+> **Resuming work on a different machine or in a new session?**
+> Start with [`docs/session-handoff-2026-05-23.md`](docs/session-handoff-2026-05-23.md)
+> — it carries the prereq checklist, env-var matrix, current decision
+> state, and the next-Wave entry conditions in a single document.
+
 ## Features
 
 - **Languages**: Go (`go/parser`), TypeScript / TSX, JavaScript / JSX / MJS / CJS, Solidity, Markdown.
@@ -132,6 +137,7 @@ pkg/ckv     Engine wrapper around internal/query (in-process consumers)
 
 ## Documentation
 
+- [`docs/session-handoff-2026-05-23.md`](docs/session-handoff-2026-05-23.md) — **start here when resuming work on a fresh machine or in a new session**. Onboarding, prereqs, env-vars, current decisions, remaining Waves.
 - [`docs/embedder-integration.md`](docs/embedder-integration.md) — consumer integration: in-process API, MCP, environment overrides, migration off the subprocess proxy.
 - [`docs/d1-installation-guide.md`](docs/d1-installation-guide.md) — building `bgeonnx`, downloading models, system dependencies.
 - [`docs/use-cases.md`](docs/use-cases.md) — design use cases.
@@ -139,6 +145,8 @@ pkg/ckv     Engine wrapper around internal/query (in-process consumers)
 - [`docs/retrieval-quality-roadmap.md`](docs/retrieval-quality-roadmap.md) — retrieval-quality work plan.
 - [`docs/plan-S1-ckv.md`](docs/plan-S1-ckv.md) — S1 architectural plan.
 - [`docs/eval-metrics.md`](docs/eval-metrics.md) — evaluation methodology.
+- [`docs/evaluation-design-2026-05-22.md`](docs/evaluation-design-2026-05-22.md) — go-stablenet evaluation method research + Wave 단위 작업 명세.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/SCHEMA.md`](docs/SCHEMA.md), [`docs/adr/`](docs/adr/) — internal module map, chunk schema, decision records.
 
 ## License
 

@@ -66,10 +66,29 @@ clone 되어 있어야 함.
 git clone <STABLENET_REPO_URL> /path/of/your/choice/go-stablenet
 cd /path/of/your/choice/go-stablenet
 
-# 2. 본 핸드오프와 호환되는 commit 들이 존재하는지 확인
-#    fixture base_sha (12 entries) 가 reachable 해야 함. dev 브랜치에서
-#    아래 SHA prefix 중 첫 번째 확인:
-git rev-parse aa28927fb12 || echo "❌ stable-net 의 dev 브랜치 최신화 필요"
+# 2. fixture (testdata/prs.yaml) 의 12 base_sha 가 모두 stable-net
+#    의 현재 working tree 에서 reachable 한지 검증.
+#    한 SHA 라도 unknown 이면 stable-net 측 dev 브랜치를 fetch 하거나
+#    fixture base 가 가리키는 branch 로 checkout:
+for sha in \
+  aa28927fb12048a59ac34608702eef5e1be90931 \
+  88fe52145e9dc07d6bad2b861468bcbbd271de60 \
+  c55bf2a86e21a12bb72126ac6eb05c1974e594b8 \
+  319b84d113c5e34b35bdc24899e3b0b9609dd751 \
+  0bf2f4d1bfeb6605006d556957ef8c045d8f8ed8 \
+  e5a6e9e14c1e1d225c341b55798f31cd07b0bfcd \
+  8b895799e320ce762d441b39448ca27499b4a348 \
+  c37ae123a15cb6417e94bf3943bfa2647ebff6b8 \
+  ad0122af042d49022052a9783b3086d40d308db8 \
+  db7c4b43cc63b322d54d59dd1633f7398402c745 \
+  6e41d966316b51a4e7f17b1ab82f5e5c293e2f33 \
+  8d7930a48a31601f4456fb34d526dd4a573d38e4 \
+; do
+  git cat-file -e "$sha^{commit}" 2>/dev/null \
+    && echo "✓ $sha" \
+    || echo "❌ $sha (missing — fetch dev or checkout fixture branch)"
+done
+# 기대: 12 개 모두 ✓. 하나라도 ❌ 면 prregress eval 부분 fail.
 
 # 3. .claude/docs 가 있는지 확인 (NEW-8 glossary extract 가 사용)
 ls .claude/docs/CLAUDE_DEV_GUIDE.md
@@ -651,3 +670,4 @@ TMP_OUT=$(mktemp -d) && \
 |---|---|
 | 2026-05-23 | 초안. 본 세션 (Phase 1, Phase 3, NEW-5, NEW-1, NEW-8) handoff 정리. 잔여 Wave B/C/D + entry conditions + 다음 세션 진입 워크플로우 명세. |
 | 2026-05-23 (2차) | §0 Onboarding 신설 — 다른 머신에서 시작 가능한 prereq / clone / stable-net access / bgeonnx 모델 / env vars 정리. `testdata/prs.yaml` 의 hard-coded `/Users/...` 절대경로 → `${CKV_STABLENET_PATH}` placeholder 로 변경 + `os.ExpandEnv` 통한 LoadFixture 자동 resolve. §6 Step 2/4 의 명령들도 repo-relative + `$TMP_OUT` 패턴으로 portable 화. |
+| 2026-05-23 (3차) | 발견성 + 검증 강화. (a) README.md 최상단에 본 핸드오프 cross-link callout + Documentation 섹션에 "start here" 항목 추가 — 다른 머신이 clone 후 즉시 본 문서 발견 가능. (b) §0.3 의 base SHA reachability 검증을 1 SHA spot-check 에서 12 SHA 전체 loop 로 강화 — 부분 fail 사전 발견. |
