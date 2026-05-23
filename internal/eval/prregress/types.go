@@ -74,6 +74,12 @@ type Entry struct {
 // fail-loud: any missing required field on any entry is an error, not
 // a warning, because a malformed entry corrupts the regression report
 // silently.
+//
+// Portability: every Entry.SourcePath is run through os.ExpandEnv
+// before validation so the YAML can ship with a machine-agnostic
+// `${CKV_STABLENET_PATH}` (or any env-var) placeholder instead of a
+// hard-coded absolute path. Unset placeholders surface as a helpful
+// error during validate() rather than silently expanding to "".
 func LoadFixture(path string) (*Fixture, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -91,14 +97,26 @@ func LoadFixture(path string) (*Fixture, error) {
 		return nil, fmt.Errorf("PR fixture %s has no entries", path)
 	}
 	seen := make(map[string]struct{}, len(fx.PRs))
-	for i, e := range fx.PRs {
-		if err := e.validate(); err != nil {
+	for i := range fx.PRs {
+		// Env-expand source_path so YAML stays portable. os.ExpandEnv
+		// returns "" for unset names; validate() catches the empty
+		// case below with a hint about the placeholder it saw.
+		original := fx.PRs[i].SourcePath
+		expanded := os.ExpandEnv(original)
+		fx.PRs[i].SourcePath = expanded
+		if err := fx.PRs[i].validate(); err != nil {
+			// When the source_path was a placeholder that expanded to
+			// empty, give the operator the un-resolved string so they
+			// know which env var to set.
+			if expanded == "" && strings.Contains(original, "$") {
+				return nil, fmt.Errorf("PR fixture %s entry[%d]: source_path placeholder %q expanded to empty; export the named env var", path, i, original)
+			}
 			return nil, fmt.Errorf("PR fixture %s entry[%d]: %w", path, i, err)
 		}
-		if _, dup := seen[e.ID]; dup {
-			return nil, fmt.Errorf("PR fixture %s duplicate id %q", path, e.ID)
+		if _, dup := seen[fx.PRs[i].ID]; dup {
+			return nil, fmt.Errorf("PR fixture %s duplicate id %q", path, fx.PRs[i].ID)
 		}
-		seen[e.ID] = struct{}{}
+		seen[fx.PRs[i].ID] = struct{}{}
 		// Backfill threshold if omitted.
 		if fx.PRs[i].Threshold == 0 {
 			fx.PRs[i].Threshold = DefaultThreshold

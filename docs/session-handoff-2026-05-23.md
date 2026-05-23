@@ -9,6 +9,159 @@
 - **아키텍처 그래프**: [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md)
 - **스키마 contracts**: [`docs/SCHEMA.md`](./SCHEMA.md)
 
+> **다른 머신에서 시작하는 경우 §0 부터 진행.**
+> 동일 머신에서 이어가는 경우 §6 으로 점프.
+
+---
+
+## 0. Onboarding — 다른 머신에서 시작할 때
+
+### 0.1 전제 — 시스템 prerequisite
+
+| 항목 | 버전 / 비고 | 검증 |
+|---|---|---|
+| **Go toolchain** | 1.25.0 이상 (`go.mod` 의 `go 1.25.0` 선언과 호환) | `go version` |
+| **git** | 2.x 이상 | `git --version` |
+| **gh CLI** | 2.x 이상. prregress eval 이 PR 메타 조회에 사용. `gh auth login` 으로 GitHub 인증 완료 필요. | `gh auth status` |
+| **macOS 또는 Linux** | macOS 가 primary (CoreML EP 작업). Linux 는 CPU-only baseline 만 검증됨. Windows 미검증. | `uname -s` |
+| **C toolchain** | sqlite-vec + tokenizers cgo 빌드에 필요. macOS: `xcode-select --install`. Linux: `build-essential`. | `cc --version` |
+| **libonnxruntime** | bgeonnx embedder 사용 시. CPU-only baseline 은 mock embedder 로 우회 가능. | `ldconfig -p | grep onnxruntime` (Linux) / `brew list onnxruntime` (macOS) |
+| **Python 3** | smoke test / 측정 헬퍼에서 JSON 파싱에 사용. 빌드 자체엔 불필요. | `python3 --version` |
+
+### 0.2 ckv repo clone + 검증
+
+```bash
+# 1. Clone
+git clone <CKV_REPO_URL> code-knowledge-vector
+cd code-knowledge-vector
+
+# 2. HEAD 가 본 핸드오프 작성 시점 commit 인지 확인
+git log --oneline | head -1
+# 기대: 0d2a8e4 또는 그 이후 (이 핸드오프 commit hash 는 §1 commit ledger 참조)
+
+# 3. 전체 빌드 + 테스트 (cgo 포함, 약 30-60s)
+go build ./...
+go test ./...
+# 기대: 23 packages 모두 'ok'. 단 fail 이 있으면 §0.3 의 missing prereq 확인.
+
+# 4. 본 핸드오프 끝의 §6 Step 2 baseline smoke 실행 (mock embedder 만)
+rm -rf /tmp/ckv-onboarding && \
+  go run ./cmd/ckv build --src ./testdata/sample --out /tmp/ckv-onboarding --embedder=mock && \
+  go run ./cmd/ckv eval --fixture ./testdata/queries.yaml --out /tmp/ckv-onboarding --src ./testdata/sample --json | \
+  python3 -c "import json,sys; a=json.load(sys.stdin)['aggregate']; print(f'r@5={a[\"recall_at_5\"]:.3f} MRR={a[\"mrr\"]:.4f} halluc={a[\"hallucination_rate\"]:.3f}')"
+# 기대: r@5=0.740 MRR=0.4937 halluc=0.000
+```
+
+이 4 단계가 모두 통과하면 ckv 측 측정 인프라는 완전 동작. PR-regression /
+target corpus 측정은 §0.4 / §0.5 추가 setup 후.
+
+### 0.3 외부 의존: go-stablenet target repo
+
+PR-regression eval (`testdata/prs.yaml`, 12 entries) + stable-net 고유
+영역 corpus 빌드 (D6) 가 동작하려면 stable-net repo 가 *별도 디렉토리* 에
+clone 되어 있어야 함.
+
+```bash
+# 1. Clone stable-net 어디든 (절대경로 자유)
+git clone <STABLENET_REPO_URL> /path/of/your/choice/go-stablenet
+cd /path/of/your/choice/go-stablenet
+
+# 2. 본 핸드오프와 호환되는 commit 들이 존재하는지 확인
+#    fixture base_sha (12 entries) 가 reachable 해야 함. dev 브랜치에서
+#    아래 SHA prefix 중 첫 번째 확인:
+git rev-parse aa28927fb12 || echo "❌ stable-net 의 dev 브랜치 최신화 필요"
+
+# 3. .claude/docs 가 있는지 확인 (NEW-8 glossary extract 가 사용)
+ls .claude/docs/CLAUDE_DEV_GUIDE.md
+```
+
+stable-net repo URL 은 본 문서에 명시하지 않음 (private repo 가능성).
+사용자가 자기 환경 access path 로 clone 한 후 다음 환경 변수로 등록:
+
+```bash
+# ~/.bashrc 또는 ~/.zshrc 에 추가 (영구) 또는 세션 한정 export
+export CKV_STABLENET_PATH=/path/of/your/choice/go-stablenet
+```
+
+**이 env var 가 set 되어야 `testdata/prs.yaml` 의 12 entries 의
+`source_path` (= `${CKV_STABLENET_PATH}`) 가 resolve 됨.** unset 시
+LoadFixture 가 "source_path placeholder ${CKV_STABLENET_PATH} expanded
+to empty" 로 friendly error.
+
+검증:
+```bash
+echo "$CKV_STABLENET_PATH" && test -d "$CKV_STABLENET_PATH" && echo "✓ stable-net path OK" || echo "❌ unset or directory missing"
+```
+
+### 0.4 외부 의존: bgeonnx embedder 모델
+
+mock embedder 만 사용한다면 §0.4 skip. bgeonnx 로 *실 측정* 하려면:
+
+```bash
+# 1. 모델 캐시 디렉토리 생성
+mkdir -p ~/.cache/ckv/models/bge-large-en-v1.5
+
+# 2. ONNX 모델 + tokenizer 파일 다운로드
+#    공식 출처: BAAI/bge-large-en-v1.5 (HuggingFace)
+#    회사 정책상 HF 직접 접근이 차단된 환경이라면 offline 전송 필요.
+#    필요 파일:
+#      - model.onnx                 (1024-dim BERT)
+#      - tokenizer.json
+#      - config.json
+#      - special_tokens_map.json
+#      - vocab.txt
+#    경로: ~/.cache/ckv/models/bge-large-en-v1.5/<각 파일>
+
+# 3. 모델 로딩 검증
+go run ./cmd/ckv build --embedder=bgeonnx --src ./testdata/sample --out /tmp/ckv-bgeonnx-smoke
+# 기대: build.done event 출력, embedder=bge-large-en-v1.5
+```
+
+CoreML EP 관련 env vars (macOS 한정):
+
+| Env var | 의미 | 기본값 |
+|---|---|---|
+| `CKV_DISABLE_COREML` | `1` 이면 CoreML EP off, CPU-only fallback | unset (CoreML 사용 시도) |
+| `CKV_COREML_MODEL_FORMAT` | `MLProgram` (기본, ADR-005) 또는 `NeuralNetwork` (legacy, 비호환) | `MLProgram` |
+| `CKV_STATIC_SHAPES` | `1` 이면 ANE cache 안정화 — bge-large 권장 | unset |
+| `CKV_COREML_CACHE_DIR` | CoreML 컴파일 캐시 경로 override | `~/.cache/ckv/coreml/<model>` |
+
+자세한 trade-off 는 [`docs/adr/005-coreml-mlprogram-static-shapes.md`](./adr/005-coreml-mlprogram-static-shapes.md) 참조.
+
+### 0.5 환경 변수 reference
+
+본 세션 종료 시점까지 도입된 모든 ckv env vars 한 곳에 정리:
+
+| Env var | 영향 | 기본값 | 출처 |
+|---|---|---|---|
+| `CKV_STABLENET_PATH` | `testdata/prs.yaml` 의 `${CKV_STABLENET_PATH}` placeholder resolve | (unset 시 prregress eval 실패) | 본 commit |
+| `CKV_LOG_LEVEL` | slog 레벨 (`debug`/`info`/`warn`/`error`) | `info` | B8 (2026-05-21) |
+| `CKV_DISABLE_SECRET_FILTER` | `1` 이면 `.env`/`*.pem`/... 차단 우회 (테스트 전용) | unset (filter active) | B9 (2026-05-21) |
+| `CKV_DISABLE_CONTEXTUAL_PREFIX` | `1` 이면 Phase D.1 prefix off (A/B 측정용) | unset (prefix on) | #6 (2026-05-21) |
+| `CKV_MEM_GUARD` | `off` 이면 사전 메모리 체크 skip | active | A1 (2026-05-20) |
+| `CKV_MEM_GUARD_LOW_MB` | adaptive batch trigger threshold | 1024 MB | A1 (2026-05-20) |
+| `CKV_DISABLE_COREML` | `1` 이면 CoreML EP off | active 시도 | A1 (2026-05-20) |
+| `CKV_COREML_MODEL_FORMAT` | `MLProgram` / `NeuralNetwork` | `MLProgram` | A1 (2026-05-20) |
+| `CKV_STATIC_SHAPES` | ANE compile cache 안정화 | unset | A1 (2026-05-20) |
+| `CKV_COREML_GPU_FP16` | GPU FP16 accumulation 활성 | unset | A1 (2026-05-20) |
+| `CKV_COREML_UNITS` | CoreML execution units (`ALL`/`CPUAndNeuralEngine`/`CPUOnly`) | `ALL` | A1 (2026-05-20) |
+| `CKV_COREML_CACHE_DIR` | 컴파일 캐시 위치 override | `~/.cache/ckv/coreml/<model>` | A1 (2026-05-20) |
+| `CKV_ORT_VERBOSE` | `1` 이면 ORT verbose 로그 | unset | A1 (2026-05-20) |
+| `CKV_ORT_INTRA_THREADS` | ORT intra-op 스레드 수 | (ORT default) | A1 (2026-05-20) |
+| `CKV_ORT_INTER_THREADS` | ORT inter-op 스레드 수 | (ORT default) | A1 (2026-05-20) |
+
+### 0.6 외부 의존성 빠른 체크리스트
+
+```bash
+# 모든 외부 의존이 갖춰졌는지 확인하는 한 줄
+echo "Go: $(go version | awk '{print $3}') | gh: $(gh --version | head -1 | awk '{print $3}') | stable-net: $([ -d \"$CKV_STABLENET_PATH\" ] && echo OK || echo missing) | bgeonnx-model: $([ -f ~/.cache/ckv/models/bge-large-en-v1.5/model.onnx ] && echo OK || echo missing) | gh-auth: $(gh auth status 2>&1 | grep -q 'Logged in' && echo OK || echo missing)"
+```
+
+mock embedder 만 사용한다면 bgeonnx-model 은 missing 이어도 OK.
+prregress eval 안 돌린다면 stable-net + gh-auth 는 missing 이어도 OK.
+하지만 **Wave B (NEW-4) 의 E1/E2/E3 측정** 이나 **Stage A 1차 측정** 을
+하려면 stable-net + gh-auth 둘 다 필요.
+
 ---
 
 ## 1. 세션 결산 요약
@@ -407,16 +560,20 @@ output: PR refs that touched this symbol/file (sorted by MergedAtUTC)
 
 ### Step 1: 본 문서 정독 (2분)
 
+다른 머신이면 §0 부터. 동일 머신이면 §2 (결정 상태) → 본 §6.
+
 ### Step 2: 작업 트리 상태 확인
+
 ```bash
-cd /Users/wm-it-22-00661/Work/github/tools/code-knowledge-vector
+# ckv repo 의 working tree 안에서:
+cd <path-to-ckv-clone>      # 다른 머신이면 §0.2 의 clone 위치
 git log --oneline | head -10
 git status
 go test ./... 2>&1 | grep -E "^(ok|FAIL)"
 ```
 
 기대 결과:
-- HEAD = `95e0ae3` (또는 더 최신)
+- HEAD = `0d2a8e4` 또는 그 이후
 - working tree clean
 - 23 packages all `ok`
 
@@ -437,13 +594,23 @@ NEW-4 와 병행 가능 (코드 위치 다름).
 ### Step 4: 측정 실행 (모든 작업 commit 후)
 
 ```bash
-# 1. testdata/sample 회귀 확인 (기존 baseline 동일해야 함)
-rm -rf /tmp/ckv-regress && \
-  go run ./cmd/ckv build --src testdata/sample --out /tmp/ckv-regress --embedder=mock && \
-  go run ./cmd/ckv eval --fixture testdata/queries.yaml --out /tmp/ckv-regress --src testdata/sample --json | \
-  python3 -c "import json,sys; a=json.load(sys.stdin)['aggregate']; print(f'r@5={a[\"recall_at_5\"]:.3f} MRR={a[\"mrr\"]:.4f} halluc={a[\"hallucination_rate\"]:.3f}')"
+# 0. 모든 명령은 ckv repo working tree 내부에서.
 
-# 기대 (현 baseline): r@5=0.740 MRR=0.4937 halluc=0.000
+# 1. testdata/sample 회귀 확인 (mock embedder, repo-relative paths)
+TMP_OUT=$(mktemp -d) && \
+  go run ./cmd/ckv build --src ./testdata/sample --out "$TMP_OUT" --embedder=mock && \
+  go run ./cmd/ckv eval --fixture ./testdata/queries.yaml --out "$TMP_OUT" --src ./testdata/sample --json | \
+  python3 -c "import json,sys; a=json.load(sys.stdin)['aggregate']; print(f'r@5={a[\"recall_at_5\"]:.3f} MRR={a[\"mrr\"]:.4f} halluc={a[\"hallucination_rate\"]:.3f}')" && \
+  rm -rf "$TMP_OUT"
+
+# 기대 (현 baseline, mock embedder, N=50): r@5=0.740 MRR=0.4937 halluc=0.000
+
+# 2. PR-regression eval (`testdata/prs.yaml`) 은 §0.3 의
+#    CKV_STABLENET_PATH 가 set 되어 있어야 함:
+#      export CKV_STABLENET_PATH=/abs/path/to/go-stablenet
+#      go run ./cmd/ckv eval --pr-fixture ./testdata/prs.yaml --out "$TMP_OUT"
+#    unset 일 경우 LoadFixture 가 "source_path placeholder ... expanded to empty"
+#    로 친절한 에러를 출력.
 ```
 
 ### Step 5: 잔여 commits 진행 시 메모리 파일 갱신
@@ -483,3 +650,4 @@ rm -rf /tmp/ckv-regress && \
 | 일자 | 변경 |
 |---|---|
 | 2026-05-23 | 초안. 본 세션 (Phase 1, Phase 3, NEW-5, NEW-1, NEW-8) handoff 정리. 잔여 Wave B/C/D + entry conditions + 다음 세션 진입 워크플로우 명세. |
+| 2026-05-23 (2차) | §0 Onboarding 신설 — 다른 머신에서 시작 가능한 prereq / clone / stable-net access / bgeonnx 모델 / env vars 정리. `testdata/prs.yaml` 의 hard-coded `/Users/...` 절대경로 → `${CKV_STABLENET_PATH}` placeholder 로 변경 + `os.ExpandEnv` 통한 LoadFixture 자동 resolve. §6 Step 2/4 의 명령들도 repo-relative + `$TMP_OUT` 패턴으로 portable 화. |

@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,7 +94,12 @@ prs:
 // testdata/prs.yaml shipped in the repo has exactly the 12 entries
 // promised by NEW-5. Catches accidental deletion / duplication during
 // future fixture edits.
+//
+// The fixture's source_path field is a ${CKV_STABLENET_PATH} placeholder
+// (portable handoff). LoadFixture validates source_path is non-empty, so
+// we set the env var to any non-empty value for this test.
 func TestLoadFixture_RealCorpusHasTwelveEntries(t *testing.T) {
+	t.Setenv("CKV_STABLENET_PATH", "/tmp/stablenet-fake-for-test")
 	// internal/eval/prregress/ → ../../../testdata/prs.yaml
 	path := filepath.Join("..", "..", "..", "testdata", "prs.yaml")
 	fx, err := LoadFixture(path)
@@ -102,6 +108,17 @@ func TestLoadFixture_RealCorpusHasTwelveEntries(t *testing.T) {
 	}
 	if got, want := len(fx.PRs), 12; got != want {
 		t.Errorf("entry count = %d, want %d (NEW-5 expansion)", got, want)
+	}
+	// Every entry's source_path must be the expanded env value
+	// (not the literal placeholder) — the file currently ships with
+	// ${CKV_STABLENET_PATH} on every line.
+	for _, e := range fx.PRs {
+		if e.SourcePath == "${CKV_STABLENET_PATH}" {
+			t.Errorf("%s: source_path not env-expanded (got literal placeholder)", e.ID)
+		}
+		if e.SourcePath != "/tmp/stablenet-fake-for-test" {
+			t.Errorf("%s: source_path = %q, want /tmp/stablenet-fake-for-test", e.ID, e.SourcePath)
+		}
 	}
 	// Every new entry (PR# >= 55, except the 4 legacy) must carry the
 	// three new fields. Spot-check the structural promise.
@@ -123,6 +140,50 @@ func TestLoadFixture_RealCorpusHasTwelveEntries(t *testing.T) {
 			t.Errorf("%s: missing category", e.ID)
 		}
 	}
+}
+
+// TestLoadFixture_EnvExpandsSourcePath verifies the portable-handoff
+// behavior: a ${VAR} placeholder in source_path is resolved against
+// os.Environ at load time. Two paths:
+//   - env var set   → field becomes the resolved absolute path
+//   - env var unset → load fails with a hint about the placeholder
+func TestLoadFixture_EnvExpandsSourcePath(t *testing.T) {
+	body := `
+schema_version: "1"
+prs:
+  - id: pr_test
+    repo: foo/bar
+    pr_number: 1
+    source_path: ${CKV_TEST_STABLENET_PATH}
+    base_sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+`
+	path := writeFixture(t, body)
+
+	t.Run("env_set_resolves_placeholder", func(t *testing.T) {
+		t.Setenv("CKV_TEST_STABLENET_PATH", "/abs/path/to/stable-net")
+		fx, err := LoadFixture(path)
+		if err != nil {
+			t.Fatalf("LoadFixture with env set: %v", err)
+		}
+		if got, want := fx.PRs[0].SourcePath, "/abs/path/to/stable-net"; got != want {
+			t.Errorf("source_path = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("env_unset_errors_with_hint", func(t *testing.T) {
+		// Make sure the var is not set.
+		t.Setenv("CKV_TEST_STABLENET_PATH", "")
+		os.Unsetenv("CKV_TEST_STABLENET_PATH")
+		_, err := LoadFixture(path)
+		if err == nil {
+			t.Fatal("expected error when placeholder is unset")
+		}
+		// The error must mention the original placeholder so the
+		// operator knows which env var to set.
+		if !strings.Contains(err.Error(), "${CKV_TEST_STABLENET_PATH}") {
+			t.Errorf("error should name the unset placeholder; got: %v", err)
+		}
+	})
 }
 
 func TestLoadFixture_DefaultThreshold(t *testing.T) {

@@ -18,7 +18,12 @@
 #   id                    stable identifier used in logs/reports
 #   repo                  owner/name on GitHub (gh CLI reads PR metadata from here)
 #   pr_number             the PR number (1.., as in github.com/<repo>/pull/<n>)
-#   source_path           local clone path (worktree gets created next to it)
+#   source_path           local clone path (worktree gets created next to it).
+#                         Env-var placeholders (${VAR}) are expanded at load
+#                         time so this YAML stays portable across machines.
+#                         Default placeholder: ${CKV_STABLENET_PATH}
+#                         → export CKV_STABLENET_PATH=/abs/path/to/go-stablenet
+#                         before running `ckv eval --pr-fixture`.
 #   base_sha              full SHA of the commit before the PR landed
 #   threshold             minimum acceptable similarity score (LLM-judge primary)
 #   notes                 free-form description; not used by the harness
@@ -44,7 +49,7 @@ prs:
   - id: pr70
     repo: stable-net/go-stablenet
     pr_number: 70
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: aa28927fb12048a59ac34608702eef5e1be90931
     threshold: 0.80
     notes: "fix: fill missing effectiveGasPrice in receipts on derivation"
@@ -52,7 +57,7 @@ prs:
   - id: pr69
     repo: stable-net/go-stablenet
     pr_number: 69
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: 88fe52145e9dc07d6bad2b861468bcbbd271de60
     threshold: 0.80
     notes: "refactor: align genesis construction with Ethereum's decodePrealloc pattern — broader structural change, exercises plan-vs-refactor recognition"
@@ -60,7 +65,7 @@ prs:
   - id: pr72
     repo: stable-net/go-stablenet
     pr_number: 72
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: c55bf2a86e21a12bb72126ac6eb05c1974e594b8
     threshold: 0.80
     notes: "feat: support eth_GetReceiptsByHash (#167) — new RPC method, multi-file feature, tests API surface design recall"
@@ -68,7 +73,7 @@ prs:
   - id: pr74
     repo: stable-net/go-stablenet
     pr_number: 74
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: 319b84d113c5e34b35bdc24899e3b0b9609dd751
     threshold: 0.80
     notes: "fix: increase txMaxSize to 256KB to align with MaxCodeSize — small targeted fix, baseline for narrow-scope plans"
@@ -80,7 +85,7 @@ prs:
   - id: pr77
     repo: stable-net/go-stablenet
     pr_number: 77
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: 0bf2f4d1bfeb6605006d556957ef8c045d8f8ed8
     threshold: 0.80
     notes: "fix: refresh AnzeonTipEnv current block when GasTip changes — non-validator txs were validated with stale GasTip after a governance change"
@@ -97,7 +102,7 @@ prs:
   - id: pr75
     repo: stable-net/go-stablenet
     pr_number: 75
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: e5a6e9e14c1e1d225c341b55798f31cd07b0bfcd
     threshold: 0.80
     notes: "fix(wbft): prevent drop of valid next-sequence messages in future-view check — off-by-one in isTooFarFutureMessage"
@@ -111,7 +116,7 @@ prs:
   - id: pr73
     repo: stable-net/go-stablenet
     pr_number: 73
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: 8b895799e320ce762d441b39448ca27499b4a348
     threshold: 0.80
     notes: "fix: sync Account.Extra with GovCouncil contract slots on genesis init — blacklist/authorized state desync"
@@ -129,7 +134,7 @@ prs:
   - id: pr67
     repo: stable-net/go-stablenet
     pr_number: 67
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: c37ae123a15cb6417e94bf3943bfa2647ebff6b8
     threshold: 0.80
     notes: "fix: move secp256r1 precompile from Anzeon to Boho hardfork"
@@ -143,7 +148,7 @@ prs:
   - id: pr63
     repo: stable-net/go-stablenet
     pr_number: 63
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: ad0122af042d49022052a9783b3086d40d308db8
     threshold: 0.80
     notes: "fix: add burn refund mechanism via GovMinter v2 hardfork — refund locked native coins when burn proposals fail"
@@ -160,7 +165,7 @@ prs:
   - id: pr58
     repo: stable-net/go-stablenet
     pr_number: 58
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: db7c4b43cc63b322d54d59dd1633f7398402c745
     threshold: 0.80
     notes: "fix: chainconfig engine mismatch — Engine field was being set to the wrong value"
@@ -172,7 +177,7 @@ prs:
   - id: pr56
     repo: stable-net/go-stablenet
     pr_number: 56
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: 6e41d966316b51a4e7f17b1ab82f5e5c293e2f33
     threshold: 0.80
     notes: "fix: normalize comma-separated config strings — whitespace caused inconsistent hashAlloc/root across systemcontracts init"
@@ -192,7 +197,7 @@ prs:
   - id: pr55
     repo: stable-net/go-stablenet
     pr_number: 55
-    source_path: /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+    source_path: ${CKV_STABLENET_PATH}
     base_sha: 8d7930a48a31601f4456fb34d526dd4a573d38e4
     threshold: 0.80
     notes: "fix: race condition on roundChangeTimer and roundState bigint access — proper locking + remove stateMu"
