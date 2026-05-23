@@ -95,6 +95,17 @@ type Options struct {
 	// DefaultSignatureContextLines (5). Larger values keep more body
 	// in the middle tier at the cost of fewer hits fitting the budget.
 	SignatureContextLines int
+
+	// Aliases is the vocabulary-bridge glossary applied to the intent
+	// at the very start of Search (R9). When non-nil, ExpandQuery
+	// widens the intent with code-keyword aliases before embedding —
+	// useful for Korean / domain-vague queries against an English code
+	// corpus. Nil leaves the intent untouched (off by default).
+	//
+	// The expanded intent is what gets embedded and what appears in
+	// the query.embed sub-span fingerprint; the *original* intent is
+	// still echoed in the query.search top-level span for log triage.
+	Aliases AliasMap
 }
 
 // Hit is the response-shaped record: only what callers (LLM, CLI) need.
@@ -361,6 +372,22 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		traceID = intentHash(intent)
 	}
 
+	// Vocabulary bridge (NEW-1 / R9): widen the intent with curated
+	// keyword aliases before embedding. The expanded intent flows
+	// through every downstream step including the embed sub-span
+	// fingerprint, so trace consumers see exactly what reached the
+	// embedder. The top-level query.search span echoes the *original*
+	// intent so log readers can correlate the human input.
+	embedIntent := intent
+	aliasApplied := 0
+	if len(opts.Aliases) > 0 {
+		expanded := ExpandQuery(intent, opts.Aliases)
+		if expanded != intent {
+			embedIntent = expanded
+			aliasApplied = 1
+		}
+	}
+
 	doneSearch := e.fp.Span("query.search",
 		"trace_id", traceID,
 		"intent_hash", intentHash(intent),
@@ -369,6 +396,7 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		"threshold", opts.Threshold,
 		"language", opts.Filter.Language,
 		"dry_run", opts.DryRun,
+		"alias_applied", aliasApplied,
 	)
 
 	// Dry-run short-circuit: skip embed, store, citation, density.
@@ -411,10 +439,15 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 
 	// Step 1: embed.
 	// Sub-span query.embed — tunable knob: --embedder, --model-dir,
-	// CKV_DISABLE_CONTEXTUAL_PREFIX. p95 outliers point to cold-start
-	// or CoreML compile churn.
-	doneEmbed := e.fp.Span("query.embed", "trace_id", traceID)
-	vecs, err := e.emb.Embed(ctx, []string{intent})
+	// CKV_DISABLE_CONTEXTUAL_PREFIX, --alias. p95 outliers point to
+	// cold-start or CoreML compile churn. embed_intent_hash differs
+	// from the top-level intent_hash when alias expansion fired.
+	doneEmbed := e.fp.Span("query.embed",
+		"trace_id", traceID,
+		"alias_applied", aliasApplied,
+		"embed_intent_hash", intentHash(embedIntent),
+	)
+	vecs, err := e.emb.Embed(ctx, []string{embedIntent})
 	if err != nil {
 		doneEmbed("error", err.Error())
 		return nil, fmt.Errorf("embed intent: %w", err)

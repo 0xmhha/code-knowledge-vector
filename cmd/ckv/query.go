@@ -26,6 +26,7 @@ type queryOpts struct {
 	srcRoot      string
 	traceID      string
 	dryRun       bool
+	aliasPath    string
 	jsonOut      bool
 }
 
@@ -54,6 +55,7 @@ func newQueryCmd() *cobra.Command {
 	f.StringVar(&opts.srcRoot, "src", "", "source root used for citation verification (default: manifest.src_root)")
 	f.StringVar(&opts.traceID, "trace-id", "", "correlation id echoed in response.metadata and footprint log (default: engine-generated from intent hash)")
 	f.BoolVar(&opts.dryRun, "dry-run", false, "validate request shape only; skip embed + retrieval (response has metadata only)")
+	f.StringVar(&opts.aliasPath, "alias", "", "vocabulary-bridge glossary YAML (korean/vague phrase → english code keywords); intent gets widened with matched keywords before embedding")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable output")
 
 	return cmd
@@ -90,6 +92,11 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 		filter.SymbolKinds = []types.SymbolKind{types.SymbolKind(opts.symbolKind)}
 	}
 
+	aliases, err := query.LoadAliasMap(opts.aliasPath)
+	if err != nil {
+		return err
+	}
+
 	res, err := eng.Search(ctx, intent, query.Options{
 		K:            opts.k,
 		ExamplesK:    opts.examplesK,
@@ -99,6 +106,7 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 		SrcRoot:      opts.srcRoot,
 		TraceID:      opts.traceID,
 		DryRun:       opts.dryRun,
+		Aliases:      aliases,
 	})
 	if err != nil {
 		return err

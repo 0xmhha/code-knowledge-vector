@@ -142,6 +142,9 @@ func (s *Server) registerTools() {
 		mcpgo.WithBoolean("dry_run",
 			mcpgo.Description("When true, validates the request shape and embedder identity but skips embedding + retrieval. Response carries metadata only (no hits). Useful for budget / plan validation."),
 		),
+		mcpgo.WithString("alias_path",
+			mcpgo.Description("Path to a vocabulary-bridge glossary YAML (korean/vague phrase → english code keywords). When set, the intent is widened with matched keywords before embedding — useful for Korean queries against an English code corpus. Empty disables expansion."),
+		),
 		mcpgo.WithNumber("budget_tokens",
 			mcpgo.Description("Snippet density budget in tokens (default 4000)."),
 		),
@@ -209,6 +212,13 @@ func (s *Server) handleSemanticSearch(ctx context.Context, req mcpgo.CallToolReq
 	}
 	if v, ok := args["dry_run"].(bool); ok {
 		opts.DryRun = v
+	}
+	if v, ok := args["alias_path"].(string); ok && v != "" {
+		am, err := query.LoadAliasMap(v)
+		if err != nil {
+			return mcpgo.NewToolResultError(fmt.Sprintf("alias_path: %v", err)), nil
+		}
+		opts.Aliases = am
 	}
 
 	res, err := s.engine.Search(ctx, intent, opts)
