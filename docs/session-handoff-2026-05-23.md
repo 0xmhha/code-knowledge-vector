@@ -194,6 +194,10 @@ prregress eval 안 돌린다면 stable-net + gh-auth 는 missing 이어도 OK.
 | 차단 결정 | D1 (BM25 영구 위치) — 측정 후 결정. 임시: 3-leg BM25 |
 | 차단 안 함 | Wave B (NEW-2 + NEW-4) 즉시 진입 가능 |
 
+> **2026-05-26 후속 진행**: **NEW-4 closed** (commit `53964b1`). 본 §1 표는
+> 2026-05-23 시점 스냅샷이며, 현재 잔여 = NEW-2 (Wave B), NEW-9 (Wave C),
+> NEW-3/6/7 (Wave D). 자세히 §5 Wave B 의 NEW-4 행 + §9 변경 이력 (2026-05-26 row).
+
 ### 본 세션 commit 목록 (역시간 순)
 
 ```
@@ -431,26 +435,36 @@ query.density.adjust  budget_tokens, tier_full/sig5/sig_only, tokens_used
 
 ### Wave B — 평가 framework 강화 (D1/D6 무관 즉시 진입 가능)
 
-#### NEW-4 — Multi-stage E1/E2/E3 메트릭 (`~250 LOC`)
+#### NEW-4 — Multi-stage E1/E2/E3 메트릭 ✅ 2026-05-26 (commit `53964b1`)
 
-**위치**: `internal/eval/prregress/score.go` 확장
+**위치**: `internal/eval/prregress/metrics.go` 신설 + `score.go` / `runner.go` / `fetcher.go` / `types.go` 통합 변경
 
-**산출**:
+**산출** (실제 구현):
 ```go
-func IntentScore(plan, prTitle string) float64                       // E1
-func SymbolF1(planSymbols, truthSymbols []string) (p, r, f1 float64) // E2 신규
-func PlanStepsScore(planSteps, commitMessages string) float64        // E3 분리
+// internal/eval/prregress/metrics.go (신규)
+func IntentScore(plan, reference string) float64                     // E1: token-F1
+func IntentCosine(ctx, plan, ref string, e types.Embedder) (float64, error) // E1 optional
+func SymbolF1(planSymbols, truthSymbols []string) (p, r, f1 float64) // E2
+func PlanStepsScore(planSteps, commitMessages string) float64        // E3
+func ExtractPlanSteps(markdown string) string                        // helper
+func ExtractPlanSymbols(markdown string) []string                    // helper
 // 기존 JudgeScore 유지 (legacy 호환)
 ```
 
-**입력**: NEW-5 가 추가한 `Entry.IntentGroundTruth` + `Entry.ChangedSymbols`
+**입력**: NEW-5 가 추가한 `Entry.IntentGroundTruth` + `Entry.ChangedSymbols` + 신규 `Meta.CommitMessages` (FetchMeta 가 `gh pr view` JSON 에 `commits` 필드 포함하여 한 호출로 수집)
 
-**부수 작업**:
-- `Runner.Run` 에 새 metric 호출 통합
-- `Result.Score` 구조에 `IntentScore` / `SymbolF1{P,R,F1}` / `PlanStepsScore` 추가
-- 인덱스 빌드 자체는 무관 (eval 측만)
+**구현 결정**:
+- E1 은 *pure-Go token-F1* (결정론) + *선택적 embedder cosine* (paraphrase 인식, 별도 `IntentCosine` 필드). 둘은 직교 신호로 병행 보고.
+- Score struct 의 8 신규 필드 모두 `omitempty` — legacy 4 entries (pr69/pr70/pr72/pr74) 의 JSON 출력 *완전 무변경*.
+- `IntentCosine` 만 `RunEntry` 에서 wire (Scorer interface 변경 없이 optional embedder 통합).
 
-**Entry condition**: NEW-5 완료 ✅
+**테스트**:
+- 24 metric unit test (`metrics_test.go`) + 2 integration test (`score_test.go` 의 `TestScore_PopulatesMultiStageWhenGroundTruthPresent` / `TestScore_MultiStageSilentOnLegacyEntries`)
+- prregress 패키지 65 PASS / 0 FAIL
+- testdata/sample mock embedder baseline `r@5=0.740 MRR=0.4937 halluc=0.000` 회귀 0
+
+**Wave B 잔여**: NEW-2 (`--record` interactive fixture).
+**Wave C unblock**: NEW-9 (BM25 임시) 측정 시 어느 stage 가 개선되는지 분해 가능.
 
 #### NEW-2 — `--record` interactive fixture 모드 (`~150 LOC`)
 
@@ -671,3 +685,4 @@ TMP_OUT=$(mktemp -d) && \
 | 2026-05-23 | 초안. 본 세션 (Phase 1, Phase 3, NEW-5, NEW-1, NEW-8) handoff 정리. 잔여 Wave B/C/D + entry conditions + 다음 세션 진입 워크플로우 명세. |
 | 2026-05-23 (2차) | §0 Onboarding 신설 — 다른 머신에서 시작 가능한 prereq / clone / stable-net access / bgeonnx 모델 / env vars 정리. `testdata/prs.yaml` 의 hard-coded `/Users/...` 절대경로 → `${CKV_STABLENET_PATH}` placeholder 로 변경 + `os.ExpandEnv` 통한 LoadFixture 자동 resolve. §6 Step 2/4 의 명령들도 repo-relative + `$TMP_OUT` 패턴으로 portable 화. |
 | 2026-05-23 (3차) | 발견성 + 검증 강화. (a) README.md 최상단에 본 핸드오프 cross-link callout + Documentation 섹션에 "start here" 항목 추가 — 다른 머신이 clone 후 즉시 본 문서 발견 가능. (b) §0.3 의 base SHA reachability 검증을 1 SHA spot-check 에서 12 SHA 전체 loop 로 강화 — 부분 fail 사전 발견. |
+| 2026-05-26 | Wave B / NEW-4 closed (commit `53964b1`). §5 Wave B 의 NEW-4 행을 실제 구현으로 갱신 (E1 IntentScore + 선택적 IntentCosine / E2 SymbolF1 / E3 PlanStepsScore + helpers). Score 구조에 8 omitempty 필드 — legacy 4 entries JSON 무변경. `Meta.CommitMessages` 신설 + `FetchMeta` 가 `gh pr view` JSON 의 `commits` 필드 추가 수집. 24 metric unit test + 2 integration test. 다음 진입 권장 = Wave C (NEW-9 BM25) — 본 commit 으로 stage 분해 측정 가능. |
