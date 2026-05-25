@@ -65,10 +65,16 @@ type Hit struct {
 // HitScore exposes both the normalized score (higher = better, range [0,1])
 // and the raw cosine distance (lower = better, range [0,2]). The RRF fuser
 // upstream consumes Rank; lower-layer query callers display Normalized.
+//
+// NEW-9 / ADR-006 adds two omitempty fields for the optional BM25 rerank
+// pass. They stay zero (and absent from JSON) when Options.EnableBM25Rerank
+// is off, preserving the schema for callers that haven't opted in.
 type HitScore struct {
-	Normalized      float64 `json:"normalized"`         // 1 - distance/2, in [0,1]
-	VectorDistance  float64 `json:"vector_distance"`    // raw cosine distance, in [0,2]
-	VectorRank      int     `json:"vector_rank"`        // 1-based within this query's vector hits
+	Normalized     float64 `json:"normalized"`      // 1 - distance/2, in [0,1]
+	VectorDistance float64 `json:"vector_distance"` // raw cosine distance, in [0,2]
+	VectorRank     int     `json:"vector_rank"`     // 1-based within this query's vector hits
+	BM25Score      float64 `json:"bm25_score,omitempty"`  // NEW-9: candidate-set BM25, 0 when rerank disabled or no token match
+	HybridRank     int     `json:"hybrid_rank,omitempty"` // NEW-9: 1-based position after RRF fusion; 0 when rerank disabled
 }
 
 // Stats reports index health. Returned by VectorStore.Stats and surfaced

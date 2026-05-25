@@ -21,6 +21,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
+	"github.com/0xmhha/code-knowledge-vector/internal/query/bm25"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
@@ -106,6 +107,20 @@ type Options struct {
 	// the query.embed sub-span fingerprint; the *original* intent is
 	// still echoed in the query.search top-level span for log triage.
 	Aliases AliasMap
+
+	// EnableBM25Rerank turns on the optional NEW-9 / ADR-006 BM25
+	// rerank pass between store.search and threshold.drop. When true,
+	// the engine builds a candidate-set BM25 over the vector hits
+	// (corpus = chunk.SymbolName + first text line per D3-B), scores
+	// each candidate against the *original* intent (alias expansion is
+	// embed-side only), and reorders by RRF fusion of vector + BM25
+	// ranks. Default false — ADR-003 vector-only behavior preserved
+	// until the supersede measurement (tracked in ADR-006).
+	//
+	// The flag intentionally lives at the query-call level rather than
+	// the Engine: comparison runs (`--bm25-rerank` vs no-flag) share
+	// the same Engine + index, only the rerank step toggles.
+	EnableBM25Rerank bool
 }
 
 // Hit is the response-shaped record: only what callers (LLM, CLI) need.
@@ -482,6 +497,52 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	)
 
 	warnings := []string{}
+
+	// Step 2.5 (optional, NEW-9 / ADR-006): BM25 rerank.
+	// Default off — ADR-003 vector-only behavior is the baseline. When
+	// EnableBM25Rerank is set, we build a candidate-set BM25 corpus
+	// (chunk.SymbolName + first text line per D3-B), score against the
+	// *original* intent (alias expansion happens for the embedder only),
+	// and reorder rawHits by RRF fusion of vector + BM25 ranks.
+	//
+	// The footprint span fires unconditionally so operators comparing
+	// runs with/without the flag see a symmetric trace; `disabled=true`
+	// when the flag is off so log readers can filter quickly.
+	doneBM25 := e.fp.Span("query.bm25.rerank",
+		"trace_id", traceID,
+		"candidates_in", len(rawHits),
+		"enabled", opts.EnableBM25Rerank,
+	)
+	if opts.EnableBM25Rerank && len(rawHits) > 0 {
+		cands := make([]bm25.Candidate, len(rawHits))
+		for i, h := range rawHits {
+			cands[i] = bm25.Candidate{Hit: h, Corpus: bm25.BuildCorpusText(h)}
+		}
+		results, bstats := bm25.Rerank(cands, intent)
+		// Re-materialize rawHits in the new order; the per-hit Score now
+		// carries BM25Score + HybridRank so downstream layers (citation,
+		// density) keep the rerank fingerprint without re-running BM25.
+		reordered := make([]types.Hit, len(results))
+		for i, r := range results {
+			reordered[i] = r.Hit
+		}
+		rawHits = reordered
+		doneBM25(
+			"candidates_out", bstats.CandidatesOut,
+			"rank_changes", bstats.RankChanges,
+			"top1_score_delta", bstats.Top1ScoreDelta,
+			"top1_chunk_id", bstats.Top1ChunkID,
+			"disabled", bstats.BM25Disabled,
+		)
+	} else {
+		doneBM25(
+			"candidates_out", len(rawHits),
+			"rank_changes", 0,
+			"top1_score_delta", 0.0,
+			"top1_chunk_id", topChunkID(rawHits),
+			"disabled", true,
+		)
+	}
 
 	// Step 3: threshold drop. Sub-span query.threshold.drop — tunable
 	// knob: --threshold. dropped count growing across runs means the

@@ -18,6 +18,11 @@ type Options struct {
 	Threshold float64      // pass-through to query.Options.Threshold; <0 disables
 	SrcRoot   string       // pass-through for citation enforcement; empty → manifest default
 	Judge     judge.Judge  // optional LLM-as-judge; nil → automatic metrics only
+	// EnableBM25Rerank toggles NEW-9 / ADR-006 BM25 candidate-rerank on
+	// the eval pass. Defaults false so existing baselines are preserved
+	// by default. Both A and B legs of an A/B comparison use the same
+	// fixture + engine, only this flag differs.
+	EnableBM25Rerank bool
 }
 
 // Result is the full eval pass output.
@@ -50,9 +55,10 @@ func Run(ctx context.Context, eng *query.Engine, fx *Fixture, opts Options) (*Re
 
 	for _, q := range fx.Queries {
 		resp, err := eng.Search(ctx, q.Intent, query.Options{
-			K:         k,
-			Threshold: opts.Threshold,
-			SrcRoot:   opts.SrcRoot,
+			K:                k,
+			Threshold:        opts.Threshold,
+			SrcRoot:          opts.SrcRoot,
+			EnableBM25Rerank: opts.EnableBM25Rerank,
 		})
 		if err != nil {
 			// Treat a per-query failure as a miss; preserve the

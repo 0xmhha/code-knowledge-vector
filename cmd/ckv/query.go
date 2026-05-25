@@ -27,6 +27,7 @@ type queryOpts struct {
 	traceID      string
 	dryRun       bool
 	aliasPath    string
+	bm25Rerank   bool
 	jsonOut      bool
 }
 
@@ -56,6 +57,7 @@ func newQueryCmd() *cobra.Command {
 	f.StringVar(&opts.traceID, "trace-id", "", "correlation id echoed in response.metadata and footprint log (default: engine-generated from intent hash)")
 	f.BoolVar(&opts.dryRun, "dry-run", false, "validate request shape only; skip embed + retrieval (response has metadata only)")
 	f.StringVar(&opts.aliasPath, "alias", "", "vocabulary-bridge glossary YAML (korean/vague phrase → english code keywords); intent gets widened with matched keywords before embedding")
+	f.BoolVar(&opts.bm25Rerank, "bm25-rerank", false, "experimental: rerank vector candidates with candidate-set BM25 + RRF fusion before threshold (ADR-006 / NEW-9)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable output")
 
 	return cmd
@@ -98,15 +100,16 @@ func runQuery(ctx context.Context, opts *queryOpts, intent string) error {
 	}
 
 	res, err := eng.Search(ctx, intent, query.Options{
-		K:            opts.k,
-		ExamplesK:    opts.examplesK,
-		Filter:       filter,
-		BudgetTokens: opts.budgetTokens,
-		Threshold:    opts.threshold,
-		SrcRoot:      opts.srcRoot,
-		TraceID:      opts.traceID,
-		DryRun:       opts.dryRun,
-		Aliases:      aliases,
+		K:                opts.k,
+		ExamplesK:        opts.examplesK,
+		Filter:           filter,
+		BudgetTokens:     opts.budgetTokens,
+		Threshold:        opts.threshold,
+		SrcRoot:          opts.srcRoot,
+		TraceID:          opts.traceID,
+		DryRun:           opts.dryRun,
+		Aliases:          aliases,
+		EnableBM25Rerank: opts.bm25Rerank,
 	})
 	if err != nil {
 		return err

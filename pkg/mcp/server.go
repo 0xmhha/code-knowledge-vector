@@ -145,6 +145,9 @@ func (s *Server) registerTools() {
 		mcpgo.WithString("alias_path",
 			mcpgo.Description("Path to a vocabulary-bridge glossary YAML (korean/vague phrase → english code keywords). When set, the intent is widened with matched keywords before embedding — useful for Korean queries against an English code corpus. Empty disables expansion."),
 		),
+		mcpgo.WithBoolean("bm25_rerank",
+			mcpgo.Description("Experimental (NEW-9 / ADR-006): rerank vector candidates with candidate-set BM25 + RRF fusion before threshold drop. Default false — ADR-003 vector-only behavior is preserved when the flag is absent. Affects hit ordering, populates Hit.Score.BM25Score and Hit.Score.HybridRank when enabled."),
+		),
 		mcpgo.WithNumber("budget_tokens",
 			mcpgo.Description("Snippet density budget in tokens (default 4000)."),
 		),
@@ -219,6 +222,9 @@ func (s *Server) handleSemanticSearch(ctx context.Context, req mcpgo.CallToolReq
 			return mcpgo.NewToolResultError(fmt.Sprintf("alias_path: %v", err)), nil
 		}
 		opts.Aliases = am
+	}
+	if v, ok := args["bm25_rerank"].(bool); ok {
+		opts.EnableBM25Rerank = v
 	}
 
 	res, err := s.engine.Search(ctx, intent, opts)
