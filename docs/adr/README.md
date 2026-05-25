@@ -55,3 +55,4 @@ This keeps the record honest about what was true at each point in time.
 | [003](003-bm25-dual-track.md) | BM25 stays on CKS side; CKV is vector-only | Accepted | 2026-05-18 |
 | [004](004-ckv-reindex-s1-5-promotion.md) | Promote ckv reindex from S2 to S1.5 | Accepted | 2026-05-19 |
 | [005](005-coreml-mlprogram-static-shapes.md) | CoreML format = MLProgram with static shapes | Accepted | 2026-05-20 |
+| [006](006-bm25-temporary-rerank.md) | BM25 candidate-set rerank as temporary measurement infrastructure | Proposed | 2026-05-26 |

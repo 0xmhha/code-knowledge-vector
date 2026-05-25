@@ -194,9 +194,11 @@ prregress eval 안 돌린다면 stable-net + gh-auth 는 missing 이어도 OK.
 | 차단 결정 | D1 (BM25 영구 위치) — 측정 후 결정. 임시: 3-leg BM25 |
 | 차단 안 함 | Wave B (NEW-2 + NEW-4) 즉시 진입 가능 |
 
-> **2026-05-26 후속 진행**: **NEW-4 closed** (commit `53964b1`). 본 §1 표는
-> 2026-05-23 시점 스냅샷이며, 현재 잔여 = NEW-2 (Wave B), NEW-9 (Wave C),
-> NEW-3/6/7 (Wave D). 자세히 §5 Wave B 의 NEW-4 행 + §9 변경 이력 (2026-05-26 row).
+> **2026-05-26 후속 진행**: **NEW-4 closed** (commit `53964b1`),
+> **NEW-9 closed** (commit `57c8821`, default OFF). 본 §1 표는
+> 2026-05-23 시점 스냅샷이며, 현재 잔여 = NEW-2 (Wave B 선택),
+> NEW-3/6/7 (Wave D, PR-aware pipeline). 자세히 §5 Wave B 의 NEW-4 행,
+> §5 Wave C 의 NEW-9 행, §9 변경 이력 (2026-05-26 rows).
 
 ### 본 세션 commit 목록 (역시간 순)
 
@@ -494,35 +496,42 @@ ckv:
 
 ### Wave C — Engine.Search 핵심 변경 (위험 큼, A/B 검증 필수)
 
-#### NEW-9 — chunk-aware BM25 임시 (`~250 LOC`)
+#### NEW-9 — chunk-aware BM25 임시 ✅ 2026-05-26 (commit `57c8821`)
 
-**위치**: `internal/query/bm25/` 신설
+**위치**: `internal/query/bm25/` 5 파일 신설 + `pkg/types/search.go` / `internal/query/engine.go` / `cmd/ckv/{query,eval}.go` / `pkg/mcp/server.go` / `internal/eval/eval.go` 통합 변경
 
-**핵심 결정**:
-- CKG `pkg/bm25.Scorer` 를 *복사 / 어댑터* 로 재사용 (코드 중복 회피)
-- D2-A: store.Search 이후, threshold 이전 rerank
-- D3-B: corpus = symbol_name + signature (첫 라인). chunk.Text 전체는 noise.
+**구현된 결정**:
+- ckg `pkg/bm25` 의 Okapi BM25 + 코드-aware tokenizer 를 *복사 + attribution* 으로 in-tree 화 (CKV 빌드가 ckg checkout 의존 안 함). 알고리즘 자체는 ckg 가 이미 hand-written / no-third-party 명시.
+- **D2-A**: store.Search 직후, threshold.drop 직전. 신규 sub-span `query.bm25.rerank` 가 Phase 1 footprint 의 6번째.
+- **D3-B**: corpus = `chunk.SymbolName + chunk.Text 첫 비어있지 않은 줄` (= `BuildCorpusText`). chunk.Text 전체는 noise.
+- **Candidate-set BM25**: IDF 를 검색의 candidate set (k×3=30) 위에서 계산 → schema/build 변경 0. ADR-006 에 *bias caveat* 명시.
+- **RRF fusion (k=60)** — `1/(60+vector_rank) + 1/(60+bm25_rank)`. tied → stable tiebreak 으로 vector 우선.
+- **Default OFF** — `Options.EnableBM25Rerank` opt-in. ADR-003 baseline `r@5=0.740 MRR=0.4937` (mock embedder) **완전 보존**.
 
-**Engine.Search 수정**:
-```go
-// 새 sub-span query.bm25.rerank 추가 (Phase 1 footprint 위에 6번째)
-rerankedHits, bm25Scores := bm25.Rerank(rawHits, intent)
-// 다음 single-fingerprint metric: rank_changes, top1_score_delta
+**신규 surface**:
+- CLI: `ckv query --bm25-rerank`, `ckv eval --bm25-rerank`
+- MCP: `cks.context.semantic_search` arg `bm25_rerank: true`
+- Go: `query.Options.EnableBM25Rerank`, `eval.Options.EnableBM25Rerank`
+- JSON: `Hit.Score.BM25Score` / `Hit.Score.HybridRank` (omitempty → rerank off 시 absent)
+
+**Footprint span** `query.bm25.rerank` 필드:
+```
+candidates_in / candidates_out / rank_changes / top1_score_delta / top1_chunk_id / disabled
 ```
 
-**Hit 시그니처 확장**:
-- `Hit.Score.BM25Score float64 omitempty` (RRF 입력)
-- `Hit.Score.HybridRank int` (rerank 후 final rank)
+**측정 결과 (mock embedder, testdata/sample N=50)**:
+| 상태 | r@5 | MRR | halluc |
+|---|---|---|---|
+| OFF (default) | 0.740 | 0.4937 | 0.000 |
+| ON `--bm25-rerank` | **0.840** | 0.4983 | 0.000 |
 
-**ADR-006 draft 작성 권장** — "BM25 임시 통합, 측정 후 영구 결정 보류".
-ADR-003 supersede 는 **측정 후**.
+Mock embedder 의 약한 vector signal 환경에서 BM25 가 +0.10 r@5 보강. **bgeonnx 실측은 별도 세션** — semantic baseline 이 다르므로 mock 의 delta 가 예측력 없음.
 
-**테스트 영향**:
-- 모든 기존 query eval baseline (recall@K, MRR) 변동 가능
-- 회귀 발견 시 임시로 rerank off 옵션 (`Options.DisableBM25Rerank`) 권장
+**ADR-006 (Proposed)** — `docs/adr/006-bm25-temporary-rerank.md`. ADR-003 (Accepted, vector-only) 의 supersede 는 *측정 후 결정*. 본 commit 은 measurement infrastructure 만 land.
 
-**Entry condition**: 없음 (CKG bm25 source 코드만 reference). 단,
-회귀 측정 위해 Phase 1 (footprint) 가 이미 있어야 → ✅ 충족.
+**테스트**: 18 신규 unit test (Okapi regression / tokenizer contract / Rerank 시나리오 / RRF 수학 / Hit mutation isolation / BuildCorpusText / Stats fingerprint). 24 packages 전체 `ok`.
+
+**Wave 잔여 (NEW-9 이후)**: Wave D (NEW-3 / NEW-6 / NEW-7) — PR-aware pipeline. *분리 세션 권장* (schema/migration 영향).
 
 ### Wave D — PR-aware pipeline (분리 세션 권장)
 
@@ -686,3 +695,4 @@ TMP_OUT=$(mktemp -d) && \
 | 2026-05-23 (2차) | §0 Onboarding 신설 — 다른 머신에서 시작 가능한 prereq / clone / stable-net access / bgeonnx 모델 / env vars 정리. `testdata/prs.yaml` 의 hard-coded `/Users/...` 절대경로 → `${CKV_STABLENET_PATH}` placeholder 로 변경 + `os.ExpandEnv` 통한 LoadFixture 자동 resolve. §6 Step 2/4 의 명령들도 repo-relative + `$TMP_OUT` 패턴으로 portable 화. |
 | 2026-05-23 (3차) | 발견성 + 검증 강화. (a) README.md 최상단에 본 핸드오프 cross-link callout + Documentation 섹션에 "start here" 항목 추가 — 다른 머신이 clone 후 즉시 본 문서 발견 가능. (b) §0.3 의 base SHA reachability 검증을 1 SHA spot-check 에서 12 SHA 전체 loop 로 강화 — 부분 fail 사전 발견. |
 | 2026-05-26 | Wave B / NEW-4 closed (commit `53964b1`). §5 Wave B 의 NEW-4 행을 실제 구현으로 갱신 (E1 IntentScore + 선택적 IntentCosine / E2 SymbolF1 / E3 PlanStepsScore + helpers). Score 구조에 8 omitempty 필드 — legacy 4 entries JSON 무변경. `Meta.CommitMessages` 신설 + `FetchMeta` 가 `gh pr view` JSON 의 `commits` 필드 추가 수집. 24 metric unit test + 2 integration test. 다음 진입 권장 = Wave C (NEW-9 BM25) — 본 commit 으로 stage 분해 측정 가능. |
+| 2026-05-26 (2차) | Wave C / NEW-9 closed (commit `57c8821`). `internal/query/bm25/` 5 파일 (Okapi + tokenize 는 ckg attribution, candidate-set Rerank + RRF k=60 은 CKV 신규). `HitScore` 에 `BM25Score` / `HybridRank` omitempty. `Engine.Search` 의 6번째 sub-span `query.bm25.rerank` (D2-A 위치). **Default OFF** (`Options.EnableBM25Rerank` opt-in) — handoff §0.2 / §6.4 mock baseline `r@5=0.740 MRR=0.4937` **완전 보존**. BM25 ON 측정 (mock embedder N=50): `r@5=0.840 MRR=0.4983` (+0.10 r@5). ADR-006 (Proposed) 작성; ADR-003 supersede 는 bgeonnx 실측 후. 18 신규 unit test. 다음 권장 = bgeonnx 실측 (별도 세션) 또는 Wave D (NEW-3 PR corpus). |

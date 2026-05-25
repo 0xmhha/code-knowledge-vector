@@ -486,7 +486,7 @@ base_sha 는 git log 에서 *직전 PR merge commit* 으로 자동 추출 가능
 | **ckv-NEW-6** | Symbol-level PR breadcrumb 데이터 추가 (ckg PR-aware A 옵션의 ckv 쪽 짝) | R12 | ~80 | NEW-3 후 |
 | **ckv-NEW-7** | `ckv mcp` 에 `cks.context.related_changes` tool 추가 (cks 가 wrap 할 backend) | R12 (B 옵션 backend) | ~150 | NEW-3, NEW-6 |
 | **ckv-NEW-8** | Glossary loader — `.claude/docs/*.md` 파싱 후 한국어-영문 매핑 YAML 자동 추출 | R9 (D 옵션 backend) | ~150 | 없음 |
-| **ckv-NEW-9** | 3-leg BM25 (사용자 결정 R13): `internal/query/bm25/` 임시 통합 — ckg `pkg/bm25.Scorer` 재사용 | R13 | ~250 | 없음 |
+| **ckv-NEW-9** | 3-leg BM25 (사용자 결정 R13): `internal/query/bm25/` 임시 통합 — ckg `pkg/bm25.Scorer` 재사용 | R13 | ~250 | 없음 | ✅ 2026-05-26 (commit `57c8821`) — `internal/query/bm25/` 5 파일 (scorer / okapi / tokenize 는 ckg source attribution + rerank 은 CKV 신규: candidate-set BM25 + RRF k=60). `HitScore.BM25Score` + `HybridRank` omitempty 추가. `Engine.Search` 에 `query.bm25.rerank` 6번째 sub-span (D2-A 위치). `Options.EnableBM25Rerank` **default off** — ADR-003 baseline 보존, opt-in CLI `--bm25-rerank` / MCP `bm25_rerank: true`. mock embedder N=50 smoke: off r@5=0.740, on r@5=0.840 (+0.10). 18 신규 unit test. ADR-006 (Proposed) 작성. |
 
 총 ~1530 LOC. backlog 의 #4 (Phase C) + 새로 분리된 9 개 작업.
 
@@ -835,3 +835,4 @@ cks R-D 의 cks-T1-D1~D5 가 §10.6 Stage C 의 작업 단위.
 | 2026-05-22 | 초안. 사용자 요구 분해, gap 분석, 결정 포인트 + 권장안 + 5 Phase deliverable 정리. ADR-003 supersede 권고 포함. |
 | 2026-05-22 (추가 라운드) | §10 신설. cks 측 통합 점검 세션 결과 back-port. 사용자 명세 R9 (vocabulary bridge) / R10 (multi-stage eval) / R11 (점진 fixture) / R12 (PR-aware) / R13 (3-leg BM25 임시) 추가. ckv-NEW-1~9 9 개 신규 작업 명세. fixture 4 → 12 확장 (§10.3). Stage A/B/C 평가 체계 (§10.6). ckg PR-aware A+B+C 통합 (§10.5). D1 + D6 사용자 결정 답변 (§10.9 / §10.10). 다음 세션 작업 순서 권장 (§10.11). |
 | 2026-05-26 | ckv-NEW-4 (E1/E2/E3 메트릭 분해) closed — commit `53964b1`. `internal/eval/prregress/metrics.go` 신설, `Score` 에 8 신규 필드 (모두 omitempty), `FetchMeta` 의 gh JSON 확장 (commits 포함). 24 metric unit test + 2 integration test. Wave B 의 NEW-4 entry condition unblock — NEW-9 (BM25) 측정 시 stage 단위 신호 분해 가능. |
+| 2026-05-26 | ckv-NEW-9 (3-leg BM25 임시) closed — commit `57c8821`. `internal/query/bm25/` 5 파일 (ckg `pkg/bm25` 의 Okapi + tokenize attribution + 신규 RRF rerank). `HitScore` 에 `BM25Score`/`HybridRank` omitempty. `Engine.Search` 6번째 sub-span `query.bm25.rerank` (D2-A). Default OFF — ADR-003 baseline 보존, opt-in `ckv query --bm25-rerank` / MCP `bm25_rerank: true`. mock embedder N=50 A/B: off r@5=0.740 / on r@5=0.840 (+0.10). 18 신규 unit test. ADR-006 Proposed 작성. ADR-003 supersede 는 bgeonnx 실측 후 결정. |
