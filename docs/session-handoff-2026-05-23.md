@@ -204,6 +204,10 @@ prregress eval 안 돌린다면 stable-net + gh-auth 는 missing 이어도 OK.
 > (model.onnx 1.34 GB + tokenizer.json 700 KB 필요). 즉시 실행 가능한
 > A/B runbook (Step 1 모델 설치 → Step 4 ADR-006 supersede 결정 기준)
 > 은 [`evaluation-design §6.4`](./evaluation-design-2026-05-22.md) 참조.
+>
+> **다음 세션 진입 가이드** — 잔여 작업 우선순위 + 세션 운영 전략 + 결정
+> 포인트 + 0초 진입 명령은 [`plan-2026-05-26.md`](./plan-2026-05-26.md)
+> 참조. Path A (측정 우선) / Path B (기능 우선) / Path C (Wave D) 3 시퀀스 제공.
 
 ### 본 세션 commit 목록 (역시간 순)
 
