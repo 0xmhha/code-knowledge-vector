@@ -199,6 +199,11 @@ prregress eval 안 돌린다면 stable-net + gh-auth 는 missing 이어도 OK.
 > 2026-05-23 시점 스냅샷이며, 현재 잔여 = NEW-2 (Wave B 선택),
 > NEW-3/6/7 (Wave D, PR-aware pipeline). 자세히 §5 Wave B 의 NEW-4 행,
 > §5 Wave C 의 NEW-9 행, §9 변경 이력 (2026-05-26 rows).
+>
+> **bgeonnx 실측은 보류** — `~/.cache/ckv/models/bge-large-en-v1.5/` 미설치
+> (model.onnx 1.34 GB + tokenizer.json 700 KB 필요). 즉시 실행 가능한
+> A/B runbook (Step 1 모델 설치 → Step 4 ADR-006 supersede 결정 기준)
+> 은 [`evaluation-design §6.4`](./evaluation-design-2026-05-22.md) 참조.
 
 ### 본 세션 commit 목록 (역시간 순)
 

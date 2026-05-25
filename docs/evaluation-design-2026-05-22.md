@@ -298,6 +298,91 @@ ckv eval --tune \
   --json > ./ckv-data-stablenet/tune-result.json
 ```
 
+### 6.4 bgeonnx 실측 즉시 실행 가능 runbook (NEW-9 A/B — 2026-05-26 추가)
+
+NEW-9 (commit `57c8821`) 가 default OFF 로 land 했으므로 stable-net 빌드 없이도
+**testdata/sample N=50 위에서 bgeonnx baseline 과 BM25 A/B 측정 즉시 실행 가능**.
+mock embedder 측정 (off `r@5=0.740` / on `r@5=0.840`) 은 bgeonnx 결과에 대한
+*예측력 없음* — 진짜 semantic vector 위에서 BM25 의 marginal lift 가 어떻게
+변하는지 측정 필요.
+
+#### Step 1 — 모델 설치 (1회만)
+
+```bash
+# 1.34 GB ONNX + 700 KB tokenizer. HF 직접 다운로드 가능.
+mkdir -p ~/.cache/ckv/models/bge-large-en-v1.5/onnx
+curl -L -o ~/.cache/ckv/models/bge-large-en-v1.5/onnx/model.onnx \
+  https://huggingface.co/BAAI/bge-large-en-v1.5/resolve/main/onnx/model.onnx
+curl -L -o ~/.cache/ckv/models/bge-large-en-v1.5/tokenizer.json \
+  https://huggingface.co/BAAI/bge-large-en-v1.5/resolve/main/tokenizer.json
+
+# 검증: bgeonnx loader 가 여는 두 파일만 확인
+test -f ~/.cache/ckv/models/bge-large-en-v1.5/onnx/model.onnx && echo "✓ model.onnx"
+test -f ~/.cache/ckv/models/bge-large-en-v1.5/tokenizer.json && echo "✓ tokenizer.json"
+```
+
+기대 디스크 사용: ~1.34 GB. RAM 예상치 (`internal/embed/bgeonnx/model_config.go` 의 EstimatedRAMMB): 5000 MB (FP32 weights + ORT runtime + working set + CoreML compile transient).
+
+#### Step 2 — bgeonnx baseline 빌드 (cold-start 1-3분)
+
+```bash
+cd <ckv-repo>
+TMP_OUT=$(mktemp -d) && \
+  go run ./cmd/ckv build --src ./testdata/sample --out "$TMP_OUT" --embedder=bgeonnx
+```
+
+기대: build.done event + `embedder=bge-large-en-v1.5`. CoreML 첫 컴파일 1-3분
+(MLProgram + static shapes 캐시는 ADR-005 / `~/.cache/ckv/coreml/<model>/` 에 저장).
+재실행 시 캐시 hit 으로 즉시 로드.
+
+#### Step 3 — N=50 fixture A/B 측정
+
+```bash
+# A. BM25 OFF (baseline)
+go run ./cmd/ckv eval --fixture ./testdata/queries.yaml --out "$TMP_OUT" --src ./testdata/sample --json | \
+  python3 -c "import json,sys; a=json.load(sys.stdin)['aggregate']; print(f'OFF: r@5={a[\"recall_at_5\"]:.3f} MRR={a[\"mrr\"]:.4f} halluc={a.get(\"hallucination_rate\",0.0):.3f}')"
+
+# B. BM25 ON
+go run ./cmd/ckv eval --fixture ./testdata/queries.yaml --out "$TMP_OUT" --src ./testdata/sample --bm25-rerank --json | \
+  python3 -c "import json,sys; a=json.load(sys.stdin)['aggregate']; print(f'ON:  r@5={a[\"recall_at_5\"]:.3f} MRR={a[\"mrr\"]:.4f} halluc={a.get(\"hallucination_rate\",0.0):.3f}')"
+
+rm -rf "$TMP_OUT"
+```
+
+기대 출력 형식:
+```
+OFF: r@5=0.??? MRR=0.???? halluc=0.000
+ON:  r@5=0.??? MRR=0.???? halluc=0.000
+```
+
+mock embedder 시 +0.10 r@5 lift 였음. bgeonnx 의 강한 semantic vector 가 이미
+lexical 매칭 일부를 흡수하므로 **+0.02 ~ +0.05 r@5 가 현실적 범위** (확신도
+중). 더 큰 lift 가 보이면 fixture 의 lexical-favoring 편향 의심.
+
+#### Step 4 — ADR-006 supersede 결정 기준
+
+다음 조건이 *모두* 충족되면 ADR-003 → ADR-006 supersede (BM25 영구 통합) 진행:
+
+1. r@5 lift ≥ +0.03 (절대값)
+2. MRR lift ≥ +0.01 (top-1 quality 도 개선)
+3. hallucination_rate 변동 ≤ +0.01 (citation 정합성 회귀 없음)
+4. (별도 세션) 12-PR fixture 의 NEW-4 metric E2 (SymbolF1) 가 동일 방향 개선
+
+3 개 중 한 가지라도 미충족 → ADR-006 Proposed 유지, opt-in flag 로만 살아남음.
+4 가 미측정이라도 1~3 충족 시 ADR-006 을 *Accepted (default-off)* 로 promote 가능.
+
+#### Step 5 — 측정 결과 기록
+
+bgeonnx 측정 후 본 §6.4 아래 또는 별도 `docs/measurements/` 에 결과 기록:
+```markdown
+### 측정 결과 — 2026-MM-DD
+- 환경: bgeonnx (bge-large-en-v1.5), CoreML EP, MacBook M-series
+- OFF: r@5=X.XXX MRR=Y.YYYY halluc=Z.ZZZ
+- ON:  r@5=X.XXX MRR=Y.YYYY halluc=Z.ZZZ
+- delta: r@5 +A.AAA, MRR +B.BBBB
+- ADR-006 supersede 조건 충족: yes / no — [근거]
+```
+
 ---
 
 ## 7. 사용자 결정 필요 항목
