@@ -30,7 +30,7 @@ func FetchMeta(ctx context.Context, e Entry) (Meta, error) {
 	args := []string{
 		"pr", "view", fmt.Sprintf("%d", e.PRNumber),
 		"--repo", e.Repo,
-		"--json", "title,body,files",
+		"--json", "title,body,files,commits",
 	}
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	out, err := cmd.Output()
@@ -44,9 +44,13 @@ func FetchMeta(ctx context.Context, e Entry) (Meta, error) {
 	}
 
 	var raw struct {
-		Title string         `json:"title"`
-		Body  string         `json:"body"`
-		Files []ChangedFile `json:"files"`
+		Title   string        `json:"title"`
+		Body    string        `json:"body"`
+		Files   []ChangedFile `json:"files"`
+		Commits []struct {
+			MessageHeadline string `json:"messageHeadline"`
+			MessageBody     string `json:"messageBody"`
+		} `json:"commits"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return Meta{}, fmt.Errorf("parse gh pr view JSON: %w", err)
@@ -57,11 +61,29 @@ func FetchMeta(ctx context.Context, e Entry) (Meta, error) {
 	if len(raw.Files) == 0 {
 		return Meta{}, fmt.Errorf("gh pr view returned no files — PR %s#%d may be empty or inaccessible", e.Repo, e.PRNumber)
 	}
+	// Commits drives the NEW-4 E3 PlanStepsScore. Missing commits is not
+	// fatal — the metric just degrades to 0 for that entry. (Empty PRs
+	// can happen for squash-merge rebases where gh reports a single
+	// synthesized commit.)
+	commits := make([]string, 0, len(raw.Commits))
+	for _, c := range raw.Commits {
+		head := strings.TrimSpace(c.MessageHeadline)
+		body := strings.TrimSpace(c.MessageBody)
+		switch {
+		case head != "" && body != "":
+			commits = append(commits, head+"\n\n"+body)
+		case head != "":
+			commits = append(commits, head)
+		case body != "":
+			commits = append(commits, body)
+		}
+	}
 	return Meta{
-		Title:      raw.Title,
-		Body:       raw.Body,
-		Background: ExtractBackground(raw.Body),
-		Files:      raw.Files,
+		Title:          raw.Title,
+		Body:           raw.Body,
+		Background:     ExtractBackground(raw.Body),
+		Files:          raw.Files,
+		CommitMessages: commits,
 	}, nil
 }
 

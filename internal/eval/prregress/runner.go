@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/build"
@@ -174,6 +175,27 @@ func RunEntry(ctx context.Context, e Entry, opts *RunOptions) Result {
 		r.Error = fmt.Sprintf("score: %v", err)
 		r.Score = score
 		return r
+	}
+
+	// NEW-4 optional E1 cosine — only when an embedder is wired in.
+	// The same embedder used for index build (Stage 3) is reused; for
+	// mock embedders the cosine is noise (vectors are hash-derived), so
+	// the field stays at its meaningful-only-with-real-models contract.
+	// Errors degrade gracefully: IntentScore (token-F1) is always there.
+	if opts.Embedder != nil {
+		ref := strings.TrimSpace(e.IntentGroundTruth)
+		if ref == "" {
+			ref = strings.TrimSpace(meta.Title)
+		}
+		planSteps := ExtractPlanSteps(plan.Markdown)
+		if ref != "" && planSteps != "" {
+			cos, cerr := IntentCosine(ctx, planSteps, ref, opts.Embedder)
+			if cerr != nil {
+				score.IntentError = cerr.Error()
+			} else {
+				score.IntentCosine = cos
+			}
+		}
 	}
 	r.Score = score
 

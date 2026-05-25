@@ -44,10 +44,11 @@ func NewClaudeJudgeScorer() *ClaudeJudgeScorer {
 	}
 }
 
-// Score grades (plan vs diff). The file F1 part runs first — pure-Go,
-// always succeeds. The LLM call runs second; on failure the JudgeScore
-// stays 0 and JudgeError records why, but the file F1 is still
-// returned so the report has *some* signal.
+// Score grades (plan vs diff). The pure-Go parts run first — file-set
+// F1 and the NEW-4 multi-stage metrics (E1 intent, E2 symbol, E3 plan
+// steps) — so a report has signal even when the LLM call fails. The
+// LLM call runs last; on failure JudgeScore stays 0 and JudgeError
+// records why.
 func (s *ClaudeJudgeScorer) Score(ctx context.Context, e Entry, m Meta, plan Plan, diff string) (Score, error) {
 	truth := TruthFiles(m)
 	planFiles := SortedFiles(plan.ExpectedFiles)
@@ -59,6 +60,35 @@ func (s *ClaudeJudgeScorer) Score(ctx context.Context, e Entry, m Meta, plan Pla
 		FileRecall:    recall,
 		PlanFiles:     planFiles,
 		TruthFiles:    truth,
+	}
+
+	// NEW-4 multi-stage metrics — all pure-Go, deterministic. Each is
+	// guarded so legacy fixture rows (no IntentGroundTruth,
+	// ChangedSymbols, or Commits) emit zero/omitempty fields instead of
+	// false positives. The IntentCosine variant is populated by
+	// RunEntry when a real embedder is configured (see runner.go).
+	planSteps := ExtractPlanSteps(plan.Markdown)
+
+	reference := strings.TrimSpace(e.IntentGroundTruth)
+	if reference == "" {
+		reference = strings.TrimSpace(m.Title)
+	}
+	if reference != "" && planSteps != "" {
+		score.IntentScore = IntentScore(planSteps, reference)
+	}
+
+	if len(e.ChangedSymbols) > 0 {
+		planSymbols := ExtractPlanSymbols(plan.Markdown)
+		sp, sr, sf := SymbolF1(planSymbols, e.ChangedSymbols)
+		score.SymbolPrecision = sp
+		score.SymbolRecall = sr
+		score.SymbolF1 = sf
+		score.PlanSymbols = planSymbols
+		score.TruthSymbols = e.ChangedSymbols
+	}
+
+	if len(m.CommitMessages) > 0 && planSteps != "" {
+		score.PlanStepsScore = PlanStepsScore(planSteps, strings.Join(m.CommitMessages, "\n\n"))
 	}
 
 	if s.Binary == "" {

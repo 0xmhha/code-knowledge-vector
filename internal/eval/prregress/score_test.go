@@ -79,6 +79,81 @@ func TestExtractJudgeVerdict_RejectsUnparseable(t *testing.T) {
 	}
 }
 
+// TestScore_PopulatesMultiStageWhenGroundTruthPresent verifies NEW-4
+// integration: when an Entry has IntentGroundTruth + ChangedSymbols and
+// Meta has CommitMessages, the scorer populates IntentScore / SymbolF1
+// fields / PlanStepsScore alongside the legacy FileF1 — independent of
+// the LLM-judge subprocess.
+func TestScore_PopulatesMultiStageWhenGroundTruthPresent(t *testing.T) {
+	scorer := &ClaudeJudgeScorer{Binary: "definitely-not-a-real-binary-9af3"}
+	plan := Plan{
+		Markdown: "## Problem\nRefresh GasTip tracking on header change.\n\n" +
+			"## Approach\nModify AnzeonTipEnv.SetCurrentBlock to compare header GasTip.\n\n" +
+			"## Expected Changes\n- gas_policy.go: add header GasTip guard\n",
+		ExpectedFiles: []string{"gas_policy.go"},
+	}
+	entry := Entry{
+		IntentGroundTruth: "Refresh AnzeonTipEnv currentBlock when header GasTip value changes",
+		ChangedSymbols: []string{
+			"AnzeonTipEnv.SetCurrentBlock",
+			"AnzeonTipEnv.gasTipChanged",
+		},
+	}
+	meta := Meta{
+		Title:          "fix: refresh AnzeonTipEnv current block when GasTip changes",
+		Files:          []ChangedFile{{Path: "gas_policy.go"}},
+		CommitMessages: []string{"fix: refresh AnzeonTipEnv on header GasTip change"},
+	}
+	got, err := scorer.Score(nil, entry, meta, plan, "diff body")
+	if err != nil {
+		t.Fatalf("Score: %v", err)
+	}
+	// E1: plan mentions GasTip + AnzeonTipEnv, so non-zero overlap expected.
+	if got.IntentScore <= 0 {
+		t.Errorf("expected IntentScore > 0 (token overlap), got %g", got.IntentScore)
+	}
+	// E2: plan extracts AnzeonTipEnv.SetCurrentBlock, matches truth[0].
+	// 1/1 plan / 2 truth → P=1.0, R=0.5, F1≈0.667.
+	if got.SymbolF1 == 0 {
+		t.Errorf("expected SymbolF1 > 0 with PascalCase match, got 0; planSymbols=%v truthSymbols=%v", got.PlanSymbols, got.TruthSymbols)
+	}
+	if len(got.PlanSymbols) == 0 {
+		t.Error("plan_symbols should be captured as evidence")
+	}
+	if len(got.TruthSymbols) != 2 {
+		t.Errorf("truth_symbols should mirror Entry.ChangedSymbols, got %v", got.TruthSymbols)
+	}
+	// E3: commit message and plan share "GasTip" + "refresh" + "AnzeonTipEnv".
+	if got.PlanStepsScore <= 0 {
+		t.Errorf("expected PlanStepsScore > 0 with overlapping commits, got %g", got.PlanStepsScore)
+	}
+	// FileF1 still computed (perfect match on gas_policy.go).
+	if got.FileF1 != 1 {
+		t.Errorf("FileF1 = %g, want 1.0 (single perfect match)", got.FileF1)
+	}
+}
+
+// TestScore_MultiStageSilentOnLegacyEntries — Entries without
+// IntentGroundTruth / ChangedSymbols / CommitMessages should not emit
+// any multi-stage fields (omitempty), preserving JSON output stability
+// for the four legacy fixture rows (pr69/pr70/pr72/pr74).
+func TestScore_MultiStageSilentOnLegacyEntries(t *testing.T) {
+	scorer := &ClaudeJudgeScorer{Binary: "definitely-not-a-real-binary-9af3"}
+	plan := Plan{Markdown: "some plan", ExpectedFiles: []string{"a.go"}}
+	got, err := scorer.Score(nil, Entry{}, Meta{Files: []ChangedFile{{Path: "a.go"}}}, plan, "diff")
+	if err != nil {
+		t.Fatalf("Score: %v", err)
+	}
+	if got.IntentScore != 0 || got.SymbolF1 != 0 || got.PlanStepsScore != 0 {
+		t.Errorf("legacy entry produced multi-stage signal: I=%g S=%g P=%g",
+			got.IntentScore, got.SymbolF1, got.PlanStepsScore)
+	}
+	if len(got.PlanSymbols) != 0 || len(got.TruthSymbols) != 0 {
+		t.Errorf("legacy entry leaked symbol evidence: plan=%v truth=%v",
+			got.PlanSymbols, got.TruthSymbols)
+	}
+}
+
 // Score_FileSetOnly verifies that when the judge subprocess can't be
 // invoked (claude not in PATH), we still produce a Score with the file
 // F1 portion populated and a non-empty JudgeError. The runner relies

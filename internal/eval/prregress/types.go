@@ -151,10 +151,11 @@ func (e Entry) validate() error {
 // once via gh CLI and passed forward; we deliberately don't re-fetch
 // during scoring to keep the regression deterministic across reruns.
 type Meta struct {
-	Title      string       `json:"title"`
-	Body       string       `json:"body"`        // full PR description (Background + Solution + Changes)
-	Background string       `json:"background"`  // extracted: the "what's wrong" piece, agent sees this
-	Files      []ChangedFile `json:"files"`      // truth: what the PR actually changed
+	Title          string        `json:"title"`
+	Body           string        `json:"body"`            // full PR description (Background + Solution + Changes)
+	Background     string        `json:"background"`      // extracted: the "what's wrong" piece, agent sees this
+	Files          []ChangedFile `json:"files"`           // truth: what the PR actually changed
+	CommitMessages []string      `json:"commit_messages,omitempty"` // NEW-4 E3: ground truth for plan-step decomposition (headline + body, one entry per commit)
 }
 
 // ChangedFile is one file the PR touched, as reported by gh CLI.
@@ -175,10 +176,14 @@ type Plan struct {
 	ExpectedFiles []string `json:"expected_files"`
 }
 
-// Score combines the two metrics the user approved (autoplan v1.1
-// Challenge 3): LLM-as-judge primary + file-set F1 secondary.
+// Score combines the original autoplan v1.1 metrics (LLM-as-judge +
+// file-set F1) with the NEW-4 multi-stage decomposition (E1 intent /
+// E2 symbol-level location / E3 plan-step decomposition). All new
+// fields are omitempty so legacy fixture rows without
+// IntentGroundTruth / ChangedSymbols / commit data still produce a
+// clean Score with only the original axes populated.
 type Score struct {
-	JudgeScore float64 `json:"judge_score"` // 0..1, LLM rubric output
+	JudgeScore float64 `json:"judge_score"` // 0..1, LLM rubric output (E3 + E4 combined, legacy)
 	JudgeRaw   string  `json:"judge_raw,omitempty"`
 	JudgeError string  `json:"judge_error,omitempty"`
 
@@ -188,6 +193,17 @@ type Score struct {
 
 	PlanFiles  []string `json:"plan_files"`
 	TruthFiles []string `json:"truth_files"`
+
+	// NEW-4: multi-stage E1/E2/E3 (evaluation-design §10.2)
+	IntentScore     float64  `json:"intent_score,omitempty"`      // E1: pure-Go token-F1 vs IntentGroundTruth || Title
+	IntentCosine    float64  `json:"intent_cosine,omitempty"`     // E1 (optional): embedder cosine, populated only when RunOptions.Embedder is real
+	IntentError     string   `json:"intent_error,omitempty"`      // E1 cosine subprocess error, if any
+	SymbolPrecision float64  `json:"symbol_precision,omitempty"`  // E2
+	SymbolRecall    float64  `json:"symbol_recall,omitempty"`     // E2
+	SymbolF1        float64  `json:"symbol_f1,omitempty"`         // E2
+	PlanSymbols     []string `json:"plan_symbols,omitempty"`      // E2 evidence (extracted from plan)
+	TruthSymbols    []string `json:"truth_symbols,omitempty"`     // E2 evidence (= Entry.ChangedSymbols)
+	PlanStepsScore  float64  `json:"plan_steps_score,omitempty"`  // E3
 }
 
 // Result is one Entry's outcome. Persisted to disk for report
