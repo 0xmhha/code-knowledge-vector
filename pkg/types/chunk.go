@@ -21,9 +21,9 @@ const (
 	KindType       SymbolKind = "Type"
 	KindStruct     SymbolKind = "Struct"
 	KindInterface  SymbolKind = "Interface"
-	KindContract   SymbolKind = "Contract"   // Solidity
-	KindEvent      SymbolKind = "Event"      // Solidity (TBD)
-	KindModifier   SymbolKind = "Modifier"   // Solidity (TBD)
+	KindContract   SymbolKind = "Contract" // Solidity
+	KindEvent      SymbolKind = "Event"    // Solidity (TBD)
+	KindModifier   SymbolKind = "Modifier" // Solidity (TBD)
 	KindFileHeader SymbolKind = "FileHeader"
 	// Markdown indexing kinds (review-direction-2026-05-18.md Appendix B.1.b).
 	// Each heading-bounded section in a *.md / *.markdown file becomes one
@@ -47,6 +47,13 @@ const (
 	// "code vs documentation" without inspecting SymbolKind. The chunker
 	// promotes spans whose SymbolKind is DocSection or ADRSection.
 	ChunkDoc ChunkKind = "doc"
+
+	// PR corpus kinds (NEW-3). Additive — existing schema_version 1.0
+	// indexes continue working; these appear only in indexes built with
+	// --include-pr-history.
+	ChunkPRBackground  ChunkKind = "pr_background"
+	ChunkPRSolution    ChunkKind = "pr_solution"
+	ChunkCommitMessage ChunkKind = "commit_message"
 )
 
 // Citation is the {file, start_line, end_line, commit_hash} tuple CKV
@@ -63,11 +70,11 @@ type Citation struct {
 // produced by parse → chunk; the embedder turns Text into a vector and
 // the store persists everything except Text-derived caches.
 type Chunk struct {
-	ID            string     `json:"id"`              // see ChunkID
+	ID            string     `json:"id"` // see ChunkID
 	File          string     `json:"file"`
 	StartLine     int        `json:"start_line"`
 	EndLine       int        `json:"end_line"`
-	Language      string     `json:"language"`        // "go" | "typescript" | "solidity" | "markdown"
+	Language      string     `json:"language"`          // "go" | "typescript" | "solidity" | "markdown"
 	IsTest        bool       `json:"is_test,omitempty"` // _test.go, *.test.ts, *.spec.ts, *.t.sol, test/... — populated by IsTestPath
 	SymbolName    string     `json:"symbol_name,omitempty"`
 	SymbolKind    SymbolKind `json:"symbol_kind,omitempty"`

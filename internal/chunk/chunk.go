@@ -2,18 +2,18 @@
 // — the records the embedder + vector store actually persist.
 //
 // Strategy (plan §5.4):
-//   1. Each symbol span (function/method/type/...) becomes one chunk.
-//   2. Spans whose Text exceeds MaxInputTokens worth of characters are
-//      truncated at the head so the signature stays intact. Splitting
-//      large functions into sub-chunks is a W3 enhancement; for now,
-//      the signature + body prefix preserves most of the semantic
-//      signal (per the plan, "signature is the head"). Note that the
-//      mock embedder has infinite max input, so this only triggers
-//      with the real ONNX embedder.
-//   3. A file_header chunk captures the first N lines of the file —
-//      package decl + imports + top-level const/var. This lets queries
-//      like "what package owns the metrics client" hit the right file
-//      even when nothing function-level matches.
+//  1. Each symbol span (function/method/type/...) becomes one chunk.
+//  2. Spans whose Text exceeds MaxInputTokens worth of characters are
+//     truncated at the head so the signature stays intact. Splitting
+//     large functions into sub-chunks is a W3 enhancement; for now,
+//     the signature + body prefix preserves most of the semantic
+//     signal (per the plan, "signature is the head"). Note that the
+//     mock embedder has infinite max input, so this only triggers
+//     with the real ONNX embedder.
+//  3. A file_header chunk captures the first N lines of the file —
+//     package decl + imports + top-level const/var. This lets queries
+//     like "what package owns the metrics client" hit the right file
+//     even when nothing function-level matches.
 package chunk
 
 import (
@@ -53,10 +53,10 @@ type Options struct {
 
 // Input is everything the chunker needs about one file.
 type Input struct {
-	File       string           // repo-relative path
-	Language   string           // "go" | "typescript" | "solidity" | "markdown"
-	CommitHash string           // built-time git HEAD
-	Source     []byte           // full file contents
+	File       string // repo-relative path
+	Language   string // "go" | "typescript" | "solidity" | "markdown"
+	CommitHash string // built-time git HEAD
+	Source     []byte // full file contents
 	Spans      []parse.SymbolSpan
 }
 
@@ -282,6 +282,7 @@ type Stats struct {
 	FileHeader    int
 	Doc           int
 	FunctionSplit int
+	PRDoc         int
 	Truncated     int
 }
 
@@ -299,6 +300,8 @@ func Summarize(chunks []types.Chunk) Stats {
 			s.Doc++
 		case types.ChunkFunctionSplit:
 			s.FunctionSplit++
+		case types.ChunkPRBackground, types.ChunkPRSolution, types.ChunkCommitMessage:
+			s.PRDoc++
 		}
 		if strings.Contains(c.Text, "[CKV-TRUNCATED]") {
 			s.Truncated++

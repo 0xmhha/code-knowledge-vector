@@ -13,13 +13,16 @@ import (
 // Format: one descriptive line + blank line + raw chunk text.
 //
 // File header chunks:
-//   "language: go. file: server.go. file header.\n\n<text>"
+//
+//	"language: go. file: server.go. file header.\n\n<text>"
 //
 // Doc section chunks (markdown):
-//   "language: markdown. file: docs/x.md. section: why-sqlite-vec.\n\n<text>"
+//
+//	"language: markdown. file: docs/x.md. section: why-sqlite-vec.\n\n<text>"
 //
 // Symbol chunks:
-//   "language: go. file: server.go. symbol: Server.Listen (Method).\n\n<text>"
+//
+//	"language: go. file: server.go. symbol: Server.Listen (Method).\n\n<text>"
 //
 // Design notes:
 //   - The prefix is regenerated on every build/reindex. It is NOT
@@ -42,6 +45,12 @@ func BuildEmbedText(c types.Chunk) string {
 		// useful signal — keep it.
 		return fmt.Sprintf("language: %s. file: %s. section: %s (%s).\n\n%s",
 			languageLabel(c.Language), c.File, c.SymbolName, c.SymbolKind, c.Text)
+	case types.ChunkPRBackground:
+		return fmt.Sprintf("pull request background. file: %s.\n\n%s", c.File, c.Text)
+	case types.ChunkPRSolution:
+		return fmt.Sprintf("pull request solution. file: %s.\n\n%s", c.File, c.Text)
+	case types.ChunkCommitMessage:
+		return fmt.Sprintf("commit message. file: %s.\n\n%s", c.File, c.Text)
 	default:
 		// Symbol chunk. SymbolName is qualified when the parser knows
 		// the receiver (e.g. "Server.Listen"); SymbolKind narrows the
