@@ -1,6 +1,6 @@
 # ADR-006: BM25 candidate-set rerank as temporary measurement infrastructure
 
-**Status**: Proposed
+**Status**: Rejected (measured 2026-05-26, no lift with bgeonnx)
 **Date**: 2026-05-26
 
 ## Context
@@ -147,3 +147,28 @@ The corresponding code lives in:
   avoid silent regression).
 - NEW-4 commit `53964b1` — multi-stage E1/E2/E3 metrics that this
   rerank's effect should be measured against.
+
+## Measurement Evidence (2026-05-26)
+
+Environment: bgeonnx (bge-large-en-v1.5, 1024-dim), CPU EP, testdata/sample
+(7 files, 47 chunks), testdata/queries.yaml (N=50).
+
+| Setting | r@5 | MRR | halluc |
+|---------|-----|-----|--------|
+| BM25 OFF | 1.000 | 0.8633 | 0.000 |
+| BM25 ON | 1.000 | 0.8257 | 0.000 |
+| delta | 0.000 | -0.0376 | 0.000 |
+
+Per-query rank changes: 7/50 queries affected. 6 degraded, 1 improved.
+The strong semantic embedder (r@5=1.0 ceiling) already retrieves all
+relevant chunks; BM25 reranking disrupts the correct top-1 ordering.
+
+Supersede criteria (evaluation-design §6.4 Step 4): r@5 lift FAIL
+(+0.00 vs +0.03 required), MRR lift FAIL (-0.038 vs +0.01 required).
+
+**Conclusion**: ADR-003 stays Accepted. The `--bm25-rerank` flag
+remains in-tree as opt-in measurement infrastructure but will not
+become default-on. The candidate-set BM25 code in
+`internal/query/bm25/` requires no removal — it has zero cost when
+disabled and may be useful for future corpus compositions where the
+embedder signal is weaker (e.g. mixed-language PR descriptions).
