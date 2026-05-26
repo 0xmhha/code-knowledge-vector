@@ -20,7 +20,7 @@ import (
 type evalOpts struct {
 	out         string
 	fixturePath string
-	src         string  // optional source root — enables Phase 3 hallucination verification
+	src         string // optional source root — enables Phase 3 hallucination verification
 	k           int
 	threshold   float64
 	minRecall5  float64 // exit non-zero if recall@5 < this
@@ -301,9 +301,9 @@ func runPREval(ctx context.Context, opts *evalOpts) error {
 			})
 		}
 		return enc.Encode(struct {
-			Summary       string          `json:"summary"`
-			RunsPerEntry  int             `json:"runs_per_entry"`
-			EntrySummary  []entrySummary  `json:"entry_summary"`
+			Summary      string         `json:"summary"`
+			RunsPerEntry int            `json:"runs_per_entry"`
+			EntrySummary []entrySummary `json:"entry_summary"`
 		}{
 			Summary:      summarizeMultiRun(summaries, threshold),
 			RunsPerEntry: opts.prRuns,
@@ -338,17 +338,17 @@ func runPREval(ctx context.Context, opts *evalOpts) error {
 // stddevs use the sample formulas (denominator N-1 for std); for N=1
 // stddev fields are 0.
 type entrySummary struct {
-	Entry              prregress.Entry    `json:"entry"`
-	Runs               []prregress.Result `json:"runs"`
-	JudgeMean          float64            `json:"judge_mean"`
-	JudgeStd           float64            `json:"judge_std"`
-	FileF1Mean         float64            `json:"file_f1_mean"`
-	FileF1Std          float64            `json:"file_f1_std"`
-	FilePrecisionMean  float64            `json:"file_precision_mean"`
-	FileRecallMean     float64            `json:"file_recall_mean"`
-	PassRate           float64            `json:"pass_rate"`
-	ErrorCount         int                `json:"error_count"`
-	AnyError           bool               `json:"any_error"`
+	Entry             prregress.Entry    `json:"entry"`
+	Runs              []prregress.Result `json:"runs"`
+	JudgeMean         float64            `json:"judge_mean"`
+	JudgeStd          float64            `json:"judge_std"`
+	FileF1Mean        float64            `json:"file_f1_mean"`
+	FileF1Std         float64            `json:"file_f1_std"`
+	FilePrecisionMean float64            `json:"file_precision_mean"`
+	FileRecallMean    float64            `json:"file_recall_mean"`
+	PassRate          float64            `json:"pass_rate"`
+	ErrorCount        int                `json:"error_count"`
+	AnyError          bool               `json:"any_error"`
 }
 
 // aggregateRuns reduces N Result records into one entrySummary.
