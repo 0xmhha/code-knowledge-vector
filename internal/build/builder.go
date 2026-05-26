@@ -278,12 +278,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 
-	// PR corpus (NEW-3): fetch merged PRs and index alongside source.
+	// PR corpus (NEW-3 + NEW-6): fetch merged PRs, index as chunks, and
+	// tag source chunks with file→PR breadcrumbs.
 	if o.PRFetch != nil {
 		prMetas, err := FetchMergedPRs(ctx, o.SrcRoot, *o.PRFetch)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ckv: pr-fetch warning: %v\n", err)
 		} else if len(prMetas) > 0 {
+			// NEW-3: index PR description + commit message chunks.
 			var prChunks []types.Chunk
 			for _, meta := range prMetas {
 				prChunks = append(prChunks, prdoc.Parse(meta)...)
@@ -295,9 +297,24 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				s := chunk.Summarize(prChunks)
 				totalStats.Total += s.Total
 				totalStats.PRDoc += s.PRDoc
-				if o.ProgressOut != nil {
-					fmt.Fprintf(o.ProgressOut, "ckv: indexed %d PRs → %d PR chunks\n", len(prMetas), s.Total)
+			}
+
+			// NEW-6: build file→PRRef map, then re-upsert source chunks
+			// that have matching files so they carry PR breadcrumbs.
+			filePRs := buildFilePRMap(prMetas)
+			if len(filePRs) > 0 {
+				tagged, err := tagSourceChunksWithPRs(ctx, store, filePRs)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "ckv: pr-tag warning: %v\n", err)
+				} else if tagged > 0 {
+					if o.ProgressOut != nil {
+						fmt.Fprintf(o.ProgressOut, "ckv: tagged %d source chunks with PR breadcrumbs\n", tagged)
+					}
 				}
+			}
+
+			if o.ProgressOut != nil {
+				fmt.Fprintf(o.ProgressOut, "ckv: indexed %d PRs → %d PR chunks\n", len(prMetas), len(prChunks))
 			}
 		}
 	}

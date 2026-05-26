@@ -9,6 +9,7 @@ package sqlitevec
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -121,6 +122,9 @@ func (s *Store) initSchema(dim int) error {
 	// without is_test would return wrong is_test=false for every chunk.
 	if err := s.ensureColumn("chunks", "is_test", `ALTER TABLE chunks ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("migrate chunks.is_test: %w", err)
+	}
+	if err := s.ensureColumn("chunks", "recent_prs", `ALTER TABLE chunks ADD COLUMN recent_prs TEXT DEFAULT ''`); err != nil {
+		return fmt.Errorf("migrate chunks.recent_prs: %w", err)
 	}
 
 	for _, idx := range []string{
@@ -246,8 +250,8 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 	insChunk, err := tx.PrepareContext(ctx, `INSERT INTO chunks (
 		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
-		commit_hash, content_sha256, ckg_node_id, text
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		commit_hash, content_sha256, ckg_node_id, recent_prs, text
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
@@ -260,6 +264,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		commit_hash = excluded.commit_hash,
 		content_sha256 = excluded.content_sha256,
 		ckg_node_id = excluded.ckg_node_id,
+		recent_prs = excluded.recent_prs,
 		text = excluded.text`)
 	if err != nil {
 		return fmt.Errorf("prepare chunk insert: %w", err)
@@ -282,10 +287,11 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		if got := len(embeddings[i]); got != s.dim {
 			return fmt.Errorf("sqlitevec: chunk %s embedding dim %d != store dim %d", c.ID, got, s.dim)
 		}
+		prJSON := marshalPRRefs(c.RecentPRs)
 		if _, err := insChunk.ExecContext(ctx,
 			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
-			c.CommitHash, c.ContentSHA256, c.CKGNodeID, c.Text,
+			c.CommitHash, c.ContentSHA256, c.CKGNodeID, prJSON, c.Text,
 		); err != nil {
 			return fmt.Errorf("insert chunk %s: %w", c.ID, err)
 		}
@@ -362,7 +368,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	stmt := `SELECT
 			c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
-			c.commit_hash, c.content_sha256, c.ckg_node_id, c.text,
+			c.commit_hash, c.content_sha256, c.ckg_node_id, c.recent_prs, c.text,
 			v.distance
 		FROM chunk_vec v
 		JOIN chunks c ON c.id = v.chunk_id
@@ -383,12 +389,13 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			symKind  sql.NullString
 			chKind   string
 			ckgID    sql.NullString
+			prJSON   sql.NullString
 			distance float64
 		)
 		if err := rows.Scan(
 			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 			&c.SymbolName, &symKind, &chKind,
-			&c.CommitHash, &c.ContentSHA256, &ckgID, &c.Text,
+			&c.CommitHash, &c.ContentSHA256, &ckgID, &prJSON, &c.Text,
 			&distance,
 		); err != nil {
 			return nil, fmt.Errorf("scan hit: %w", err)
@@ -397,6 +404,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
 		c.ChunkKind = types.ChunkKind(chKind)
 		c.CKGNodeID = ckgID.String
+		c.RecentPRs = unmarshalPRRefs(prJSON.String)
 
 		if !filter.Matches(c) {
 			continue
@@ -489,3 +497,50 @@ func (s *Store) Close() error {
 
 // Dim reports the embedding dimension this store was opened with.
 func (s *Store) Dim() int { return s.dim }
+
+// UpdateRecentPRs sets the recent_prs JSON column for source chunks
+// whose file matches entries in filePRs. Only updates rows where
+// recent_prs is currently empty (avoids overwriting prior tagging).
+// Returns the total number of rows updated.
+func (s *Store) UpdateRecentPRs(ctx context.Context, filePRs map[string][]types.PRRef) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE chunks SET recent_prs = ? WHERE file = ? AND (recent_prs IS NULL OR recent_prs = '')`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+
+	tagged := 0
+	for file, refs := range filePRs {
+		prJSON := marshalPRRefs(refs)
+		res, err := stmt.ExecContext(ctx, prJSON, file)
+		if err != nil {
+			continue
+		}
+		n, _ := res.RowsAffected()
+		tagged += int(n)
+	}
+	return tagged, tx.Commit()
+}
+
+func marshalPRRefs(refs []types.PRRef) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(refs)
+	return string(b)
+}
+
+func unmarshalPRRefs(s string) []types.PRRef {
+	if s == "" {
+		return nil
+	}
+	var refs []types.PRRef
+	_ = json.Unmarshal([]byte(s), &refs)
+	return refs
+}

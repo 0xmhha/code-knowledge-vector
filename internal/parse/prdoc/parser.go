@@ -28,6 +28,7 @@ type PRMeta struct {
 	Title          string
 	Body           string
 	CommitMessages []string
+	ChangedFiles   []string
 	MergedAt       time.Time
 }
 

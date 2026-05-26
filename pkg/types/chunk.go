@@ -56,6 +56,15 @@ const (
 	ChunkCommitMessage ChunkKind = "commit_message"
 )
 
+// PRRef records a PR that touched a chunk's file or symbol. Stored as
+// JSON in the recent_prs column; the temporal slicing key (MergedAtUTC)
+// lets query-time filtering exclude PRs merged after a cutoff.
+type PRRef struct {
+	Number      int    `json:"number"`
+	Title       string `json:"title"`
+	MergedAtUTC string `json:"merged_at_utc,omitempty"`
+}
+
 // Citation is the {file, start_line, end_line, commit_hash} tuple CKV
 // attaches to every chunk and every search hit. CKG uses the same shape,
 // so hybrid responses can be merged without translation (plan §10.1).
@@ -82,6 +91,7 @@ type Chunk struct {
 	CommitHash    string     `json:"commit_hash"`
 	ContentSHA256 string     `json:"content_sha256"`
 	CKGNodeID     string     `json:"ckg_node_id,omitempty"` // 1:1 alignment when CKG path is provided
+	RecentPRs     []PRRef    `json:"recent_prs,omitempty"`  // NEW-6: PRs that touched this chunk's file
 	Text          string     `json:"text"`                  // chunk source (for re-embedding / display)
 }
 

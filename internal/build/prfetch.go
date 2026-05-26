@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
 // PRFetchOptions controls which PRs to fetch for corpus indexing.
@@ -89,7 +90,7 @@ func fetchPRDetail(ctx context.Context, repo string, entry prListEntry) (prdoc.P
 	args := []string{
 		"pr", "view", fmt.Sprintf("%d", entry.Number),
 		"--repo", repo,
-		"--json", "title,body,commits",
+		"--json", "title,body,commits,files",
 	}
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	out, err := cmd.Output()
@@ -103,6 +104,9 @@ func fetchPRDetail(ctx context.Context, repo string, entry prListEntry) (prdoc.P
 			MessageHeadline string `json:"messageHeadline"`
 			MessageBody     string `json:"messageBody"`
 		} `json:"commits"`
+		Files []struct {
+			Path string `json:"path"`
+		} `json:"files"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return prdoc.PRMeta{}, fmt.Errorf("parse gh pr view %d: %w", entry.Number, err)
@@ -122,14 +126,48 @@ func fetchPRDetail(ctx context.Context, repo string, entry prListEntry) (prdoc.P
 		}
 	}
 
+	files := make([]string, 0, len(raw.Files))
+	for _, f := range raw.Files {
+		if f.Path != "" {
+			files = append(files, f.Path)
+		}
+	}
+
 	return prdoc.PRMeta{
 		Repo:           repo,
 		PRNumber:       entry.Number,
 		Title:          raw.Title,
 		Body:           raw.Body,
 		CommitMessages: commits,
+		ChangedFiles:   files,
 		MergedAt:       entry.MergedAt,
 	}, nil
+}
+
+// buildFilePRMap creates a file→[]PRRef index from fetched PR metadata.
+func buildFilePRMap(metas []prdoc.PRMeta) map[string][]types.PRRef {
+	m := make(map[string][]types.PRRef)
+	for _, meta := range metas {
+		ref := types.PRRef{
+			Number:      meta.PRNumber,
+			Title:       meta.Title,
+			MergedAtUTC: meta.MergedAt.UTC().Format(time.RFC3339),
+		}
+		for _, f := range meta.ChangedFiles {
+			m[f] = append(m[f], ref)
+		}
+	}
+	return m
+}
+
+// PRTagger can tag source chunks with PR breadcrumbs. Implemented by
+// sqlitevec.Store.
+type PRTagger interface {
+	UpdateRecentPRs(ctx context.Context, filePRs map[string][]types.PRRef) (int, error)
+}
+
+func tagSourceChunksWithPRs(ctx context.Context, tagger PRTagger, filePRs map[string][]types.PRRef) (int, error) {
+	return tagger.UpdateRecentPRs(ctx, filePRs)
 }
 
 func requireGH(ctx context.Context) error {
