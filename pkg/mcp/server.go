@@ -170,6 +170,14 @@ func (s *Server) registerTools() {
 	s.mcp.AddTool(mcpgo.NewTool("cks.ops.warmup",
 		mcpgo.WithDescription("Pre-load the embedder by running a no-op embed. bgeonnx pays ONNX session + CoreML compile cost on the first call (1-3s typical, multi-second worst case), which would otherwise surface on the first user-facing semantic_search. Call once after initialize. READ-ONLY."),
 	), s.handleWarmup)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.related_changes",
+		mcpgo.WithDescription("Look up PRs that touched a given file. Returns PR refs (number, title, merged date) sorted by recency. Use to understand recent change history around a code area. READ-ONLY."),
+		mcpgo.WithString("file",
+			mcpgo.Description("Repo-relative file path to look up (e.g. 'internal/query/engine.go')."),
+			mcpgo.Required(),
+		),
+	), s.handleRelatedChanges)
 }
 
 // ---- handlers ----
@@ -327,4 +335,26 @@ func (s *Server) handleWarmup(ctx context.Context, _ mcpgo.CallToolRequest) (*mc
 		payload["error"] = warmErr.Error()
 	}
 	return jsonResult(payload)
+}
+
+func (s *Server) handleRelatedChanges(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.related_changes")
+	defer done()
+
+	args := req.GetArguments()
+	file, _ := args["file"].(string)
+	if file == "" {
+		return mcpgo.NewToolResultError("file is required"), nil
+	}
+
+	refs, err := s.engine.LookupPRsByFile(ctx, file)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("lookup: %v", err)), nil
+	}
+
+	return jsonResult(map[string]any{
+		"file":    file,
+		"pr_refs": refs,
+		"count":   len(refs),
+	})
 }

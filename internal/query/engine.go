@@ -9,6 +9,7 @@
 // Designed to be importable by both `ckv query` (CLI) and the future
 // MCP server (`ckv mcp`) without code duplication.
 package query
+
 import (
 	"context"
 	"crypto/sha256"
@@ -51,7 +52,7 @@ type Options struct {
 	BudgetTokens int          // snippet density budget (0 → DefaultBudgetTokens)
 	Threshold    float64      // min normalized score (0 → DefaultThreshold; <0 disables)
 	SrcRoot      string       // absolute path used by citation enforcement;
-	                          // when empty, the manifest's SrcRoot is used.
+	// when empty, the manifest's SrcRoot is used.
 
 	// ExamplesK splits test-file hits out of the main Hits slice into a
 	// separate Examples slice in the response. Up to ExamplesK test
@@ -126,33 +127,33 @@ type Options struct {
 // Hit is the response-shaped record: only what callers (LLM, CLI) need.
 // We deliberately omit Chunk.Text — Snippet is the budget-adjusted view.
 type Hit struct {
-	ChunkID    string           `json:"chunk_id"`
-	Citation   types.Citation   `json:"citation"`
-	Snippet    string           `json:"snippet"`
+	ChunkID  string         `json:"chunk_id"`
+	Citation types.Citation `json:"citation"`
+	Snippet  string         `json:"snippet"`
 	// Density names which 3-tier ladder rung this Snippet was rendered
 	// at (DensityFull / DensitySignature5 / DensitySignatureOnly).
 	// Useful for downstream UIs that want to badge compressed hits or
 	// for eval pipelines counting how often the budget forced a
 	// downgrade. Omitted when empty (e.g. callers building Hit by hand).
-	Density       DensityTier `json:"density,omitempty"`
+	Density DensityTier `json:"density,omitempty"`
 	// StaleCitation propagates from types.Hit: the chunk's recorded
 	// commit_hash disagrees with the current source-tree HEAD. The
 	// citation file/lines still resolve — the content there may have
 	// shifted since the index was built. Consumers can render a badge
 	// or schedule a reindex. Omitted when false.
-	StaleCitation bool `json:"stale_citation,omitempty"`
-	Score      types.HitScore   `json:"score"`
-	Language   string           `json:"language"`
-	IsTest     bool             `json:"is_test,omitempty"`
-	Symbol     string           `json:"symbol,omitempty"`
-	SymbolKind types.SymbolKind `json:"symbol_kind,omitempty"`
-	CKGNodeID  string           `json:"ckg_node_id,omitempty"`
+	StaleCitation bool             `json:"stale_citation,omitempty"`
+	Score         types.HitScore   `json:"score"`
+	Language      string           `json:"language"`
+	IsTest        bool             `json:"is_test,omitempty"`
+	Symbol        string           `json:"symbol,omitempty"`
+	SymbolKind    types.SymbolKind `json:"symbol_kind,omitempty"`
+	CKGNodeID     string           `json:"ckg_node_id,omitempty"`
 }
 
 // Response is the full search response — hits plus diagnostics so MCP
 // callers can report freshness/budget without an extra round trip.
 type Response struct {
-	Hits     []Hit            `json:"hits"`
+	Hits []Hit `json:"hits"`
 	// Examples holds test-file hits separated out from Hits when
 	// Options.ExamplesK > 0. Nil/empty otherwise. The ranking inside
 	// Examples follows the same score order as Hits — top of Examples
@@ -253,6 +254,14 @@ func (e *Engine) Close() error {
 	err := e.store.Close()
 	e.store = nil
 	return err
+}
+
+// LookupPRsByFile delegates to the store's PR breadcrumb lookup.
+func (e *Engine) LookupPRsByFile(ctx context.Context, file string) ([]types.PRRef, error) {
+	if e == nil || e.store == nil {
+		return nil, nil
+	}
+	return e.store.LookupPRsByFile(ctx, file)
 }
 
 // Manifest returns a copy of the loaded manifest. Callers (ckv freshness)

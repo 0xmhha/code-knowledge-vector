@@ -528,6 +528,34 @@ func (s *Store) UpdateRecentPRs(ctx context.Context, filePRs map[string][]types.
 	return tagged, tx.Commit()
 }
 
+// LookupPRsByFile returns the merged PRRef lists for all chunks matching
+// the given file path. Deduplicates by PR number.
+func (s *Store) LookupPRsByFile(ctx context.Context, file string) ([]types.PRRef, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT recent_prs FROM chunks WHERE file = ? AND recent_prs != '' AND recent_prs IS NOT NULL`, file)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := map[int]bool{}
+	var out []types.PRRef
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			continue
+		}
+		refs := unmarshalPRRefs(raw)
+		for _, r := range refs {
+			if !seen[r.Number] {
+				seen[r.Number] = true
+				out = append(out, r)
+			}
+		}
+	}
+	return out, rows.Err()
+}
+
 func marshalPRRefs(refs []types.PRRef) string {
 	if len(refs) == 0 {
 		return ""
