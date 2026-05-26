@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -19,6 +20,10 @@ type buildOpts struct {
 	languages []string
 	configPth string
 	jsonOut   bool
+
+	includePR bool
+	prSince   string
+	prRepo    string
 }
 
 func newBuildCmd() *cobra.Command {
@@ -45,6 +50,9 @@ Incremental indexing (--since) lands in S2.`,
 	f.StringSliceVar(&opts.languages, "lang", nil, "languages to index (default: auto-detect; supported: go, typescript, javascript, solidity, markdown)")
 	f.StringVar(&opts.configPth, "config", "", "path to ckv.yaml (optional; W3)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
+	f.BoolVar(&opts.includePR, "include-pr-history", false, "fetch merged PRs via gh CLI and index descriptions + commit messages")
+	f.StringVar(&opts.prSince, "pr-since", "", "only PRs merged after this date (YYYY-MM-DD); requires --include-pr-history")
+	f.StringVar(&opts.prRepo, "pr-repo", "", "GitHub repo (owner/repo) for PR fetch; auto-detected from git remote if empty")
 
 	return cmd
 }
@@ -72,14 +80,26 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 	fp := newFootprint(opts.out, "")
 	defer fp.Close()
 
-	res, err := build.Run(ctx, build.Options{
+	buildOpts := build.Options{
 		SrcRoot:                 opts.src,
 		OutDir:                  opts.out,
 		Embedder:                emb,
 		Footprint:               fp,
 		ProgressOut:             os.Stderr,
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
-	})
+	}
+	if opts.includePR {
+		prFetch := &build.PRFetchOptions{Repo: opts.prRepo}
+		if opts.prSince != "" {
+			t, err := time.Parse("2006-01-02", opts.prSince)
+			if err != nil {
+				return fmt.Errorf("--pr-since: invalid date %q (expected YYYY-MM-DD)", opts.prSince)
+			}
+			prFetch.Since = t
+		}
+		buildOpts.PRFetch = prFetch
+	}
+	res, err := build.Run(ctx, buildOpts)
 	if err != nil {
 		return err
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/javascript"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/markdown"
+	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/solidity"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/typescript"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
@@ -34,9 +35,9 @@ import (
 type Options struct {
 	SrcRoot   string
 	OutDir    string
-	Embedder  types.Embedder     // required
-	CKVIgnore []string           // extra ignore patterns from --ckvignore CLI flag
-	BatchSize int                // embedding batch size; 0 → 32
+	Embedder  types.Embedder // required
+	CKVIgnore []string       // extra ignore patterns from --ckvignore CLI flag
+	BatchSize int            // embedding batch size; 0 → 32
 	Now       func() time.Time
 	Footprint *footprint.Logger // optional; nil → no logging
 	// ProgressOut receives human-readable per-file progress lines.
@@ -52,6 +53,11 @@ type Options struct {
 	// throughput cost. Disable for A/B measurement against the raw-text
 	// baseline. Chunk IDs and the stored Text are unaffected either way.
 	DisableContextualPrefix bool
+
+	// PR corpus (NEW-3). When non-nil, the build fetches merged PRs
+	// via `gh` CLI and indexes their descriptions + commit messages
+	// as additional chunks alongside the source code.
+	PRFetch *PRFetchOptions
 }
 
 // Result is what Run returns to the CLI for the summary log.
@@ -69,10 +75,10 @@ const defaultBatch = 32
 // against the same OutDir updates chunks in place (Upsert semantics).
 //
 // Pipeline:
-//   1. Detect git HEAD of SrcRoot (for citation.commit_hash).
-//   2. Walk SrcRoot via discover; skip non-source / oversized / ignored.
-//   3. For each Go file: parse → chunk → embed → upsert.
-//   4. Write manifest.json + DB-side manifest table.
+//  1. Detect git HEAD of SrcRoot (for citation.commit_hash).
+//  2. Walk SrcRoot via discover; skip non-source / oversized / ignored.
+//  3. For each Go file: parse → chunk → embed → upsert.
+//  4. Write manifest.json + DB-side manifest table.
 func Run(ctx context.Context, o Options) (*Result, error) {
 	if o.SrcRoot == "" || o.OutDir == "" {
 		return nil, fmt.Errorf("build: SrcRoot and OutDir are required")
@@ -269,6 +275,30 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}()
 		if perFileErr != nil {
 			return nil, perFileErr
+		}
+	}
+
+	// PR corpus (NEW-3): fetch merged PRs and index alongside source.
+	if o.PRFetch != nil {
+		prMetas, err := FetchMergedPRs(ctx, o.SrcRoot, *o.PRFetch)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ckv: pr-fetch warning: %v\n", err)
+		} else if len(prMetas) > 0 {
+			var prChunks []types.Chunk
+			for _, meta := range prMetas {
+				prChunks = append(prChunks, prdoc.Parse(meta)...)
+			}
+			if len(prChunks) > 0 {
+				if err := embedAndUpsert(ctx, store, o.Embedder, prChunks, o.BatchSize, memSig, embedTextFn); err != nil {
+					return nil, fmt.Errorf("embed/upsert PR chunks: %w", err)
+				}
+				s := chunk.Summarize(prChunks)
+				totalStats.Total += s.Total
+				totalStats.PRDoc += s.PRDoc
+				if o.ProgressOut != nil {
+					fmt.Fprintf(o.ProgressOut, "ckv: indexed %d PRs → %d PR chunks\n", len(prMetas), s.Total)
+				}
+			}
 		}
 	}
 
