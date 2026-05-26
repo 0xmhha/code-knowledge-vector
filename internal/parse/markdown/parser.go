@@ -26,8 +26,8 @@
 //     ADR convention (ADR-*.md, docs/adr/*.md, etc.), otherwise
 //     KindDocSection.
 //   - A file with NO headings returns ONE SymbolSpan covering the
-//     whole file with Name="" (the chunker labels it "FileHeader"-ish
-//     via DocSection so retrieval still works).
+//     whole file with Name="untitled" (the chunker labels it
+//     "FileHeader"-ish via DocSection so retrieval still works).
 package markdown
 
 import (
@@ -96,7 +96,7 @@ func (p *Parser) Parse(file string, src []byte) ([]cparse.SymbolSpan, error) {
 	// path for display.
 	if len(headings) == 0 {
 		return []cparse.SymbolSpan{{
-			Name:      "",
+			Name:      "untitled",
 			Kind:      kind,
 			StartLine: 1,
 			EndLine:   len(lines),
