@@ -35,6 +35,7 @@ type evalOpts struct {
 	prRuns        int    // PRR-2 — repeat each entry N times, report mean ± std
 
 	bm25Rerank bool // NEW-9 / ADR-006: enable candidate-set BM25 rerank for the eval pass
+	record     bool // NEW-2: interactive fixture recording mode
 }
 
 func newEvalCmd() *cobra.Command {
@@ -67,6 +68,7 @@ Default fixture path: ./testdata/queries.yaml`,
 	f.IntVar(&opts.prTopK, "pr-top", 10, "top-K hints passed to the planning agent in PR-regression mode")
 	f.IntVar(&opts.prRuns, "pr-runs", 1, "repeat each PR fixture entry N times and report mean ± sample std (N>=1; PR-regression mode only)")
 	f.BoolVar(&opts.bm25Rerank, "bm25-rerank", false, "experimental (NEW-9 / ADR-006): apply candidate-set BM25 + RRF rerank during the eval pass; default off preserves ADR-003 vector-only baseline")
+	f.BoolVar(&opts.record, "record", false, "interactive mode: type queries, select correct results, append to fixture YAML")
 	return cmd
 }
 
@@ -76,6 +78,9 @@ func runEval(ctx context.Context, opts *evalOpts) error {
 	}
 	if opts.prFixturePath != "" {
 		return runPREval(ctx, opts)
+	}
+	if opts.record {
+		return runRecord(ctx, opts)
 	}
 	fx, err := eval.LoadFixture(opts.fixturePath)
 	if err != nil {
@@ -188,6 +193,31 @@ func truncOneLine(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func runRecord(ctx context.Context, opts *evalOpts) error {
+	emb, cleanup, err := resolveEmbedder(globalFlags.embedder, globalFlags.modelDir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	fp := newFootprint(opts.out, "")
+	defer fp.Close()
+
+	eng, err := query.Open(opts.out, emb, query.WithFootprint(fp))
+	if err != nil {
+		return err
+	}
+	defer eng.Close()
+
+	recOpts := eval.RecordOptions{
+		K:                opts.k,
+		Threshold:        opts.threshold,
+		SrcRoot:          opts.src,
+		EnableBM25Rerank: opts.bm25Rerank,
+	}
+	return eval.RecordSession(ctx, eng, opts.fixturePath, recOpts, os.Stdin, os.Stdout)
 }
 
 // runPREval handles the --pr-fixture mode. Each fixture entry runs the

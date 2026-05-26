@@ -62,6 +62,9 @@ type Query struct {
 	// are counted in the aggregate, and Score() treats them like any other
 	// query (typically reporting a miss until the corpus lands).
 	Pending bool `yaml:"pending,omitempty"`
+
+	RecordedVia string `yaml:"recorded_via,omitempty"`
+	Timestamp   string `yaml:"timestamp,omitempty"`
 }
 
 // Expected describes the correct retrieval target. LineRange is
