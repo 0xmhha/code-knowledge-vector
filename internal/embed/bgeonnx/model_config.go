@@ -16,6 +16,8 @@ package bgeonnx
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 )
 
@@ -111,6 +113,10 @@ type ModelConfig struct {
 	// Pooling strategy
 	Pooling PoolingMode
 
+	// HFRepo is the HuggingFace repository path (e.g. "BAAI/bge-large-en-v1.5").
+	// Used by `ckv model fetch` to construct download URLs.
+	HFRepo string
+
 	// EstimatedRAMMB is the resident set the embedder needs to load and
 	// run a single batch on this model: weights + ORT runtime base +
 	// working set + CoreML compile headroom on macOS. The build
@@ -130,6 +136,7 @@ var registry = map[string]ModelConfig{
 		Normalize:     "l2",
 		OnnxFile:      "onnx/model.onnx",
 		TokenizerFile: "tokenizer.json",
+		HFRepo:        "BAAI/bge-large-en-v1.5",
 		InputOrder:    []string{"input_ids", "attention_mask", "token_type_ids"},
 		Outputs:       []string{"last_hidden_state"},
 		ExtraInputs: map[string]ExtraInputFn{
@@ -159,6 +166,7 @@ var registry = map[string]ModelConfig{
 		Normalize:     "l2",
 		OnnxFile:      "onnx/model.onnx",
 		TokenizerFile: "tokenizer.json",
+		HFRepo:        "google/embeddinggemma-300m",
 		InputOrder:    []string{"input_ids", "attention_mask", "token_type_ids"},
 		Outputs:       []string{"last_hidden_state"},
 		ExtraInputs: map[string]ExtraInputFn{
@@ -198,6 +206,40 @@ func LookupModel(name string) (ModelConfig, error) {
 		return ModelConfig{}, fmt.Errorf("bgeonnx: unknown model %q (known: %v)", name, registeredNames())
 	}
 	return cfg, nil
+}
+
+// RegisteredModels returns all model configs, sorted by name.
+func RegisteredModels() []ModelConfig {
+	out := make([]ModelConfig, 0, len(registry))
+	for _, cfg := range registry {
+		out = append(out, cfg)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// FetchFiles returns the list of relative file paths that `ckv model fetch`
+// needs to download for this model.
+func (c ModelConfig) FetchFiles() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range []string{c.OnnxFile, c.TokenizerFile} {
+		if f != "" && !seen[f] {
+			seen[f] = true
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// DefaultModelDir returns the conventional cache directory for this model:
+// ~/.cache/ckv/models/<name>.
+func (c ModelConfig) DefaultModelDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cache", "ckv", "models", c.Name), nil
 }
 
 func registeredNames() []string {
