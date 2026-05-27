@@ -146,6 +146,22 @@ var models = map[string]ModelConfig{
 		Pooling:        PoolingCLS,
 		EstimatedRAMMB: 5000,
 	},
+	"bge-m3": {
+		Name:          "bge-m3",
+		Dim:           1024,
+		MaxInput:      8192,
+		Normalize:     "l2",
+		OnnxFile:      "onnx/model.onnx",
+		TokenizerFile: "tokenizer.json",
+		HFRepo:        "BAAI/bge-m3",
+		InputOrder:    []string{"input_ids", "attention_mask", "token_type_ids"},
+		Outputs:       []string{"last_hidden_state"},
+		ExtraInputs: map[string]ExtraInputFn{
+			"token_type_ids": ZeroExtraInput,
+		},
+		Pooling:        PoolingCLS,
+		EstimatedRAMMB: 2200,
+	},
 	"embeddinggemma-300m": {
 		Name:          "embeddinggemma-300m",
 		Dim:           768,
