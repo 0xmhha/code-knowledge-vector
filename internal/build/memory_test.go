@@ -167,14 +167,12 @@ func TestStartMemWatchdog_RaisesAndClears(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var buf bytes.Buffer
+	var buf syncBuffer
 	sig := startMemWatchdog(ctx, &buf)
 	if sig == nil {
 		t.Fatal("expected non-nil sig with guard on")
 	}
 
-	// Wait long enough for watchdog to step through the script. With
-	// 5 ms poll and 4 entries, 100 ms is comfortably enough.
 	waitFor(t, 200*time.Millisecond, func() bool {
 		return strings.Contains(buf.String(), "pressure OFF")
 	}, "watchdog never logged pressure OFF after recovery")
@@ -186,6 +184,25 @@ func TestStartMemWatchdog_RaisesAndClears(t *testing.T) {
 	if !strings.Contains(out, "pressure OFF") {
 		t.Errorf("expected 'pressure OFF' log, got %q", out)
 	}
+}
+
+// syncBuffer is a thread-safe bytes.Buffer. The watchdog goroutine
+// writes via fmt.Fprintf while the test goroutine reads via String().
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // waitFor polls cond until it's true or timeout fires. Test fails on
