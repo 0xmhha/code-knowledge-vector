@@ -17,12 +17,6 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
-	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/javascript"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/markdown"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/solidity"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/typescript"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
@@ -183,23 +177,9 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 	}
 	defer store.Close()
 
-	parsers := map[string]cparse.Parser{
-		"go":         golang.New(),
-		"typescript": typescript.New(),
-		"javascript": javascript.New(),
-		"solidity":   solidity.New(),
-		"markdown":   markdown.New(),
-	}
-
-	chunker := chunk.New(chunk.Options{
-		MaxInputTokens:  o.Embedder.MaxInputTokens(),
-		FileHeaderLines: cfg.Chunking.FileHeaderLines,
-	})
-
-	embedTextFn := chunk.BuildEmbedText
-	if o.DisableContextualPrefix {
-		embedTextFn = chunk.RawEmbedText
-	}
+	parsers := newParsers()
+	chunker := newChunker(o.Embedder, cfg)
+	embedTextFn := resolveEmbedTextFn(o.DisableContextualPrefix)
 
 	result := &ReindexResult{
 		PrevHead: prevHead,
@@ -252,46 +232,30 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 			}
 			continue
 		}
-		// Read the file as it exists *now*. A renamed file shows up in
-		// the diff under its new name; an added file may not yet be in
-		// git history but is on disk.
-		src, err := os.ReadFile(abs)
-		if err != nil {
-			// File listed by diff but missing on disk: treat as a
-			// late delete. Keeps reindex robust against races.
-			if errors.Is(err, os.ErrNotExist) {
-				if err := store.DeleteByFile(ctx, rel); err != nil {
-					return nil, fmt.Errorf("delete vanished %s: %w", rel, err)
-				}
-				result.FilesDeleted++
-				continue
+		// File listed by diff but missing on disk: treat as a
+		// late delete. Keeps reindex robust against races.
+		if _, err := os.Stat(abs); errors.Is(err, os.ErrNotExist) {
+			if err := store.DeleteByFile(ctx, rel); err != nil {
+				return nil, fmt.Errorf("delete vanished %s: %w", rel, err)
 			}
-			return nil, fmt.Errorf("read %s: %w", rel, err)
+			result.FilesDeleted++
+			continue
 		}
 		if discover.IsProbablyBinary(abs) {
 			result.FilesSkipped++
 			continue
 		}
-		p := parsers[lang]
-		spans, err := p.Parse(rel, src)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", rel, err)
-		}
-		chunks := chunker.Chunk(chunk.Input{
-			File:       rel,
-			Language:   lang,
-			CommitHash: newHead,
-			Source:     src,
-			Spans:      spans,
-		})
 		// Always purge existing rows first so a file that lost symbols
-		// (e.g., a deleted function) doesn't leave orphan chunks. This
-		// is the difference between idempotent rebuild and silent stale.
+		// doesn't leave orphan chunks.
 		if err := store.DeleteByFile(ctx, rel); err != nil {
 			return nil, fmt.Errorf("purge before reindex %s: %w", rel, err)
 		}
+		chunks, err := processFile(abs, rel, lang, newHead, parsers, cfg, chunker)
+		if err != nil {
+			return nil, err
+		}
 		if len(chunks) == 0 {
-			continue // empty file or all parse spans dropped
+			continue
 		}
 		if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, nil, embedTextFn); err != nil {
 			return nil, fmt.Errorf("embed/upsert %s: %w", rel, err)
@@ -302,14 +266,8 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 			result.FilesModified++
 		}
 		result.FilesProcessed++
-		s := chunk.Summarize(chunks)
-		result.Chunks.Total += s.Total
-		result.Chunks.Symbol += s.Symbol
-		result.Chunks.FileHeader += s.FileHeader
-		result.Chunks.Doc += s.Doc
-		result.Chunks.FunctionSplit += s.FunctionSplit
-		result.Chunks.Truncated += s.Truncated
-		languageCounts[lang] += s.Total
+		accumulateStats(&result.Chunks, chunks)
+		languageCounts[lang] += chunk.Summarize(chunks).Total
 	}
 
 	// Step 3: refresh manifest. Even with zero changes we update

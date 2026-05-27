@@ -18,13 +18,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
-	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/javascript"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/markdown"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/solidity"
-	"github.com/0xmhha/code-knowledge-vector/internal/parse/typescript"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
@@ -182,33 +176,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	defer store.Close()
 
-	parsers := map[string]cparse.Parser{
-		"go":         golang.New(),
-		"typescript": typescript.New(),
-		"javascript": javascript.New(),
-		"solidity":   solidity.New(),
-		"markdown":   markdown.New(),
-	}
-
+	parsers := newParsers()
 	totalStats := chunk.Stats{}
 	languageCounts := make(map[string]int)
 	indexedFiles := 0
-
-	chunkOpts := chunk.Options{
-		MaxInputTokens: o.Embedder.MaxInputTokens(),
-	}
-	if cfg.Chunking.FileHeaderLines > 0 {
-		chunkOpts.FileHeaderLines = cfg.Chunking.FileHeaderLines
-	}
-	chunker := chunk.New(chunkOpts)
-
-	// Rule-based contextual prefix: default on, opt-out via Options.
-	// The chunk's raw Text is still what gets persisted and returned in
-	// snippets — only the *embedder input* changes.
-	embedTextFn := chunk.BuildEmbedText
-	if o.DisableContextualPrefix {
-		embedTextFn = chunk.RawEmbedText
-	}
+	chunker := newChunker(o.Embedder, cfg)
+	embedTextFn := resolveEmbedTextFn(o.DisableContextualPrefix)
 
 	// progress writes a throttled stderr-side status line so the user
 	// can watch ckv build advance. Library callers leave ProgressOut
@@ -225,37 +198,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	memSig := startMemWatchdog(wdCtx, o.ProgressOut)
 
 	for i, f := range files {
-		// Closure scope so `defer prog.Tick(i+1)` fires once per
-		// iteration regardless of which `continue` was taken — keeps
-		// the progress denominator honest even when files are skipped
-		// for parser/language/read/parse reasons.
 		var perFileErr error
 		func() {
 			defer prog.Tick(i + 1)
-			p, ok := parsers[f.Language]
-			if !ok {
-				return // language parser not implemented yet
-			}
-			if !cfg.LanguageAllowed(f.Language) {
-				return // project ckv.yaml disabled this language
-			}
-			src, err := os.ReadFile(f.AbsPath)
+			chunks, err := processFile(f.AbsPath, f.RelPath, f.Language, commit, parsers, cfg, chunker)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ckv: read %s: %v\n", f.RelPath, err)
+				fmt.Fprintf(os.Stderr, "ckv: %v\n", err)
 				return
 			}
-			spans, err := p.Parse(f.RelPath, src)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "ckv: parse %s: %v\n", f.RelPath, err)
-				return
-			}
-			chunks := chunker.Chunk(chunk.Input{
-				File:       f.RelPath,
-				Language:   f.Language,
-				CommitHash: commit,
-				Source:     src,
-				Spans:      spans,
-			})
 			if len(chunks) == 0 {
 				return
 			}
@@ -265,13 +215,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			indexedFiles++
 			languageCounts[f.Language] += len(chunks)
-			s := chunk.Summarize(chunks)
-			totalStats.Total += s.Total
-			totalStats.Symbol += s.Symbol
-			totalStats.FileHeader += s.FileHeader
-			totalStats.Doc += s.Doc
-			totalStats.FunctionSplit += s.FunctionSplit
-			totalStats.Truncated += s.Truncated
+			accumulateStats(&totalStats, chunks)
 		}()
 		if perFileErr != nil {
 			return nil, perFileErr
