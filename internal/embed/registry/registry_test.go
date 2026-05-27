@@ -1,0 +1,143 @@
+package registry
+
+import "testing"
+
+func TestLookup_DefaultExists(t *testing.T) {
+	cfg, err := Lookup(DefaultModelName)
+	if err != nil {
+		t.Fatalf("Lookup(%q): %v", DefaultModelName, err)
+	}
+	if cfg.Name != DefaultModelName {
+		t.Errorf("Name = %q, want %q", cfg.Name, DefaultModelName)
+	}
+	if cfg.Dim <= 0 {
+		t.Errorf("Dim = %d, want > 0", cfg.Dim)
+	}
+}
+
+func TestLookup_UnknownReturnsError(t *testing.T) {
+	_, err := Lookup("nonexistent-model")
+	if err == nil {
+		t.Fatal("expected error for unknown model")
+	}
+}
+
+func TestList_ReturnsAllModels(t *testing.T) {
+	all := List()
+	if len(all) < 2 {
+		t.Fatalf("expected at least 2 models, got %d", len(all))
+	}
+	// Verify sorted order
+	for i := 1; i < len(all); i++ {
+		if all[i].Name <= all[i-1].Name {
+			t.Errorf("not sorted: %q after %q", all[i].Name, all[i-1].Name)
+		}
+	}
+}
+
+func TestNames_MatchesList(t *testing.T) {
+	names := Names()
+	all := List()
+	if len(names) != len(all) {
+		t.Fatalf("Names() len=%d, List() len=%d", len(names), len(all))
+	}
+	for i, n := range names {
+		if n != all[i].Name {
+			t.Errorf("Names()[%d]=%q, List()[%d].Name=%q", i, n, i, all[i].Name)
+		}
+	}
+}
+
+func TestModelConfig_FetchFiles(t *testing.T) {
+	cfg, _ := Lookup(DefaultModelName)
+	files := cfg.FetchFiles()
+	if len(files) < 2 {
+		t.Errorf("expected at least 2 fetch files (onnx + tokenizer), got %d", len(files))
+	}
+}
+
+func TestModelConfig_DefaultModelDir(t *testing.T) {
+	cfg, _ := Lookup(DefaultModelName)
+	dir, err := cfg.DefaultModelDir()
+	if err != nil {
+		t.Fatalf("DefaultModelDir: %v", err)
+	}
+	if dir == "" {
+		t.Error("DefaultModelDir returned empty string")
+	}
+}
+
+func TestModelConfig_EntryShape(t *testing.T) {
+	for _, cfg := range List() {
+		t.Run(cfg.Name, func(t *testing.T) {
+			if cfg.Dim <= 0 {
+				t.Errorf("Dim must be > 0")
+			}
+			if cfg.MaxInput <= 0 {
+				t.Errorf("MaxInput must be > 0")
+			}
+			if cfg.OnnxFile == "" {
+				t.Error("OnnxFile must not be empty")
+			}
+			if cfg.TokenizerFile == "" {
+				t.Error("TokenizerFile must not be empty")
+			}
+			if cfg.HFRepo == "" {
+				t.Error("HFRepo must not be empty")
+			}
+			if len(cfg.InputOrder) == 0 {
+				t.Error("InputOrder must not be empty")
+			}
+			for _, in := range cfg.InputOrder {
+				if in == "input_ids" || in == "attention_mask" {
+					continue
+				}
+				if _, ok := cfg.ExtraInputs[in]; !ok {
+					t.Errorf("InputOrder has %q but ExtraInputs missing entry", in)
+				}
+			}
+		})
+	}
+}
+
+func TestPoolingMode_String(t *testing.T) {
+	tests := []struct {
+		mode PoolingMode
+		want string
+	}{
+		{PoolingCLS, "cls"},
+		{PoolingMean, "mean"},
+		{PoolingLastToken, "last_token"},
+		{PoolingMode(99), "unknown(99)"},
+	}
+	for _, tt := range tests {
+		if got := tt.mode.String(); got != tt.want {
+			t.Errorf("PoolingMode(%d).String() = %q, want %q", tt.mode, got, tt.want)
+		}
+	}
+}
+
+func TestZeroExtraInput(t *testing.T) {
+	out := ZeroExtraInput(2, 3)
+	if len(out) != 6 {
+		t.Fatalf("len = %d, want 6", len(out))
+	}
+	for i, v := range out {
+		if v != 0 {
+			t.Errorf("[%d] = %d, want 0", i, v)
+		}
+	}
+}
+
+func TestPositionIDsExtraInput(t *testing.T) {
+	out := PositionIDsExtraInput(2, 3)
+	want := []int64{0, 1, 2, 0, 1, 2}
+	if len(out) != len(want) {
+		t.Fatalf("len = %d, want %d", len(out), len(want))
+	}
+	for i := range out {
+		if out[i] != want[i] {
+			t.Errorf("[%d] = %d, want %d", i, out[i], want[i])
+		}
+	}
+}
