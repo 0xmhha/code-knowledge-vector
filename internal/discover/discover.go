@@ -6,12 +6,11 @@
 //
 // Limitations vs full gitignore semantics:
 //   - No negation ("!pattern" — not supported)
-//   - No "**" globs (we use filepath.Match; doublestar may land in W3)
+//   - No "**" globs (we use filepath.Match; doublestar planned)
 //   - Patterns match against the source-relative path AND the basename
 //
 // These cover the common cases (node_modules/, vendor/, *.log, build/)
-// without pulling in a heavyweight gitignore parser. Power users with
-// complex rules can pass --files-from once we add it (planned: W3).
+// without pulling in a heavyweight gitignore parser.
 package discover
 
 import (
@@ -52,7 +51,6 @@ var DefaultIgnore = []string{
 // only by rotating the credential and rebuilding the entire index.
 // Cheaper to block at discovery time.
 //
-// Featurelist §15.2 P0. Backlog B9.
 // Opt-out (testing only): CKV_DISABLE_SECRET_FILTER=1.
 var DefaultSecretPatterns = []string{
 	".env",
@@ -257,14 +255,10 @@ func isIgnored(rel string, patterns []string) bool {
 }
 
 // classifyLanguage maps file extension to the CKV language tag. Empty
-// string means "we don't index this file type today" (W1+W2 ships
-// Go-first; TS/Solidity parsers land in W2 too but discovery has the
-// classification ready).
+// string means "we don't index this file type today."
 //
 // Markdown (`*.md`, `*.markdown`) is indexed as "markdown" so docs/ADR
-// corpora (plan-S1, featurelist, ADR-*.md) become searchable — see
-// review-direction-2026-05-18.md Appendix B for the design rationale.
-// Extension-less doc files (README, CHANGELOG) are deferred to S2.
+// corpora become searchable alongside source code.
 func classifyLanguage(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {

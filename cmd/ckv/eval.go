@@ -20,7 +20,7 @@ import (
 type evalOpts struct {
 	out         string
 	fixturePath string
-	src         string // optional source root — enables Phase 3 hallucination verification
+	src         string // optional source root — enables hallucination verification
 	k           int
 	threshold   float64
 	minRecall5  float64 // exit non-zero if recall@5 < this
@@ -32,10 +32,10 @@ type evalOpts struct {
 	// PR-regression mode (mutually exclusive with --fixture queries).
 	prFixturePath string // path to testdata/prs.yaml — switches eval into PR-regression mode
 	prTopK        int    // hints passed to the planning agent
-	prRuns        int    // PRR-2 — repeat each entry N times, report mean ± std
+	prRuns        int    // repeat each entry N times for statistical averaging, report mean ± std
 
-	bm25Rerank bool // NEW-9 / ADR-006: enable candidate-set BM25 rerank for the eval pass
-	record     bool // NEW-2: interactive fixture recording mode
+	bm25Rerank bool // enable candidate-set BM25 rerank for the eval pass
+	record     bool // interactive fixture recording mode
 }
 
 func newEvalCmd() *cobra.Command {
@@ -67,7 +67,7 @@ Default fixture path: ./testdata/queries.yaml`,
 	f.StringVar(&opts.prFixturePath, "pr-fixture", "", "path to PR fixture YAML (switches into PR-regression mode; mutually exclusive with --fixture)")
 	f.IntVar(&opts.prTopK, "pr-top", 10, "top-K hints passed to the planning agent in PR-regression mode")
 	f.IntVar(&opts.prRuns, "pr-runs", 1, "repeat each PR fixture entry N times and report mean ± sample std (N>=1; PR-regression mode only)")
-	f.BoolVar(&opts.bm25Rerank, "bm25-rerank", false, "experimental (NEW-9 / ADR-006): apply candidate-set BM25 + RRF rerank during the eval pass; default off preserves ADR-003 vector-only baseline")
+	f.BoolVar(&opts.bm25Rerank, "bm25-rerank", false, "apply candidate-set BM25 + RRF rerank during the eval pass; default off preserves vector-only baseline")
 	f.BoolVar(&opts.record, "record", false, "interactive mode: type queries, select correct results, append to fixture YAML")
 	return cmd
 }
@@ -138,7 +138,7 @@ func runEval(ctx context.Context, opts *evalOpts) error {
 		return fmt.Errorf("ckv eval: recall@5=%.3f < --min-recall5=%.3f",
 			res.Aggregate.RecallAt5, opts.minRecall5)
 	}
-	// Hallucination CI gate (Phase 3): only fires when --src was set
+	// Hallucination CI gate: only fires when --src was set
 	// (otherwise hallucination_rate is omitted and the comparison is
 	// meaningless). Default --max-halluc=1.0 means disabled.
 	if opts.src != "" && opts.maxHalluc < 1.0 && res.Aggregate.HallucinationRate > opts.maxHalluc {

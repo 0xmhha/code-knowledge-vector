@@ -13,7 +13,7 @@
 //	build_roots: [./cmd/ckv]                 # Go entry packages; index
 //	                                          # only files reachable from these
 //	                                          # via `go list -deps`. Empty →
-//	                                          # walk the whole srcRoot. (FU-9)
+//	                                          # walk the whole srcRoot.
 //
 // Reserved-for-future (no-op today; documented to stabilize the schema):
 //

@@ -14,7 +14,7 @@ import (
 const DefaultRRFK = 60
 
 // Candidate pairs a vector-retrieved Hit with the BM25 corpus text for
-// that candidate. CKV's caller (engine.Search) builds Corpus per D3-B:
+// that candidate. CKV's caller (engine.Search) builds Corpus from
 // chunk.SymbolName + signature first line. Whole chunk.Text is not used
 // because tokenizing 30 long bodies dominates the rerank latency and
 // the noise overwhelms the symbol-level signal.
@@ -52,7 +52,7 @@ type Stats struct {
 // position + 1.
 //
 // The IDF in this BM25 is computed over the candidate set only, not the
-// global chunk corpus — ADR-006 documents this candidate-set bias. The
+// global chunk corpus — this is a candidate-set bias by design. The
 // signal is still useful as a *rerank within candidates* because IDF
 // rewards terms that vary across the local set, which is what
 // differentiates one candidate from another.
@@ -171,7 +171,7 @@ func Rerank(candidates []Candidate, intent string) ([]Result, Stats) {
 	return reordered, stats
 }
 
-// BuildCorpusText is the canonical D3-B corpus shape: symbol_name +
+// BuildCorpusText is the canonical BM25 corpus shape: symbol_name +
 // the first non-empty line of the chunk text (typically the signature).
 // Centralized so engine.Search and tests don't drift on the spec.
 //

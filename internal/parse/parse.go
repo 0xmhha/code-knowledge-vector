@@ -3,7 +3,8 @@
 //
 // Language strategy (matches CKG's parse package):
 //   - Go: go/parser + go/ast (stdlib, no CGO)
-//   - TypeScript / Solidity: tree-sitter (planned; W2 ships stubs)
+//   - TypeScript / JavaScript: tree-sitter
+//   - Solidity: tree-sitter
 //
 // Each parser turns one file into []SymbolSpan. The chunker then
 // produces Chunks (with optional long-function splits) from those spans.

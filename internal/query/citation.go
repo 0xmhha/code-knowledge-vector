@@ -11,7 +11,7 @@ import (
 
 // currentGitHead returns `git rev-parse HEAD` for srcRoot, or empty
 // when git is unavailable or srcRoot is not a git repo. Used by
-// EnforceCitationsAt for stale-citation detection (B4). Failure is
+// EnforceCitationsAt for stale-citation detection. Failure is
 // silent — stale check is best-effort, not a hard requirement.
 func currentGitHead(srcRoot string) string {
 	if srcRoot == "" {
@@ -26,7 +26,7 @@ func currentGitHead(srcRoot string) string {
 
 // EnforceCitations verifies every hit's citation against the on-disk
 // source tree at srcRoot, returning the surviving hits and the count of
-// dropped ones. Plan §5 + §7.4: citation accuracy must be 100%, so any
+// dropped ones. Citation accuracy must be 100%, so any
 // hit we can't verify is silently dropped (with a warning aggregated by
 // the caller).
 //
@@ -48,7 +48,7 @@ func EnforceCitations(hits []types.Hit, srcRoot string) (keep []types.Hit, dropp
 	return keep, dropped
 }
 
-// EnforceCitationsAt extends EnforceCitations with B4 stale detection:
+// EnforceCitationsAt extends EnforceCitations with stale detection:
 // when currentHead is non-empty, every surviving hit whose
 // Chunk.CommitHash differs gets Hit.StaleCitation=true and counts toward
 // the stale return. Useful diagnostic when callers can detect "the

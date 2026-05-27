@@ -10,10 +10,8 @@
 // CKV-specific surface (this package, not in CKG):
 //   - rerank.go    candidate-set Rerank + RRF fusion (k=60 default)
 //
-// ADR-006 (Proposed) governs the use of this package. CKV remains
-// dense-only at the schema layer (ADR-003); this is a temporary
-// candidate-rerank overlay measured for impact before the supersede
-// decision lands.
+// CKV remains dense-only at the schema layer; this is a candidate-rerank
+// overlay measured for impact alongside the vector-only baseline.
 package bm25
 
 // Document is one indexable record. Tokens are pre-tokenized — call

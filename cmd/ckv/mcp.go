@@ -28,9 +28,7 @@ func newMCPCmd() *cobra.Command {
   cks.ops.health                — index identity probe
 
 Register with Claude Code:
-  claude mcp add cks --command "$(pwd)/bin/ckv mcp --out=$(pwd)/ckv-data"
-
-The combined cks-mcp binary (CKG+CKV+RRF) lands in S1-W3 Group B.`,
+  claude mcp add cks --command "$(pwd)/bin/ckv mcp --out=$(pwd)/ckv-data"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMCP(opts)
 		},
@@ -45,7 +43,7 @@ The combined cks-mcp binary (CKG+CKV+RRF) lands in S1-W3 Group B.`,
 
 func runMCP(opts *mcpOpts) error {
 	if opts.httpAddr != "" {
-		return errors.New("mcp: --http transport not yet wired (W3-late)")
+		return errors.New("mcp: --http transport not yet implemented")
 	}
 
 	fp := newFootprint(opts.out, "")

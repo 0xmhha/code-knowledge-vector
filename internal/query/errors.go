@@ -2,12 +2,10 @@ package query
 
 import "errors"
 
-// The error model (featurelist §8.4). Six sentinels make up the contract
-// between ckv and its callers (LLM agents via MCP, in-process consumers
-// via pkg/ckv). Callers test with errors.Is and decide handling per
-// variant; the caller-guidance for each is documented inline.
-//
-// Backlog B6.
+// Six error sentinels make up the contract between ckv and its callers
+// (LLM agents via MCP, in-process consumers via pkg/ckv). Callers test
+// with errors.Is and decide handling per variant; the caller-guidance
+// for each is documented inline.
 
 // ErrIndexUnavailable signals that the on-disk index cannot be served
 // by the supplied Embedder. Most commonly: the indexed model identity
@@ -49,14 +47,14 @@ var ErrBudgetExceeded = errors.New("query: budget exceeded")
 // the index is unusable for retrieval — every hit would be unverifiable.
 var ErrCitationNotFound = errors.New("query: citation not found")
 
-// ErrSanitizeFailed signals the sanitize pipeline (UC-V13, featurelist
-// §9) rejected the response payload. The sanitize module is the
+// ErrSanitizeFailed signals the sanitize pipeline rejected the response
+// payload. The sanitize module is the
 // default-deny gate between raw retrieval and outbound delivery —
 // secrets, PII, oversized blobs, or policy-flagged content land here.
 //
 // Caller guidance: log the rejection (sanitize_report carries the
 // reason), do not retry with the same intent. Defined now for
-// forward-compatible callers; sanitize itself lands in S2.
+// forward-compatible callers.
 var ErrSanitizeFailed = errors.New("query: sanitize failed")
 
 // ErrPolicyError signals a policy or authorization check rejected the
@@ -65,8 +63,7 @@ var ErrSanitizeFailed = errors.New("query: sanitize failed")
 // requested through an external surface.
 //
 // Caller guidance: this is a hard rejection — do not retry. Surface to
-// the operator. Defined now for forward-compatible callers; the policy
-// gate lands with S6 (mTLS auth).
+// the operator. Defined now for forward-compatible callers.
 var ErrPolicyError = errors.New("query: policy error")
 
 // MinBudgetTokens is the floor below which BudgetTokens can't even fit

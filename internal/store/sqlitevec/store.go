@@ -1,7 +1,7 @@
 // Package sqlitevec is the default CKV VectorStore implementation —
 // SQLite + the sqlite-vec extension's vec0 virtual table.
 //
-// Why SQLite? Plan §4 chose it for life-cycle and idiom parity with CKG.
+// Why SQLite? Life-cycle and idiom parity with CKG.
 // Why CGO? vec0 ships as a C amalgamation; the cgo binding embeds it so
 // there is no separate shared library to install on the user's machine.
 package sqlitevec
@@ -116,7 +116,7 @@ func (s *Store) initSchema(dim int) error {
 		return fmt.Errorf("create chunks: %w", err)
 	}
 
-	// Migration: pre-FU-10 indexes lack the is_test column. SQLite
+	// Migration: older indexes may lack the is_test column. SQLite
 	// doesn't support ADD COLUMN IF NOT EXISTS, so we probe and ALTER
 	// only on miss. Failure to migrate is fatal — silently running
 	// without is_test would return wrong is_test=false for every chunk.
@@ -310,7 +310,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 }
 
 // DeleteByFile removes every chunk + vector belonging to the given path.
-// Used by the incremental indexer (S2) and the rename safety path.
+// Used by the incremental indexer and the rename safety path.
 func (s *Store) DeleteByFile(ctx context.Context, path string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -439,7 +439,7 @@ func boolToInt(b bool) int {
 }
 
 // normalize maps cosine distance [0,2] to a similarity score [0,1]
-// where higher is better. Plan §6.2.
+// where higher is better.
 func normalize(distance float64) float64 {
 	s := 1 - distance/2
 	if s < 0 {

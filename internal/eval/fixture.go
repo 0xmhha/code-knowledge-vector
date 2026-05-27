@@ -57,10 +57,10 @@ type Query struct {
 	Notes    string   `yaml:"notes,omitempty"`
 
 	// Pending marks entries whose ground-truth corpus is not yet indexed
-	// (e.g. docs/PR/commit corpora pending Phase B/C). The loader relaxes
+	// (e.g. docs/PR/commit corpora not yet built). The loader relaxes
 	// line_range validation for these; Run() still executes them so misses
 	// are counted in the aggregate, and Score() treats them like any other
-	// query (typically reporting a miss until the corpus lands).
+	// query (typically reporting a miss until the corpus is indexed).
 	Pending bool `yaml:"pending,omitempty"`
 
 	RecordedVia string `yaml:"recorded_via,omitempty"`
@@ -82,7 +82,7 @@ type Expected struct {
 	Section string `yaml:"section,omitempty"`
 	// ExpectedKind hints which chunk_kind should answer the query.
 	// Values: pr_summary | commit_message | doc_section. Informational
-	// only — used by future Phase C eval to filter retrieval by kind.
+	// only — used by eval to filter retrieval by kind.
 	ExpectedKind string `yaml:"expected_kind,omitempty"`
 }
 

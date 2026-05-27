@@ -1,15 +1,12 @@
 // Package chunk turns ([]parse.SymbolSpan, source) into ([]types.Chunk)
 // — the records the embedder + vector store actually persist.
 //
-// Strategy (plan §5.4):
+// Strategy:
 //  1. Each symbol span (function/method/type/...) becomes one chunk.
-//  2. Spans whose Text exceeds MaxInputTokens worth of characters are
-//     truncated at the head so the signature stays intact. Splitting
-//     large functions into sub-chunks is a W3 enhancement; for now,
-//     the signature + body prefix preserves most of the semantic
-//     signal (per the plan, "signature is the head"). Note that the
-//     mock embedder has infinite max input, so this only triggers
-//     with the real ONNX embedder.
+//  2. Spans whose Text exceeds MaxInputTokens are split into
+//     sub-chunks (function bodies) or truncated at the head so the
+//     signature stays intact. Note that the mock embedder has infinite
+//     max input, so this only triggers with the real ONNX embedder.
 //  3. A file_header chunk captures the first N lines of the file —
 //     package decl + imports + top-level const/var. This lets queries
 //     like "what package owns the metrics client" hit the right file
@@ -26,9 +23,9 @@ import (
 
 // DefaultFileHeaderLines is the number of leading lines of each file
 // captured as a "file_header" chunk when Options.FileHeaderLines is
-// unset. 50 mirrors plan §5.4 — enough to cover the package decl + a
-// typical import block + top-level consts. Per-project ckv.yaml can
-// override this via chunking.file_header_lines.
+// unset. 50 is enough to cover the package decl + a typical import
+// block + top-level consts. Per-project ckv.yaml can override this
+// via chunking.file_header_lines.
 const DefaultFileHeaderLines = 50
 
 // FileHeaderLines is the legacy export retained for callers that
@@ -96,7 +93,7 @@ func (c *Chunker) Chunk(in Input) []types.Chunk {
 	}
 
 	for _, sp := range in.Spans {
-		// B1 (Phase A): when a function body exceeds the embedder's
+		// When a function body exceeds the embedder's
 		// input cap, split it into multiple sub-chunks instead of
 		// head-truncating. Long doc sections / file headers stay on
 		// the truncate path — splitting prose loses structure.
@@ -142,7 +139,7 @@ func (c *Chunker) shouldSplit(sp parse.SymbolSpan) bool {
 //     file. Citation lookups land on the right slice.
 //
 // The signature is *not* duplicated into each split's Text — the
-// Phase D.1 contextual prefix (BuildEmbedText) already prepends
+// rule-based contextual prefix (BuildEmbedText) already prepends
 // "symbol: X.Y" at embed time so the embedder still sees the symbol
 // identity for every split. Snippet display reads Text directly, so
 // the user sees the actual window content (signature shows only on

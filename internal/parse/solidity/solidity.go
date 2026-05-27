@@ -6,8 +6,8 @@
 //   - function (inside contract)  → KindMethod ("Contract.fn")
 //   - free function (rare, 0.7.4+) → KindFunction
 //   - constructor                  → KindMethod ("Contract.constructor")
-//   - modifier                     → KindModifier (separate per plan §10 q1)
-//   - event                        → KindEvent (separate per plan §10 q1)
+//   - modifier                     → KindModifier
+//   - event                        → KindEvent
 //   - struct                       → KindStruct
 //   - enum                         → KindType
 package solidity

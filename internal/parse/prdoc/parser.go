@@ -1,5 +1,5 @@
 // Package prdoc parses PR descriptions and commit messages into chunks
-// for the PR corpus index (NEW-3). Each PR produces 1-3 chunks:
+// for the PR corpus index. Each PR produces 1-3 chunks:
 //
 //   - ChunkPRBackground  — the "Background" / "Context" section
 //   - ChunkPRSolution    — the "Solution" / "Changes" section

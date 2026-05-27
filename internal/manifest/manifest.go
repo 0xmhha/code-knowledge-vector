@@ -16,14 +16,13 @@ import (
 )
 
 // SchemaVersionCurrent is the on-disk schema version this build writes.
-// Plan §4 anchors CKV at 1.0 (CKG is at 1.7 independently).
 const SchemaVersionCurrent = "1.0"
 
 // FileName is the file written into the --out directory.
 const FileName = "manifest.json"
 
-// Manifest is the structured index metadata. Field names use plan §4 keys
-// so CKS Orchestrator can compare CKG and CKV manifests by raw key.
+// Manifest is the structured index metadata. Field names are shared with
+// CKG so CKS Orchestrator can compare CKG and CKV manifests by raw key.
 type Manifest struct {
 	SchemaVersion string `json:"schema_version"`
 	CKVVersion    string `json:"ckv_version"`
@@ -32,9 +31,9 @@ type Manifest struct {
 	// Source / git
 	SrcRoot     string `json:"src_root"`
 	SrcCommit   string `json:"src_commit,omitempty"`   // commit at indexing time
-	IndexedHead string `json:"indexed_head,omitempty"` // alias for SrcCommit (back-compat with featurelist §1.6)
+	IndexedHead string `json:"indexed_head,omitempty"` // alias for SrcCommit (back-compat)
 
-	// Embedding identity (plan §3)
+	// Embedding identity
 	EmbeddingModel     string `json:"embedding_model"`
 	EmbeddingDim       int    `json:"embedding_dim"`
 	EmbeddingChecksum  string `json:"embedding_checksum,omitempty"`

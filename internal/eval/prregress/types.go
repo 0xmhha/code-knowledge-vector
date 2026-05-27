@@ -37,8 +37,7 @@ import (
 const FixtureSchemaVersion = "1"
 
 // DefaultThreshold is the minimum LLM-judge similarity score that
-// counts as "agent reproduced the intent of the PR." Per
-// review-direction-2026-05-18.md §6.1 Challenge 3.
+// counts as "agent reproduced the intent of the PR."
 const DefaultThreshold = 0.80
 
 // Fixture is the parsed `testdata/prs.yaml` document.
@@ -51,9 +50,9 @@ type Fixture struct {
 // that file's header for semantics.
 //
 // IntentGroundTruth / ChangedSymbols / Category were added in the
-// 2026-05-22 fixture expansion (4 → 12, see evaluation-design §10.3)
-// so the upcoming Multi-stage evaluation (E1 intent / E2 symbol-level
-// location) has structured ground truth. All three are optional —
+// fixture expansion (4 → 12) so the multi-stage evaluation (E1 intent /
+// E2 symbol-level location) has structured ground truth. All three are
+// optional —
 // legacy entries (pr69 / pr70 / pr72 / pr74) load without them and
 // the score.go consumers fall back to file-set F1 when symbols are
 // absent.
@@ -155,7 +154,7 @@ type Meta struct {
 	Body           string        `json:"body"`            // full PR description (Background + Solution + Changes)
 	Background     string        `json:"background"`      // extracted: the "what's wrong" piece, agent sees this
 	Files          []ChangedFile `json:"files"`           // truth: what the PR actually changed
-	CommitMessages []string      `json:"commit_messages,omitempty"` // NEW-4 E3: ground truth for plan-step decomposition (headline + body, one entry per commit)
+	CommitMessages []string      `json:"commit_messages,omitempty"` // E3: ground truth for plan-step decomposition (headline + body, one entry per commit)
 }
 
 // ChangedFile is one file the PR touched, as reported by gh CLI.
@@ -176,12 +175,12 @@ type Plan struct {
 	ExpectedFiles []string `json:"expected_files"`
 }
 
-// Score combines the original autoplan v1.1 metrics (LLM-as-judge +
-// file-set F1) with the NEW-4 multi-stage decomposition (E1 intent /
-// E2 symbol-level location / E3 plan-step decomposition). All new
-// fields are omitempty so legacy fixture rows without
-// IntentGroundTruth / ChangedSymbols / commit data still produce a
-// clean Score with only the original axes populated.
+// Score combines the LLM-as-judge score and file-set F1 with the
+// multi-stage decomposition (E1 intent / E2 symbol-level location /
+// E3 plan-step decomposition). All new fields are omitempty so legacy
+// fixture rows without IntentGroundTruth / ChangedSymbols / commit
+// data still produce a clean Score with only the original axes
+// populated.
 type Score struct {
 	JudgeScore float64 `json:"judge_score"` // 0..1, LLM rubric output (E3 + E4 combined, legacy)
 	JudgeRaw   string  `json:"judge_raw,omitempty"`
@@ -194,7 +193,7 @@ type Score struct {
 	PlanFiles  []string `json:"plan_files"`
 	TruthFiles []string `json:"truth_files"`
 
-	// NEW-4: multi-stage E1/E2/E3 (evaluation-design §10.2)
+	// Multi-stage E1/E2/E3 metrics
 	IntentScore     float64  `json:"intent_score,omitempty"`      // E1: pure-Go token-F1 vs IntentGroundTruth || Title
 	IntentCosine    float64  `json:"intent_cosine,omitempty"`     // E1 (optional): embedder cosine, populated only when RunOptions.Embedder is real
 	IntentError     string   `json:"intent_error,omitempty"`      // E1 cosine subprocess error, if any

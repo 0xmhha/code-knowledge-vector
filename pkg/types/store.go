@@ -3,12 +3,12 @@ package types
 import "context"
 
 // VectorStore is the persistence + ANN search surface. Implementations:
-//   - internal/store/sqlitevec — SQLite + vec0 virtual table (W2-T3)
+//   - internal/store/sqlitevec — SQLite + vec0 virtual table
 //   - internal/store/memory    — in-RAM map (tests + dev loop)
 //
-// Plan §4.1, §5.7. All methods are safe to call from a single goroutine;
-// concurrent callers must serialize themselves (W2 default — the indexer
-// pipeline is sequential per file).
+// All methods are safe to call from a single goroutine; concurrent
+// callers must serialize themselves (the indexer pipeline is sequential
+// per file).
 type VectorStore interface {
 	// Upsert inserts or replaces chunks keyed by Chunk.ID. The vector is
 	// derived from chunk.Text via the configured Embedder before calling.
@@ -16,7 +16,7 @@ type VectorStore interface {
 	Upsert(ctx context.Context, chunks []Chunk, embeddings [][]float32) error
 
 	// DeleteByFile removes every chunk whose File equals path. Used by
-	// the incremental indexer (S2) and by the file-rename safety path.
+	// the incremental indexer and by the file-rename safety path.
 	DeleteByFile(ctx context.Context, path string) error
 
 	// Search returns the top-k nearest chunks under cosine distance,

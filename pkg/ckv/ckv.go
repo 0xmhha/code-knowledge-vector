@@ -32,9 +32,9 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
-// The error model (featurelist §8.4). Each sentinel documents its
-// raise condition and caller-handling guidance — test with errors.Is.
-// Source of truth: internal/query/errors.go.
+// Each error sentinel documents its raise condition and caller-handling
+// guidance — test with errors.Is. Source of truth:
+// internal/query/errors.go.
 
 // ErrIndexUnavailable: the on-disk index cannot be served by the
 // supplied Embedder. Most commonly: indexed model differs from query
@@ -58,14 +58,14 @@ var ErrBudgetExceeded = query.ErrBudgetExceeded
 // rebuilding. Caller: rebuild with `ckv build --src <current path>`.
 var ErrCitationNotFound = query.ErrCitationNotFound
 
-// ErrSanitizeFailed: sanitize pipeline (UC-V13) rejected the response
-// payload. Reserved for S2; defined for forward-compatible callers.
+// ErrSanitizeFailed: sanitize pipeline rejected the response payload.
+// Defined for forward-compatible callers.
 // Caller: log sanitize_report.reason; do not retry with same intent.
 var ErrSanitizeFailed = query.ErrSanitizeFailed
 
 // ErrPolicyError: policy or authorization check rejected the request
 // (mTLS SAN mismatch, content policy, internal-tool exposure).
-// Reserved for S6; defined for forward-compatible callers. Caller:
+// Defined for forward-compatible callers. Caller:
 // hard rejection — do not retry; surface to operator.
 var ErrPolicyError = query.ErrPolicyError
 

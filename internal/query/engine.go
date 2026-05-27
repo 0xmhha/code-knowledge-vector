@@ -28,12 +28,12 @@ import (
 )
 
 // DefaultThreshold drops hits whose normalized score is below this
-// value. Plan §6.4. 0.4 is conservative — with the mock embedder it
+// value. 0.4 is conservative — with the mock embedder it
 // trims obvious noise without rejecting real matches.
 const DefaultThreshold = 0.4
 
-// DefaultBudgetTokens is the response-side token budget. Plan §6.1 +
-// §7.3. 4000 tokens ≈ 16K chars of snippet content across all hits.
+// DefaultBudgetTokens is the response-side token budget.
+// 4000 tokens ≈ 16K chars of snippet content across all hits.
 const DefaultBudgetTokens = 4000
 
 // DefaultK is the top-K when the caller omits it.
@@ -41,7 +41,7 @@ const DefaultK = 10
 
 // overfetchFactor is the multiplier used when over-fetching from the
 // store so the post-filter / citation / threshold pipeline has enough
-// candidates to satisfy K. Plan §6.1.
+// candidates to satisfy K.
 const overfetchFactor = 3
 
 // Options configure a single Search invocation. Zero values resolve to
@@ -99,7 +99,7 @@ type Options struct {
 	SignatureContextLines int
 
 	// Aliases is the vocabulary-bridge glossary applied to the intent
-	// at the very start of Search (R9). When non-nil, ExpandQuery
+	// at the very start of Search. When non-nil, ExpandQuery
 	// widens the intent with code-keyword aliases before embedding —
 	// useful for Korean / domain-vague queries against an English code
 	// corpus. Nil leaves the intent untouched (off by default).
@@ -109,14 +109,13 @@ type Options struct {
 	// still echoed in the query.search top-level span for log triage.
 	Aliases AliasMap
 
-	// EnableBM25Rerank turns on the optional NEW-9 / ADR-006 BM25
-	// rerank pass between store.search and threshold.drop. When true,
-	// the engine builds a candidate-set BM25 over the vector hits
-	// (corpus = chunk.SymbolName + first text line per D3-B), scores
-	// each candidate against the *original* intent (alias expansion is
-	// embed-side only), and reorders by RRF fusion of vector + BM25
-	// ranks. Default false — ADR-003 vector-only behavior preserved
-	// until the supersede measurement (tracked in ADR-006).
+	// EnableBM25Rerank turns on the optional BM25 rerank pass between
+	// store.search and threshold.drop. When true, the engine builds a
+	// candidate-set BM25 over the vector hits (corpus = chunk.SymbolName
+	// + first text line), scores each candidate against the *original*
+	// intent (alias expansion is embed-side only), and reorders by RRF
+	// fusion of vector + BM25 ranks. Default false — vector-only
+	// behavior preserved as the baseline.
 	//
 	// The flag intentionally lives at the query-call level rather than
 	// the Engine: comparison runs (`--bm25-rerank` vs no-flag) share
@@ -163,7 +162,7 @@ type Response struct {
 	Metadata ResponseMetadata `json:"metadata"`
 }
 
-// ResponseMetadata mirrors plan §7.3 (EvidencePack) so the MCP layer
+// ResponseMetadata holds diagnostic metadata so the MCP layer
 // can pass this through to LLM callers verbatim.
 type ResponseMetadata struct {
 	TokensUsed     int    `json:"tokens_used"`
@@ -396,7 +395,7 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		traceID = intentHash(intent)
 	}
 
-	// Vocabulary bridge (NEW-1 / R9): widen the intent with curated
+	// Vocabulary bridge: widen the intent with curated
 	// keyword aliases before embedding. The expanded intent flows
 	// through every downstream step including the embed sub-span
 	// fingerprint, so trace consumers see exactly what reached the
@@ -507,10 +506,10 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 
 	warnings := []string{}
 
-	// Step 2.5 (optional, NEW-9 / ADR-006): BM25 rerank.
-	// Default off — ADR-003 vector-only behavior is the baseline. When
+	// Step 2.5 (optional): BM25 rerank.
+	// Default off — vector-only behavior is the baseline. When
 	// EnableBM25Rerank is set, we build a candidate-set BM25 corpus
-	// (chunk.SymbolName + first text line per D3-B), score against the
+	// (chunk.SymbolName + first text line), score against the
 	// *original* intent (alias expansion happens for the embedder only),
 	// and reorder rawHits by RRF fusion of vector + BM25 ranks.
 	//
@@ -577,14 +576,14 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	}
 
 	// Step 4: citation enforcement — drop any hit whose file we can't
-	// resolve against the recorded src_root. Plan §5 + §7.4. Sub-span
+	// resolve against the recorded src_root. Sub-span
 	// query.citation.enforce — tunable knob: --src override. dropped /
 	// stale counts feed the operator's reindex decision.
 	srcRoot := opts.SrcRoot
 	if srcRoot == "" {
 		srcRoot = e.srcRoot
 	}
-	// Cheap stale detection (B4): pull the source tree's current HEAD
+	// Cheap stale detection: pull the source tree's current HEAD
 	// once and compare against each chunk's CommitHash. Mismatch is a
 	// warning, not a drop — file content at the new commit is usually
 	// still relevant. The git call here is the same one freshness uses;
@@ -684,8 +683,8 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 
 // splitByTest partitions hits into (primary, examples) by IsTest. When
 // separateTests is false, every hit lands in primary and examples is
-// nil — preserving the pre-FU-10 single-list behavior for callers that
-// haven't opted in via Options.ExamplesK.
+// nil — preserving the single-list behavior for callers that haven't
+// opted in via Options.ExamplesK.
 func splitByTest(hits []types.Hit, separateTests bool) (primary, examples []types.Hit) {
 	if !separateTests {
 		return hits, nil

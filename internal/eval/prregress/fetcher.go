@@ -61,7 +61,7 @@ func FetchMeta(ctx context.Context, e Entry) (Meta, error) {
 	if len(raw.Files) == 0 {
 		return Meta{}, fmt.Errorf("gh pr view returned no files — PR %s#%d may be empty or inaccessible", e.Repo, e.PRNumber)
 	}
-	// Commits drives the NEW-4 E3 PlanStepsScore. Missing commits is not
+	// Commits drives the PlanStepsScore metric. Missing commits is not
 	// fatal — the metric just degrades to 0 for that entry. (Empty PRs
 	// can happen for squash-merge rebases where gh reports a single
 	// synthesized commit.)

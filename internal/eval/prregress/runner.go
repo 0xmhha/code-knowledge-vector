@@ -177,7 +177,7 @@ func RunEntry(ctx context.Context, e Entry, opts *RunOptions) Result {
 		return r
 	}
 
-	// NEW-4 optional E1 cosine — only when an embedder is wired in.
+	// Optional E1 cosine — only when an embedder is wired in.
 	// The same embedder used for index build (Stage 3) is reused; for
 	// mock embedders the cosine is noise (vectors are hash-derived), so
 	// the field stays at its meaningful-only-with-real-models contract.

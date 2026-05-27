@@ -7,8 +7,7 @@ import (
 )
 
 // BuildEmbedText returns the embedder input for c with a rule-based
-// contextual prefix prepended. Phase D.1 of the retrieval-quality
-// roadmap: cheap, deterministic, no LLM call.
+// contextual prefix prepended. Cheap, deterministic, no LLM call.
 //
 // Format: one descriptive line + blank line + raw chunk text.
 //

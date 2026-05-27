@@ -13,7 +13,7 @@ import (
 
 // JudgeScorer evaluates how closely a Plan's intent matches the actual
 // PR diff. Returns the combined Score (LLM-judge primary + file F1
-// secondary). Per autoplan v1.1 Challenge 3, both metrics are reported
+// secondary). Both metrics are reported
 // and the threshold gate uses the LLM-judge score.
 type JudgeScorer interface {
 	Score(ctx context.Context, e Entry, m Meta, plan Plan, diff string) (Score, error)
@@ -45,10 +45,9 @@ func NewClaudeJudgeScorer() *ClaudeJudgeScorer {
 }
 
 // Score grades (plan vs diff). The pure-Go parts run first — file-set
-// F1 and the NEW-4 multi-stage metrics (E1 intent, E2 symbol, E3 plan
-// steps) — so a report has signal even when the LLM call fails. The
-// LLM call runs last; on failure JudgeScore stays 0 and JudgeError
-// records why.
+// F1 and the multi-stage metrics (E1 intent, E2 symbol, E3 plan steps)
+// — so a report has signal even when the LLM call fails. The LLM call
+// runs last; on failure JudgeScore stays 0 and JudgeError records why.
 func (s *ClaudeJudgeScorer) Score(ctx context.Context, e Entry, m Meta, plan Plan, diff string) (Score, error) {
 	truth := TruthFiles(m)
 	planFiles := SortedFiles(plan.ExpectedFiles)
@@ -62,7 +61,7 @@ func (s *ClaudeJudgeScorer) Score(ctx context.Context, e Entry, m Meta, plan Pla
 		TruthFiles:    truth,
 	}
 
-	// NEW-4 multi-stage metrics — all pure-Go, deterministic. Each is
+	// Multi-stage metrics — all pure-Go, deterministic. Each is
 	// guarded so legacy fixture rows (no IntentGroundTruth,
 	// ChangedSymbols, or Commits) emit zero/omitempty fields instead of
 	// false positives. The IntentCosine variant is populated by
@@ -144,7 +143,7 @@ func (s *ClaudeJudgeScorer) Score(ctx context.Context, e Entry, m Meta, plan Pla
 // concrete (0.0 / 0.5 / 1.0 anchored to clear cases) so the LLM lands
 // on stable scores across reruns instead of drifting per-call.
 //
-// Alternative-solution policy (PRR-5): software problems usually admit
+// Alternative-solution policy: software problems usually admit
 // more than one correct fix. The rubric now credits plans whose
 // approach would actually solve the PROBLEM, even when the files they
 // touch differ from the merged diff. The diff is *one* known-good

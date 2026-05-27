@@ -46,15 +46,15 @@ type Options struct {
 	// sets this to os.Stderr; tests can inject a bytes.Buffer.
 	ProgressOut io.Writer
 
-	// DisableContextualPrefix turns off the rule-based contextual prefix
-	// (Phase D.1). The default (zero value, prefix on) prepends a one-line
+	// DisableContextualPrefix turns off the rule-based contextual prefix.
+	// The default (zero value, prefix on) prepends a one-line
 	// "language: X. file: Y. symbol: Z." sentence to each chunk's embed
 	// text — improving recall@1 on natural-language queries at ~5%
 	// throughput cost. Disable for A/B measurement against the raw-text
 	// baseline. Chunk IDs and the stored Text are unaffected either way.
 	DisableContextualPrefix bool
 
-	// PR corpus (NEW-3). When non-nil, the build fetches merged PRs
+	// PR corpus. When non-nil, the build fetches merged PRs
 	// via `gh` CLI and indexes their descriptions + commit messages
 	// as additional chunks alongside the source code.
 	PRFetch *PRFetchOptions
@@ -148,7 +148,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	mergedIgnore := append([]string{}, cfg.Ignore...)
 	mergedIgnore = append(mergedIgnore, o.CKVIgnore...)
 
-	// Resolve `build_roots` (ckv.yaml FU-9): turn the listed Go entry
+	// Resolve `build_roots` (ckv.yaml): turn the listed Go entry
 	// packages into a file-set the walker uses as a filter. When
 	// build_roots is empty, the filter stays nil and the walk yields
 	// every Go file under srcRoot, just like before.
@@ -202,7 +202,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	chunker := chunk.New(chunkOpts)
 
-	// Phase D.1 contextual prefix: default on, opt-out via Options.
+	// Rule-based contextual prefix: default on, opt-out via Options.
 	// The chunk's raw Text is still what gets persisted and returned in
 	// snippets — only the *embedder input* changes.
 	embedTextFn := chunk.BuildEmbedText
@@ -278,14 +278,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 
-	// PR corpus (NEW-3 + NEW-6): fetch merged PRs, index as chunks, and
-	// tag source chunks with file→PR breadcrumbs.
+	// PR corpus: fetch merged PRs, index as chunks, and tag source
+	// chunks with file→PR breadcrumbs.
 	if o.PRFetch != nil {
 		prMetas, err := FetchMergedPRs(ctx, o.SrcRoot, *o.PRFetch)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ckv: pr-fetch warning: %v\n", err)
 		} else if len(prMetas) > 0 {
-			// NEW-3: index PR description + commit message chunks.
+			// Index PR description + commit message chunks.
 			var prChunks []types.Chunk
 			for _, meta := range prMetas {
 				prChunks = append(prChunks, prdoc.Parse(meta)...)
@@ -299,7 +299,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				totalStats.PRDoc += s.PRDoc
 			}
 
-			// NEW-6: build file→PRRef map, then re-upsert source chunks
+			// Build file→PRRef map, then re-upsert source chunks
 			// that have matching files so they carry PR breadcrumbs.
 			filePRs := buildFilePRMap(prMetas)
 			if len(filePRs) > 0 {
@@ -374,7 +374,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 // embedAndUpsert batches the chunks through the embedder and upserts
 // the resulting (chunk, vector) pairs into the store. embedTextFn picks
 // what gets sent to the embedder per chunk; callers pass chunk.BuildEmbedText
-// for the Phase D.1 contextual prefix or chunk.RawEmbedText for the
+// for the rule-based contextual prefix or chunk.RawEmbedText for the
 // raw-baseline behavior. The persisted chunk Text is unchanged either
 // way so snippet display and chunk IDs stay stable.
 //

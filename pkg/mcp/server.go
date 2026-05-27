@@ -7,7 +7,7 @@
 // deliberate so callers (coding agent, CKS) can mount the write surface
 // behind tighter policy than the read surface.
 //
-// Tools exposed today (read-only, plan §8.2):
+// Tools exposed today (read-only):
 //   - cks.context.semantic_search  — query.Engine.Search wrapper
 //   - cks.ops.get_freshness        — freshness.Check wrapper
 //   - cks.ops.health               — embedder + index identity probe
@@ -15,8 +15,7 @@
 //
 // Transport is stdio by default (Claude Code default). This package is
 // importable by **CKS** — CKS multiplexes CKV's tools alongside CKG's
-// in its own combined `cks-mcp` binary. See plan-S1-ckv.md §7 for the
-// (CKS-side) integration shape.
+// in its own combined `cks-mcp` binary.
 package mcp
 
 import (
@@ -37,11 +36,11 @@ import (
 // ServerName / ServerVersion are surfaced to MCP clients on init.
 const (
 	ServerName    = "ckv"
-	ServerVersion = "0.1.0-S1W3"
+	ServerVersion = "0.1.0"
 )
 
 // ResponseSchemaVersion is the version tag every tool response carries
-// in the top-level "schema_version" field. Bumps follow CKV-7:
+// in the top-level "schema_version" field. Bump policy:
 //
 //   - patch (1.0 → 1.0.1) is reserved; we don't ship patch bumps.
 //   - minor (1 → 1.1): purely additive — new fields, new tools, new
@@ -79,8 +78,7 @@ func WithFootprint(fp *footprint.Logger) Option {
 // tool handler. Without it, a panic in handleSemanticSearch (nil
 // engine, ranking math, snippet decode) would unwind past the MCP
 // server, terminate ckv mcp, close the stdio writer, and surface on
-// the cks side as "transport closed" — see CKV-4 in
-// docs/followups-from-cks-dogfood-2026-05-19.md. With recovery the
+// the cks side as "transport closed." With recovery the
 // process stays alive and the panicking call returns a normal MCP
 // tool error so cks can continue using the same subprocess.
 func NewServer(eng *query.Engine, opts ...Option) *Server {
@@ -146,7 +144,7 @@ func (s *Server) registerTools() {
 			mcpgo.Description("Path to a vocabulary-bridge glossary YAML (korean/vague phrase → english code keywords). When set, the intent is widened with matched keywords before embedding — useful for Korean queries against an English code corpus. Empty disables expansion."),
 		),
 		mcpgo.WithBoolean("bm25_rerank",
-			mcpgo.Description("Experimental (NEW-9 / ADR-006): rerank vector candidates with candidate-set BM25 + RRF fusion before threshold drop. Default false — ADR-003 vector-only behavior is preserved when the flag is absent. Affects hit ordering, populates Hit.Score.BM25Score and Hit.Score.HybridRank when enabled."),
+			mcpgo.Description("Experimental: rerank vector candidates with candidate-set BM25 + RRF fusion before threshold drop. Default false — vector-only behavior is preserved when the flag is absent. Affects hit ordering, populates Hit.Score.BM25Score and Hit.Score.HybridRank when enabled."),
 		),
 		mcpgo.WithNumber("budget_tokens",
 			mcpgo.Description("Snippet density budget in tokens (default 4000)."),
@@ -262,7 +260,7 @@ func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpg
 	embInfo := s.engine.EmbedderInfo()
 	// Flat manifest fields stay so existing parsers (cks legacy
 	// ckvclient.parseHealthResult) keep working. The nested objects
-	// carry the CKV-6 expansion: embedder status / provider / model_dir
+	// carry embedder status / provider / model_dir
 	// and index identity grouped together — lets a caller render
 	// "degraded — embedder=stub" without reverse-engineering the
 	// embedding_model string.
@@ -288,7 +286,7 @@ func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpg
 // jsonResult marshals payload into a CallToolResult.Text. MCP tools
 // today exchange strings; we use JSON so clients can parse structurally.
 //
-// Every response carries a top-level "schema_version" field (CKV-7).
+// Every response carries a top-level "schema_version" field.
 // The injection is centralized here so adding a new tool can't forget
 // the contract. Implementation does a json round-trip rather than
 // reflection so it works uniformly for map payloads and named structs

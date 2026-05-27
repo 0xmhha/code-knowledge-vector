@@ -8,8 +8,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 )
 
-// DefaultK is the top-K used by Run when Options.K is zero. 5 matches
-// the eval guarantee in EXECUTION-GUIDE §5.1.
+// DefaultK is the top-K used by Run when Options.K is zero.
 const DefaultK = 5
 
 // Options control one eval pass.
@@ -18,10 +17,10 @@ type Options struct {
 	Threshold float64      // pass-through to query.Options.Threshold; <0 disables
 	SrcRoot   string       // pass-through for citation enforcement; empty → manifest default
 	Judge     judge.Judge  // optional LLM-as-judge; nil → automatic metrics only
-	// EnableBM25Rerank toggles NEW-9 / ADR-006 BM25 candidate-rerank on
-	// the eval pass. Defaults false so existing baselines are preserved
-	// by default. Both A and B legs of an A/B comparison use the same
-	// fixture + engine, only this flag differs.
+	// EnableBM25Rerank toggles BM25 candidate-rerank on the eval pass.
+	// Defaults false so existing baselines are preserved by default.
+	// Both A and B legs of an A/B comparison use the same fixture +
+	// engine, only this flag differs.
 	EnableBM25Rerank bool
 }
 

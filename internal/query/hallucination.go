@@ -11,7 +11,7 @@ import (
 // claimed file location; Verified=false flags a hallucination signal
 // with a short Reason so log readers can debug without re-running.
 //
-// Phase 3 (D5) of docs/evaluation-design-2026-05-22.md. The operational
+// The operational
 // definition: a hit is *not* a hallucination if its snippet appears as
 // a (whitespace-normalized) substring of the cited file's line range.
 // This handles every density tier — DensitySignatureOnly is naturally a

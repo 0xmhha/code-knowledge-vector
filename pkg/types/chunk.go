@@ -11,8 +11,7 @@ import (
 )
 
 // SymbolKind enumerates the AST node kinds CKV chunks against. Stored as a
-// plain string for forward-compatibility with new languages (e.g. Solidity
-// "Event"/"Modifier" pending the plan §10 q1 decision).
+// plain string for forward-compatibility with new languages.
 type SymbolKind string
 
 const (
@@ -25,7 +24,7 @@ const (
 	KindEvent      SymbolKind = "Event"    // Solidity (TBD)
 	KindModifier   SymbolKind = "Modifier" // Solidity (TBD)
 	KindFileHeader SymbolKind = "FileHeader"
-	// Markdown indexing kinds (review-direction-2026-05-18.md Appendix B.1.b).
+	// Markdown indexing kinds.
 	// Each heading-bounded section in a *.md / *.markdown file becomes one
 	// SymbolSpan; the chunker emits a chunk per span so "왜 X 결정했나" style
 	// queries can hit a specific decision section.
@@ -48,7 +47,7 @@ const (
 	// promotes spans whose SymbolKind is DocSection or ADRSection.
 	ChunkDoc ChunkKind = "doc"
 
-	// PR corpus kinds (NEW-3). Additive — existing schema_version 1.0
+	// PR corpus kinds. Additive — existing schema_version 1.0
 	// indexes continue working; these appear only in indexes built with
 	// --include-pr-history.
 	ChunkPRBackground  ChunkKind = "pr_background"
@@ -67,7 +66,7 @@ type PRRef struct {
 
 // Citation is the {file, start_line, end_line, commit_hash} tuple CKV
 // attaches to every chunk and every search hit. CKG uses the same shape,
-// so hybrid responses can be merged without translation (plan §10.1).
+// so hybrid responses can be merged without translation.
 type Citation struct {
 	File       string `json:"file"`
 	StartLine  int    `json:"start_line"`
@@ -91,7 +90,7 @@ type Chunk struct {
 	CommitHash    string     `json:"commit_hash"`
 	ContentSHA256 string     `json:"content_sha256"`
 	CKGNodeID     string     `json:"ckg_node_id,omitempty"` // 1:1 alignment when CKG path is provided
-	RecentPRs     []PRRef    `json:"recent_prs,omitempty"`  // NEW-6: PRs that touched this chunk's file
+	RecentPRs     []PRRef    `json:"recent_prs,omitempty"`  // PRs that touched this chunk's file
 	Text          string     `json:"text"`                  // chunk source (for re-embedding / display)
 }
 
@@ -106,13 +105,13 @@ func (c Chunk) Citation() Citation {
 	}
 }
 
-// ChunkID computes the deterministic chunk identifier per plan §5.4:
+// ChunkID computes the deterministic chunk identifier:
 //
 //	sha256(file + "\n" + start_line + ":" + end_line + "\n" + content_sha256)
 //
 // content_sha256 is the SHA-256 of the chunk Text (raw bytes — no whitespace
 // normalization). A rename of the file changes the ID; this is intentional —
-// rename tracking is the caller's responsibility (see §5.4 "파일 이동" note).
+// rename tracking is the caller's responsibility.
 func ChunkID(file string, startLine, endLine int, contentSHA256 string) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\n%d:%d\n%s", file, startLine, endLine, contentSHA256)

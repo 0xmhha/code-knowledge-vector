@@ -5,8 +5,8 @@ import "context"
 // Session is the ONNX Runtime concern: take tokenized tensors, run
 // the model graph, return pooled+normalized 1024-d vectors.
 //
-// Production impl (D1-FU-1): `yalue/onnxruntime_go` behind the
-// `bgeonnx` build tag so existing CI without libonnxruntime stays green.
+// Production impl: `yalue/onnxruntime_go` behind the `bgeonnx` build
+// tag so existing CI without libonnxruntime stays green.
 //
 // Pooling + normalization happen here, not at the caller. bge-* models
 // use mean pooling over the token dimension (masked by attention),
@@ -34,7 +34,7 @@ type Session interface {
 	Close() error
 }
 
-// stubSession returns ErrNotImplemented. Used until D1-FU-1 lands.
+// stubSession returns ErrNotImplemented for non-bgeonnx builds.
 type stubSession struct{}
 
 func (stubSession) Run(_ context.Context, _ TokenizedBatch) ([][]float32, error) {

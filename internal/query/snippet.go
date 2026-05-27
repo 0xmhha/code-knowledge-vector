@@ -17,7 +17,6 @@ const charsPerToken = 4
 const DefaultSignatureContextLines = 5
 
 // DensityTier names the three snippet shapes the engine can emit.
-// Plan §4.3, featurelist §4.3, backlog B3.
 //
 //   - DensityFull          — chunk's complete Text. Default when budget
 //     room allows.
@@ -53,7 +52,7 @@ const (
 //     minimum.
 //
 // Each Hit's Density field reports the final tier it landed in.
-// Citation is *not* counted against the budget — plan §4.3.
+// Citation is *not* counted against the budget.
 // Returns the response hits plus the final tokensUsed estimate.
 func DensityAdjust(hits []types.Hit, budgetTokens int) (out []Hit, tokensUsed int) {
 	return DensityAdjustWith(hits, budgetTokens, DensityFull, DefaultSignatureContextLines)

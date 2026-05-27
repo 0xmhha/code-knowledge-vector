@@ -1,10 +1,10 @@
 // Package discover — Go build-root resolution.
 //
-// FU-9 lets ckv.yaml say "index only the files reachable from these
-// Go entry packages." This file is the bridge: given entry packages
-// (./cmd/ckv, ./cmd/server, ...), it asks `go list -json -deps` what
-// the transitive dependency closure looks like and returns the absolute
-// paths of every .go file those packages own.
+// ckv.yaml build_roots lets users say "index only the files reachable
+// from these Go entry packages." This file is the bridge: given entry
+// packages (./cmd/ckv, ./cmd/server, ...), it asks `go list -json -deps`
+// what the transitive dependency closure looks like and returns the
+// absolute paths of every .go file those packages own.
 //
 // The returned set is then passed to Walk() as a filter — files outside
 // the set are simply skipped during the walk, even if they sit inside

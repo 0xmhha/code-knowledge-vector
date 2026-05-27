@@ -1,6 +1,6 @@
 // Package markdown parses *.md / *.markdown files into heading-level
 // SymbolSpans so docs/ADR content becomes searchable alongside source
-// code (review-direction-2026-05-18.md Appendix B.1.b).
+// code.
 //
 // Strategy: line-based scan, no external dependency. Why direct rather
 // than goldmark?

@@ -8,7 +8,7 @@ import "context"
 //                                a model registry (see model_config.go),
 //                                currently bge-large-en-v1.5 by default.
 //
-// Plan §3:
+// Embedder interface contract:
 //   - Name returns a stable identifier persisted in the manifest
 //     (e.g. "bge-large-en-v1.5"). Mismatch on rebuild → IndexUnavailable.
 //   - Dimension is the vector length. Used to size the sqlite-vec column.

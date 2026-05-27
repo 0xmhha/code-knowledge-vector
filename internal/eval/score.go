@@ -44,8 +44,8 @@ type Aggregate struct {
 // Score compares one query's response against its expected target.
 // k is the effective top-K used for recall counting. When srcRoot is
 // non-empty, every returned hit is also verified against the source
-// tree (Phase 3 / D5) and the per-query hallucination_count is
-// populated. Empty srcRoot leaves hallucination fields zero.
+// tree and the per-query hallucination_count is populated. Empty
+// srcRoot leaves hallucination fields zero.
 func Score(q Query, resp *query.Response, k int, srcRoot string) PerQuery {
 	out := PerQuery{
 		QueryID:      q.ID,

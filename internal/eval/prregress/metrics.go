@@ -11,10 +11,10 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
-// Multi-stage evaluation metrics (NEW-4, evaluation-design §10.2).
+// Multi-stage evaluation metrics.
 //
-// The legacy JudgeScore combines E3 (plan-vs-diff approach) and E4 (code
-// generation) into one LLM-graded number. These metrics decompose the
+// The legacy JudgeScore combines plan-vs-diff approach and code
+// generation into one LLM-graded number. These metrics decompose the
 // signal so a regression report can answer "which stage did the agent
 // stumble on?" rather than "the score dropped, somewhere."
 //

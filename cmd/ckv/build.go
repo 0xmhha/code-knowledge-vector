@@ -32,12 +32,11 @@ func newBuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build",
 		Short: "Build the vector index from a code repository",
-		Long: `Walks --src, parses supported languages (Go in W2; TS/Solidity W3),
+		Long: `Walks --src, parses supported languages (Go, TypeScript, Solidity, JavaScript, Markdown),
 chunks function/method/type spans, embeds each chunk, and persists to
 <out>/vector.db + <out>/manifest.json.
 
-Re-running on a populated --out updates chunks in place (Upsert).
-Incremental indexing (--since) lands in S2.`,
+Re-running on a populated --out updates chunks in place (Upsert).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBuild(cmd.Context(), opts)
 		},
@@ -46,9 +45,9 @@ Incremental indexing (--since) lands in S2.`,
 	f := cmd.Flags()
 	f.StringVar(&opts.src, "src", ".", "source repository path")
 	f.StringVar(&opts.out, "out", "./ckv-data", "output data directory (vector.db, manifest.json)")
-	f.StringVar(&opts.ckgPath, "ckg", "", "CKG data directory for symbol alignment (optional; W3)")
+	f.StringVar(&opts.ckgPath, "ckg", "", "CKG data directory for symbol alignment (optional)")
 	f.StringSliceVar(&opts.languages, "lang", nil, "languages to index (default: auto-detect; supported: go, typescript, javascript, solidity, markdown)")
-	f.StringVar(&opts.configPth, "config", "", "path to ckv.yaml (optional; W3)")
+	f.StringVar(&opts.configPth, "config", "", "path to ckv.yaml (optional)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 	f.BoolVar(&opts.includePR, "include-pr-history", false, "fetch merged PRs via gh CLI and index descriptions + commit messages")
 	f.StringVar(&opts.prSince, "pr-since", "", "only PRs merged after this date (YYYY-MM-DD); requires --include-pr-history")
