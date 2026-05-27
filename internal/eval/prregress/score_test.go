@@ -79,11 +79,11 @@ func TestExtractJudgeVerdict_RejectsUnparseable(t *testing.T) {
 	}
 }
 
-// TestScore_PopulatesMultiStageWhenGroundTruthPresent verifies NEW-4
-// integration: when an Entry has IntentGroundTruth + ChangedSymbols and
-// Meta has CommitMessages, the scorer populates IntentScore / SymbolF1
-// fields / PlanStepsScore alongside the legacy FileF1 — independent of
-// the LLM-judge subprocess.
+// TestScore_PopulatesMultiStageWhenGroundTruthPresent verifies multi-stage
+// scoring: when an Entry has IntentGroundTruth + ChangedSymbols and Meta
+// has CommitMessages, the scorer populates IntentScore / SymbolF1 fields /
+// PlanStepsScore alongside the legacy FileF1 — independent of the
+// LLM-judge subprocess.
 func TestScore_PopulatesMultiStageWhenGroundTruthPresent(t *testing.T) {
 	scorer := &ClaudeJudgeScorer{Binary: "definitely-not-a-real-binary-9af3"}
 	plan := Plan{

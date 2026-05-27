@@ -100,10 +100,9 @@ func TestSignatureWithContext(t *testing.T) {
 }
 
 // TestDensityReportsTierPerHit verifies each Hit carries the tier it
-// was rendered at. Featurelist §4.3 / backlog B3: consumers need to
-// know whether a snippet was downgraded so they can render badges,
-// log compression statistics, or decide whether to fetch the body
-// out-of-band.
+// was rendered at. Consumers need to know whether a snippet was
+// downgraded so they can render badges, log compression statistics,
+// or decide whether to fetch the body out-of-band.
 func TestDensityReportsTierPerHit(t *testing.T) {
 	long := strings.Repeat("// comment line\n", 50)
 	hits := []types.Hit{

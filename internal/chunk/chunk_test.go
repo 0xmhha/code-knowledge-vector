@@ -87,9 +87,9 @@ func TestTruncationKeepsHeadAndMarker(t *testing.T) {
 	}
 }
 
-// TestLongFunctionSplitsIntoMultipleChunks exercises B1 (Phase A):
-// a multi-line function body that exceeds MaxInputTokens gets split
-// into N ChunkFunctionSplit chunks instead of being head-truncated.
+// TestLongFunctionSplitsIntoMultipleChunks verifies that a multi-line
+// function body exceeding MaxInputTokens gets split into N
+// ChunkFunctionSplit chunks instead of being head-truncated.
 func TestLongFunctionSplitsIntoMultipleChunks(t *testing.T) {
 	// 60 distinct lines, each ~20 chars → ~1200 chars total.
 	bodyLines := []string{}

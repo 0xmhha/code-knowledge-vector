@@ -169,9 +169,9 @@ func TestGoBuildFilesFilter_DoesNotAffectOtherLanguages(t *testing.T) {
 // never reach the indexer. Each pattern is exercised so a future edit
 // to DefaultSecretPatterns doesn't silently drop coverage.
 //
-// Security goal (featurelist §15.2, backlog B9): a leaked secret embedded
-// in sqlite-vec is recoverable only by rotating the credential and
-// rebuilding the index — block at discovery instead.
+// Security goal: a leaked secret embedded in sqlite-vec is recoverable
+// only by rotating the credential and rebuilding the index — block at
+// discovery instead.
 func TestDefaultSecretPatternsBlocked(t *testing.T) {
 	dir := t.TempDir()
 	// Sentinel that MUST be indexed so we know the walk is actually running.
@@ -288,7 +288,7 @@ func TestGoBuildFilesFilter_NilMapMeansNoFilter(t *testing.T) {
 	want := []string{"a.go", "b.go"}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Errorf("got %v, want %v (nil map = pre-FU-9 behavior)", got, want)
+		t.Errorf("got %v, want %v (nil map = walk-all-files default)", got, want)
 	}
 }
 

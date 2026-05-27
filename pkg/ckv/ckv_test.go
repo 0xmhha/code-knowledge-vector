@@ -164,10 +164,9 @@ func TestEngine_WarmupAfterCloseFails(t *testing.T) {
 }
 
 // TestErrorModel_AllSentinelsExported verifies the 6 error variants
-// from featurelist §8.4 are reachable via pkg/ckv with errors.Is
-// semantics. Forward-compat: consumers writing switch errors.Is(...)
-// today must continue to work as we wire raise points for SanitizeFailed
-// (S2) and PolicyError (S6).
+// are reachable via pkg/ckv with errors.Is semantics. Forward-compat:
+// consumers writing switch errors.Is(...) today must continue to work
+// as we wire raise points for SanitizeFailed and PolicyError.
 func TestErrorModel_AllSentinelsExported(t *testing.T) {
 	sentinels := map[string]error{
 		"IndexUnavailable": ckv.ErrIndexUnavailable,

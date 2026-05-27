@@ -40,10 +40,10 @@ prs:
 	}
 }
 
-// TestLoadFixture_ParsesNewMultiStageFields verifies the NEW-5 fixture
-// expansion (2026-05-22) — Entry now carries intent_ground_truth /
-// changed_symbols / category, all optional. Legacy entries without
-// them must still load unchanged.
+// TestLoadFixture_ParsesNewMultiStageFields verifies multi-stage fixture
+// fields — Entry now carries intent_ground_truth / changed_symbols /
+// category, all optional. Legacy entries without them must still load
+// unchanged.
 func TestLoadFixture_ParsesNewMultiStageFields(t *testing.T) {
 	path := writeFixture(t, `
 schema_version: "1"
@@ -91,9 +91,9 @@ prs:
 }
 
 // TestLoadFixture_RealCorpusHasTwelveEntries verifies the actual
-// testdata/prs.yaml shipped in the repo has exactly the 12 entries
-// promised by NEW-5. Catches accidental deletion / duplication during
-// future fixture edits.
+// testdata/prs.yaml shipped in the repo has exactly 12 entries.
+// Catches accidental deletion / duplication during future fixture
+// edits.
 //
 // The fixture's source_path field is a ${CKV_STABLENET_PATH} placeholder
 // (portable handoff). LoadFixture validates source_path is non-empty, so
@@ -107,7 +107,7 @@ func TestLoadFixture_RealCorpusHasTwelveEntries(t *testing.T) {
 		t.Fatalf("LoadFixture(%s): %v", path, err)
 	}
 	if got, want := len(fx.PRs), 12; got != want {
-		t.Errorf("entry count = %d, want %d (NEW-5 expansion)", got, want)
+		t.Errorf("entry count = %d, want %d (multi-stage fixture set)", got, want)
 	}
 	// Every entry's source_path must be the expanded env value
 	// (not the literal placeholder) — the file currently ships with

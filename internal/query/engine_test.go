@@ -210,12 +210,11 @@ func TestSearch_DryRunSkipsEmbedAndStore(t *testing.T) {
 	}
 }
 
-// TestSearch_EmitsFiveSubSpans verifies Phase 1 (D4) footprint
-// granularity: every Search call emits the five query.* sub-spans
-// (embed / store.search / threshold.drop / citation.enforce /
-// density.adjust) alongside the existing top-level query.search.
-// Each sub-span carries the same trace_id so log readers can group
-// them.
+// TestSearch_EmitsFiveSubSpans verifies trace granularity: every Search
+// call emits the five query.* sub-spans (embed / store.search /
+// threshold.drop / citation.enforce / density.adjust) alongside the
+// existing top-level query.search. Each sub-span carries the same
+// trace_id so log readers can group them.
 func TestSearch_EmitsFiveSubSpans(t *testing.T) {
 	out, _ := buildSample(t)
 
@@ -344,7 +343,7 @@ func TestThresholdDropEmitsWarning(t *testing.T) {
 
 func TestSplitByTest_NoSeparationReturnsAllAsPrimary(t *testing.T) {
 	// ExamplesK=0 → separateTests=false: every hit stays in primary,
-	// examples stays nil. Preserves pre-FU-10 single-list behavior.
+	// examples stays nil. Preserves single-list default behavior.
 	hits := []types.Hit{
 		{Chunk: types.Chunk{File: "a.go", IsTest: false}},
 		{Chunk: types.Chunk{File: "a_test.go", IsTest: true}},

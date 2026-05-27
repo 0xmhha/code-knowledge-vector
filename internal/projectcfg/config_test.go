@@ -156,7 +156,7 @@ build_roots:
 
 func TestBuildRootsAbsentMeansFullCorpus(t *testing.T) {
 	// Absent build_roots: the build layer must walk every file under
-	// srcRoot — same behavior as before FU-9 landed.
+	// srcRoot — the default walk-all-files behavior.
 	dir := t.TempDir()
 	writeYAML(t, dir, `schema_version: "1"`)
 	cfg, err := Load(dir)

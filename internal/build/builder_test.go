@@ -222,7 +222,7 @@ func TestRunEmitsProgressFinalLine(t *testing.T) {
 
 func TestRunHonorsNilProgressOut(t *testing.T) {
 	// Library callers leave ProgressOut nil. Behavior must stay
-	// identical to pre-FU-X: no panic, no stray writes.
+	// identical to the default: no panic, no stray writes.
 	src := resolveTestdataSample(t)
 	_, err := Run(context.Background(), Options{
 		SrcRoot:  src,
