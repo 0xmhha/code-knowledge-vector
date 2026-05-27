@@ -31,7 +31,7 @@ func TestAdapter_NonDarwin(t *testing.T) {
 }
 
 func TestAdapter_InterfaceMethods(t *testing.T) {
-	a := &Adapter{modelName: "test", dim: 768}
+	a := &Adapter{modelName: "test", dim: 768, maxSeqLen: 512}
 	if runtime.GOOS != "darwin" {
 		if a.Name() != "" {
 			t.Errorf("non-darwin Name should be empty")
@@ -44,15 +44,33 @@ func TestAdapter_InterfaceMethods(t *testing.T) {
 	if a.Dimension() != 768 {
 		t.Errorf("Dimension = %d, want 768", a.Dimension())
 	}
+	if a.MaxInputTokens() != 512 {
+		t.Errorf("MaxInputTokens = %d, want 512", a.MaxInputTokens())
+	}
 }
 
-func TestEmbed_NotYetImplemented(t *testing.T) {
+func TestEmbed_EmptyBatch(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("darwin only")
 	}
-	a := &Adapter{modelName: "test", dim: 768}
+	a := &Adapter{modelName: "test", dim: 768, maxSeqLen: 512}
+	vecs, err := a.Embed(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Embed(nil): %v", err)
+	}
+	if vecs != nil {
+		t.Errorf("expected nil for empty batch")
+	}
+}
+
+func TestEmbed_RequiresLoadedModel(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin only")
+	}
+	// No model loaded → predict should fail with error, not panic
+	a := &Adapter{modelName: "test", dim: 768, maxSeqLen: 32}
 	_, err := a.Embed(context.Background(), []string{"hello"})
 	if err == nil {
-		t.Fatal("expected error — Embed is placeholder")
+		t.Fatal("expected error when no model is loaded")
 	}
 }

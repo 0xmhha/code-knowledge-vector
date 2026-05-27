@@ -21,6 +21,7 @@ type Adapter struct {
 	modelPath string
 	modelName string
 	dim       int
+	maxSeqLen int
 }
 
 // Options configures the CoreML adapter.
@@ -28,6 +29,7 @@ type Options struct {
 	ModelPath string // path to .mlpackage or .mlmodelc directory
 	ModelName string // display name for manifest
 	Dim       int    // output vector dimension (must match model)
+	MaxSeqLen int    // max sequence length for tokenization (default 512)
 }
 
 // errNotAvailable is returned on non-macOS platforms.
