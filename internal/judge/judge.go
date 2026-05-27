@@ -31,7 +31,7 @@ import (
 // Verdict is one LLM judgment about one (intent, hits) pair.
 type Verdict struct {
 	QueryID   string `json:"query_id"`
-	Score     int    `json:"score"`     // 1..5; 0 if parsing failed
+	Score     int    `json:"score"` // 1..5; 0 if parsing failed
 	Rationale string `json:"rationale,omitempty"`
 	Raw       string `json:"raw,omitempty"` // raw LLM stdout (truncated)
 	Error     string `json:"error,omitempty"`

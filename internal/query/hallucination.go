@@ -120,4 +120,3 @@ func stripBlanks(s string) string {
 	}
 	return strings.TrimRight(b.String(), " ")
 }
-

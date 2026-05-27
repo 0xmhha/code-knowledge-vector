@@ -19,7 +19,7 @@ type SymbolSpan struct {
 	Kind      types.SymbolKind // KindFunction, KindMethod, ...
 	StartLine int
 	EndLine   int
-	Text      string           // raw source for this span (signature + body)
+	Text      string // raw source for this span (signature + body)
 }
 
 // Parser is the contract every per-language parser fulfills.

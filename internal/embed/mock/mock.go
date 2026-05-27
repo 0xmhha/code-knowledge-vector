@@ -51,9 +51,9 @@ func New(dim int, name string) *Embedder {
 // Default returns a mock with conventional name/dim.
 func Default() *Embedder { return New(defaultDim, defaultName) }
 
-func (e *Embedder) Name() string         { return e.name }
-func (e *Embedder) Dimension() int       { return e.dim }
-func (e *Embedder) MaxInputTokens() int  { return math.MaxInt32 } // no truncation
+func (e *Embedder) Name() string        { return e.name }
+func (e *Embedder) Dimension() int      { return e.dim }
+func (e *Embedder) MaxInputTokens() int { return math.MaxInt32 } // no truncation
 
 // Embed produces one vector per input string. Pure-Go and synchronous;
 // the context is honored only via early-exit on Done.

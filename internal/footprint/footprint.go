@@ -1,12 +1,12 @@
 // Package footprint records structured events about every CKV operation
 // — build, query, MCP tool call — to two sinks:
 //
-//   1. **slog** (stderr by default). Operator-readable.
-//   2. **JSONL** at <out>/footprint.jsonl, one object per line. Append-
-//      only, machine-readable. This is the *seed* of the future
-//      read-write working-memory MCP: the memory layer reads this log
-//      (or a SQLite mirror of it) to recall what was asked, what we
-//      answered, and how well it worked.
+//  1. **slog** (stderr by default). Operator-readable.
+//  2. **JSONL** at <out>/footprint.jsonl, one object per line. Append-
+//     only, machine-readable. This is the *seed* of the future
+//     read-write working-memory MCP: the memory layer reads this log
+//     (or a SQLite mirror of it) to recall what was asked, what we
+//     answered, and how well it worked.
 //
 // Schema stability matters: every event has the same envelope
 // (timestamp, event, trace_id, latency_ms, error) plus an event-specific
@@ -87,11 +87,11 @@ type Logger struct {
 // holding every latency we saw. For typical builds that's <20 names
 // with <100 latencies each — well within budget.
 type profileBucket struct {
-	Count     int     `json:"count"`
-	SumMs     int64   `json:"latency_ms_sum"`
-	P50Ms     int64   `json:"latency_ms_p50"`
-	P95Ms     int64   `json:"latency_ms_p95"`
-	samples   []int64 // raw latencies; finalize sorts + percentiles
+	Count   int     `json:"count"`
+	SumMs   int64   `json:"latency_ms_sum"`
+	P50Ms   int64   `json:"latency_ms_p50"`
+	P95Ms   int64   `json:"latency_ms_p95"`
+	samples []int64 // raw latencies; finalize sorts + percentiles
 }
 
 // New constructs a Logger. The slog sink is always installed (stderr
@@ -164,8 +164,8 @@ func (l *Logger) writeProfile() error {
 		finalizePercentiles(b)
 	}
 	out := struct {
-		RunID    string                    `json:"run_id"`
-		Events   map[string]*profileBucket `json:"events"`
+		RunID  string                    `json:"run_id"`
+		Events map[string]*profileBucket `json:"events"`
 	}{RunID: l.runID, Events: l.profile}
 	l.mu.Unlock()
 

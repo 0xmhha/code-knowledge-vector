@@ -89,12 +89,12 @@ func RunFixture(ctx context.Context, fx *Fixture, opts *RunOptions) ([]Result, e
 // pre-computed parts of Score / Plan / Meta still appear in the report
 // so the user can see how far the pipeline got.
 //
-//	1. fetch PR metadata (gh CLI)
-//	2. create detached git worktree at base_sha
-//	3. ckv build over the worktree
-//	4. ckv query (Background as the intent) → top-K hints
-//	5. agent generates plan (Background + hints)
-//	6. fetch PR diff + score (plan vs diff)
+//  1. fetch PR metadata (gh CLI)
+//  2. create detached git worktree at base_sha
+//  3. ckv build over the worktree
+//  4. ckv query (Background as the intent) → top-K hints
+//  5. agent generates plan (Background + hints)
+//  6. fetch PR diff + score (plan vs diff)
 func RunEntry(ctx context.Context, e Entry, opts *RunOptions) Result {
 	if opts == nil {
 		opts = &RunOptions{}

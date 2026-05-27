@@ -34,7 +34,7 @@ func TestOkapi_TopKSortsDescending(t *testing.T) {
 	o := NewOkapi()
 	o.Index([]Document{
 		{ID: "a", Tokens: []string{"foo"}},
-		{ID: "b", Tokens: []string{"foo", "foo"}},  // higher TF → higher score
+		{ID: "b", Tokens: []string{"foo", "foo"}}, // higher TF → higher score
 		{ID: "c", Tokens: []string{"bar"}},
 	})
 	top := o.TopK([]string{"foo"}, 0)

@@ -98,17 +98,17 @@ func coreMLDisabled() bool {
 //
 //   - "coreml"                 — attach succeeded.
 //   - "coreml-fallback-to-cpu" — attach errored; ORT will use CPU. We
-//                                deliberately do NOT propagate the
-//                                error: a missing/broken CoreML stack
-//                                must not block index builds, only
-//                                slow them.
+//     deliberately do NOT propagate the
+//     error: a missing/broken CoreML stack
+//     must not block index builds, only
+//     slow them.
 //
 // MLComputeUnits selects which compute units ORT may dispatch to:
 //
 //   - "ALL"        (default) — CPU + GPU + ANE
 //   - "CPUAndGPU"            — CPU + GPU, no ANE (workaround for ANE
-//                              compile I/O errors — see
-//                              docs/issue-coreml-compile-io-error.md)
+//     compile I/O errors — see
+//     docs/issue-coreml-compile-io-error.md)
 //   - "CPUOnly"             — CoreML attached but runs CPU only
 //
 // Override via env CKV_COREML_UNITS. Note: this only affects the V2

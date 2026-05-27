@@ -108,7 +108,7 @@ type ReindexResult struct {
 //  2. Compute the change set:
 //     - if ReindexOptions.Files is set, use it verbatim;
 //     - else `git diff --name-status PrevHead..HEAD` partitions paths
-//       into added / modified / deleted (renames split into delete+add).
+//     into added / modified / deleted (renames split into delete+add).
 //  3. For deletions: store.DeleteByFile.
 //  4. For adds + modifications: parse → chunk → DeleteByFile (idempotent
 //     for adds) → embed → upsert.

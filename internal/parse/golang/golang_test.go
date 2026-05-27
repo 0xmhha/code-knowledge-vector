@@ -33,10 +33,10 @@ type Handler interface {
 	}
 
 	want := map[string]types.SymbolKind{
-		"Greet":         types.KindFunction,
-		"Server":        types.KindStruct,
-		"Server.Serve":  types.KindMethod,
-		"Handler":       types.KindInterface,
+		"Greet":        types.KindFunction,
+		"Server":       types.KindStruct,
+		"Server.Serve": types.KindMethod,
+		"Handler":      types.KindInterface,
 	}
 	if len(spans) != len(want) {
 		t.Fatalf("got %d spans, want %d (%+v)", len(spans), len(want), spans)

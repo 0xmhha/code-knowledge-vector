@@ -18,7 +18,7 @@ func TestExpandQuery_NoAliasesReturnsIntentUnchanged(t *testing.T) {
 
 func TestExpandQuery_KoreanPhraseGetsEnglishKeywords(t *testing.T) {
 	aliases := AliasMap{
-		"0번 블록":      {"genesis", "GenesisAlloc"},
+		"0번 블록":   {"genesis", "GenesisAlloc"},
 		"합의 알고리즘": {"consensus", "wbft"},
 	}
 	got := ExpandQuery("0번 블록 시스템 컨트랙트 어떻게 주입돼?", aliases)
@@ -64,7 +64,7 @@ func TestExpandQuery_DedupOverlappingMatches(t *testing.T) {
 	// Two keys whose alias lists overlap should not produce duplicates.
 	aliases := AliasMap{
 		"genesis": {"GenesisAlloc", "genesis_block"},
-		"제네시스": {"GenesisAlloc", "genesis"},
+		"제네시스":    {"GenesisAlloc", "genesis"},
 	}
 	got := ExpandQuery("genesis 제네시스", aliases)
 	// Count of "GenesisAlloc" should be exactly 1 in the [aliases: ...] tail.

@@ -37,12 +37,12 @@ type Result struct {
 // single-fingerprint log lines: every field is a scalar an operator can
 // grep / aggregate without joining multiple log entries.
 type Stats struct {
-	CandidatesIn     int     // = len(input)
-	CandidatesOut    int     // = len(output); should equal input
-	RankChanges      int     // count of candidates whose HybridRank != OriginalIdx+1
-	Top1ScoreDelta   float64 // Normalized score: final top-1 minus original top-1; positive when BM25 pulled a still-strong vector match to top, negative when it demoted vector
-	Top1ChunkID      string  // first 12 hex chars of new top-1 chunk_id, for fingerprint drift detection
-	BM25Disabled     bool    // true when Rerank was a no-op (empty input / empty intent / no query tokens)
+	CandidatesIn   int     // = len(input)
+	CandidatesOut  int     // = len(output); should equal input
+	RankChanges    int     // count of candidates whose HybridRank != OriginalIdx+1
+	Top1ScoreDelta float64 // Normalized score: final top-1 minus original top-1; positive when BM25 pulled a still-strong vector match to top, negative when it demoted vector
+	Top1ChunkID    string  // first 12 hex chars of new top-1 chunk_id, for fingerprint drift detection
+	BM25Disabled   bool    // true when Rerank was a no-op (empty input / empty intent / no query tokens)
 }
 
 // Rerank applies candidate-set BM25 to the input hits and combines with

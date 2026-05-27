@@ -124,7 +124,7 @@ func TestGoBuildFilesFilter_OnlyKeepsListedGoFiles(t *testing.T) {
 	mkfile(t, dir, "pkg/b/b.go", "package b")
 
 	keep := map[string]struct{}{
-		filepath.Join(dir, "cmd", "main.go"): {},
+		filepath.Join(dir, "cmd", "main.go"):   {},
 		filepath.Join(dir, "pkg", "a", "a.go"): {},
 	}
 	files, _, err := Walk(dir, Options{GoBuildFiles: keep})

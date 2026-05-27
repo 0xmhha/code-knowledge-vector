@@ -131,8 +131,8 @@ func TestVerifyResponse_AggregatesHitsAndExamples(t *testing.T) {
 	dir := fixtureSrcRoot(t)
 	resp := &Response{
 		Hits: []Hit{
-			mkVerifyHit("order.go", 3, 8, "func ProcessOrder"),  // verified
-			mkVerifyHit("fake.go", 1, 1, "nothing"),             // file_missing
+			mkVerifyHit("order.go", 3, 8, "func ProcessOrder"), // verified
+			mkVerifyHit("fake.go", 1, 1, "nothing"),            // file_missing
 		},
 		Examples: []Hit{
 			mkVerifyHit("order.go", 3, 8, "func DeleteUser"), // snippet_not_found

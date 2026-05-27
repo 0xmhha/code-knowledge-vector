@@ -13,9 +13,10 @@ import (
 // list of "code" keywords the embedder is more likely to match.
 //
 // Example:
-//   "0번 블록"        → [genesis, genesis_block, GenesisAlloc]
-//   "합의 알고리즘"   → [consensus, wbft, WBFT]
-//   "시스템 컨트랙트" → [system contract, systemcontracts, SystemContracts]
+//
+//	"0번 블록"        → [genesis, genesis_block, GenesisAlloc]
+//	"합의 알고리즘"   → [consensus, wbft, WBFT]
+//	"시스템 컨트랙트" → [system contract, systemcontracts, SystemContracts]
 //
 // Used by ExpandQuery to widen the intent string at query time. The
 // raw intent stays first so semantic ordering isn't disturbed; aliases

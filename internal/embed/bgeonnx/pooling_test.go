@@ -8,15 +8,15 @@ import (
 // Hand-computed expected values for two batch rows × 3 tokens × 2 hidden
 // dims, with the second token of row 1 masked off.
 //
-//   row 0: tokens [(1,0), (0,1), (1,1)], all attended
-//     pooled = mean([(1,0),(0,1),(1,1)]) = (2/3, 2/3)
-//     ||·||  = sqrt(8/9) ≈ 0.9428
-//     normalized = (2/3 / 0.9428, 2/3 / 0.9428) = (0.7071, 0.7071)
+//	row 0: tokens [(1,0), (0,1), (1,1)], all attended
+//	  pooled = mean([(1,0),(0,1),(1,1)]) = (2/3, 2/3)
+//	  ||·||  = sqrt(8/9) ≈ 0.9428
+//	  normalized = (2/3 / 0.9428, 2/3 / 0.9428) = (0.7071, 0.7071)
 //
-//   row 1: tokens [(2,0), (?, ?) masked, (0,2)], mask=[1,0,1]
-//     pooled = mean of attended = ((2+0)/2, (0+2)/2) = (1, 1)
-//     ||·||  = sqrt(2) ≈ 1.4142
-//     normalized = (0.7071, 0.7071)
+//	row 1: tokens [(2,0), (?, ?) masked, (0,2)], mask=[1,0,1]
+//	  pooled = mean of attended = ((2+0)/2, (0+2)/2) = (1, 1)
+//	  ||·||  = sqrt(2) ≈ 1.4142
+//	  normalized = (0.7071, 0.7071)
 //
 // Both rows L2-normalize to the same unit vector — convenient
 // fingerprint for an arithmetic regression.

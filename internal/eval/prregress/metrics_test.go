@@ -241,9 +241,9 @@ type fakeEmbedder struct {
 	vecs map[string][]float32
 }
 
-func (f *fakeEmbedder) Name() string         { return "fake" }
-func (f *fakeEmbedder) Dimension() int       { return 3 }
-func (f *fakeEmbedder) MaxInputTokens() int  { return 1024 }
+func (f *fakeEmbedder) Name() string        { return "fake" }
+func (f *fakeEmbedder) Dimension() int      { return 3 }
+func (f *fakeEmbedder) MaxInputTokens() int { return 1024 }
 func (f *fakeEmbedder) Embed(_ context.Context, batch []string) ([][]float32, error) {
 	out := make([][]float32, len(batch))
 	for i, s := range batch {

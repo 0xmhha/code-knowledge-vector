@@ -195,7 +195,7 @@ func mustHaveSuffixKey(t *testing.T, aliases map[string][]string, noun, value st
 func TestWriteYAML_RoundtripAndDeterministic(t *testing.T) {
 	aliases := map[string][]string{
 		"합의 알고리즘": {"Weemix Byzantine Fault Tolerance", "WBFT"},
-		"검증인":         {"validator"},
+		"검증인":     {"validator"},
 	}
 	var first, second bytes.Buffer
 	if err := WriteYAML(&first, aliases); err != nil {

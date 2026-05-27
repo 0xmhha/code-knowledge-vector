@@ -14,7 +14,7 @@ func TestEnforceCitationsDropsMissingFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	hits := []types.Hit{
-		mkHit("a", "func A(){}", 1, 0.1),                          // file "x.go" — doesn't exist
+		mkHit("a", "func A(){}", 1, 0.1),                                // file "x.go" — doesn't exist
 		{Chunk: types.Chunk{File: "real.go", StartLine: 1, EndLine: 1}}, // exists
 		{Chunk: types.Chunk{File: "missing.go", StartLine: 1, EndLine: 1}},
 	}
@@ -95,7 +95,7 @@ func TestEnforceCitationsRejectsInvalidLineRange(t *testing.T) {
 		t.Fatal(err)
 	}
 	hits := []types.Hit{
-		{Chunk: types.Chunk{File: "x.go", StartLine: 0, EndLine: 0}},  // bad
+		{Chunk: types.Chunk{File: "x.go", StartLine: 0, EndLine: 0}}, // bad
 		{Chunk: types.Chunk{File: "x.go", StartLine: 5, EndLine: 3}}, // bad
 		{Chunk: types.Chunk{File: "x.go", StartLine: 1, EndLine: 1}}, // ok
 	}

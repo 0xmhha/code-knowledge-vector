@@ -68,9 +68,9 @@ type Hit struct {
 // pass. They stay zero (and absent from JSON) when Options.EnableBM25Rerank
 // is off, preserving the schema for callers that haven't opted in.
 type HitScore struct {
-	Normalized     float64 `json:"normalized"`      // 1 - distance/2, in [0,1]
-	VectorDistance float64 `json:"vector_distance"` // raw cosine distance, in [0,2]
-	VectorRank     int     `json:"vector_rank"`     // 1-based within this query's vector hits
+	Normalized     float64 `json:"normalized"`            // 1 - distance/2, in [0,1]
+	VectorDistance float64 `json:"vector_distance"`       // raw cosine distance, in [0,2]
+	VectorRank     int     `json:"vector_rank"`           // 1-based within this query's vector hits
 	BM25Score      float64 `json:"bm25_score,omitempty"`  // candidate-set BM25, 0 when rerank disabled or no token match
 	HybridRank     int     `json:"hybrid_rank,omitempty"` // 1-based position after RRF fusion; 0 when rerank disabled
 }
@@ -78,10 +78,10 @@ type HitScore struct {
 // Stats reports index health. Returned by VectorStore.Stats and surfaced
 // via the MCP `cks.ops.health` tool.
 type Stats struct {
-	ChunkCount      int    `json:"chunk_count"`
-	EmbeddingModel  string `json:"embedding_model"`
-	EmbeddingDim    int    `json:"embedding_dim"`
-	IndexedHead     string `json:"indexed_head"`
-	BuiltAt         string `json:"built_at"`
-	SchemaVersion   string `json:"schema_version"`
+	ChunkCount     int    `json:"chunk_count"`
+	EmbeddingModel string `json:"embedding_model"`
+	EmbeddingDim   int    `json:"embedding_dim"`
+	IndexedHead    string `json:"indexed_head"`
+	BuiltAt        string `json:"built_at"`
+	SchemaVersion  string `json:"schema_version"`
 }

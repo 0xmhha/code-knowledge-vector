@@ -46,14 +46,14 @@ contract Token {
 	}
 
 	want := map[string]types.SymbolKind{
-		"IERC20":               types.KindInterface,
-		"IERC20.totalSupply":   types.KindMethod,
-		"Token":                types.KindContract,
-		"Token.Transfer":       types.KindEvent,
-		"Token.onlyPositive":   types.KindModifier,
-		"Token.constructor":    types.KindMethod,
-		"Token.totalSupply":    types.KindMethod,
-		"Token.transfer":       types.KindMethod,
+		"IERC20":             types.KindInterface,
+		"IERC20.totalSupply": types.KindMethod,
+		"Token":              types.KindContract,
+		"Token.Transfer":     types.KindEvent,
+		"Token.onlyPositive": types.KindModifier,
+		"Token.constructor":  types.KindMethod,
+		"Token.totalSupply":  types.KindMethod,
+		"Token.transfer":     types.KindMethod,
 	}
 	got := map[string]types.SymbolKind{}
 	for _, s := range spans {

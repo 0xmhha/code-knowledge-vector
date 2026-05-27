@@ -38,13 +38,13 @@ export const noop = (): void => {};
 	}
 
 	want := map[string]types.SymbolKind{
-		"greet":      types.KindFunction,
-		"Server":     types.KindInterface,
-		"Handler":    types.KindType,
-		"Cache":      types.KindStruct,
-		"Cache.set":  types.KindMethod,
-		"Cache.get":  types.KindMethod,
-		"noop":       types.KindFunction,
+		"greet":     types.KindFunction,
+		"Server":    types.KindInterface,
+		"Handler":   types.KindType,
+		"Cache":     types.KindStruct,
+		"Cache.set": types.KindMethod,
+		"Cache.get": types.KindMethod,
+		"noop":      types.KindFunction,
 	}
 	got := map[string]types.SymbolKind{}
 	for _, s := range spans {

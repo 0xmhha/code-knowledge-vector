@@ -13,10 +13,10 @@ const DefaultK = 5
 
 // Options control one eval pass.
 type Options struct {
-	K         int          // top-K for recall counting (default 5)
-	Threshold float64      // pass-through to query.Options.Threshold; <0 disables
-	SrcRoot   string       // pass-through for citation enforcement; empty → manifest default
-	Judge     judge.Judge  // optional LLM-as-judge; nil → automatic metrics only
+	K         int         // top-K for recall counting (default 5)
+	Threshold float64     // pass-through to query.Options.Threshold; <0 disables
+	SrcRoot   string      // pass-through for citation enforcement; empty → manifest default
+	Judge     judge.Judge // optional LLM-as-judge; nil → automatic metrics only
 	// EnableBM25Rerank toggles BM25 candidate-rerank on the eval pass.
 	// Defaults false so existing baselines are preserved by default.
 	// Both A and B legs of an A/B comparison use the same fixture +
@@ -26,12 +26,12 @@ type Options struct {
 
 // Result is the full eval pass output.
 type Result struct {
-	Fixture   string           `json:"fixture"`
-	K         int              `json:"k"`
-	Aggregate Aggregate        `json:"aggregate"`
-	PerQuery  []PerQuery       `json:"per_query"`
-	Verdicts  []judge.Verdict  `json:"verdicts,omitempty"`
-	MeanJudge float64          `json:"mean_judge_score,omitempty"` // average over non-error verdicts
+	Fixture   string          `json:"fixture"`
+	K         int             `json:"k"`
+	Aggregate Aggregate       `json:"aggregate"`
+	PerQuery  []PerQuery      `json:"per_query"`
+	Verdicts  []judge.Verdict `json:"verdicts,omitempty"`
+	MeanJudge float64         `json:"mean_judge_score,omitempty"` // average over non-error verdicts
 }
 
 // Run executes every query in fx against eng and returns a Result.

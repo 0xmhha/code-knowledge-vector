@@ -8,18 +8,18 @@ import (
 type PerQuery struct {
 	QueryID         string  `json:"query_id"`
 	Intent          string  `json:"intent"`
-	FoundRank       int     `json:"found_rank"`         // 1-based rank of first correct hit; 0 if absent
+	FoundRank       int     `json:"found_rank"` // 1-based rank of first correct hit; 0 if absent
 	HitsReturned    int     `json:"hits_returned"`
 	TopHitFile      string  `json:"top_hit_file"`
 	TopHitScore     float64 `json:"top_hit_score"`
-	ReciprocalRank  float64 `json:"reciprocal_rank"`    // 1/found_rank, or 0
-	CitationCorrect bool    `json:"citation_correct"`   // hits-with-matching-file have valid file+line in expected range
+	ReciprocalRank  float64 `json:"reciprocal_rank"`  // 1/found_rank, or 0
+	CitationCorrect bool    `json:"citation_correct"` // hits-with-matching-file have valid file+line in expected range
 	// Hallucination metrics. Populated only when SrcRoot is set on the
 	// eval Options — without a source tree we can't verify a hit's
 	// snippet against actual file content. HallucinationCount is the
 	// number of returned hits whose snippet did not survive VerifyHit
 	// (file_missing / out_of_range / snippet_not_found).
-	HallucinationCount int    `json:"hallucination_count,omitempty"`
+	HallucinationCount  int    `json:"hallucination_count,omitempty"`
 	HallucinationReason string `json:"hallucination_reason,omitempty"` // first non-empty reason across hits, for triage
 }
 

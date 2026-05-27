@@ -131,9 +131,11 @@ func requireGH(ctx context.Context) error {
 
 // backgroundSection matches the PR description's "Background" header.
 // We intentionally match a wide set of formats people actually use:
-//   ### Background
-//   ## Background
-//   **Background**
+//
+//	### Background
+//	## Background
+//	**Background**
+//
 // Case-insensitive; the next same-or-higher-level header stops the body.
 var backgroundHeaderRE = regexp.MustCompile(`(?im)^\s*(#{1,6}\s+|\*\*)background(\s*\*\*)?\s*:?\s*$`)
 

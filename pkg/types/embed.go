@@ -5,8 +5,8 @@ import "context"
 // Embedder turns text into a fixed-dimension vector. Implementations:
 //   - internal/embed/mock      — deterministic hash-based, for tests
 //   - internal/embed/bgeonnx   — ONNX-backed local embedder; supports
-//                                a model registry (see model_config.go),
-//                                currently bge-large-en-v1.5 by default.
+//     a model registry (see model_config.go),
+//     currently bge-large-en-v1.5 by default.
 //
 // Embedder interface contract:
 //   - Name returns a stable identifier persisted in the manifest

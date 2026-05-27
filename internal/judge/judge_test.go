@@ -46,12 +46,12 @@ func TestExtractVerdictRejectsUnscored(t *testing.T) {
 func TestBuildPromptIncludesAllPieces(t *testing.T) {
 	hits := []query.Hit{
 		{
-			ChunkID:  "x",
-			Citation: types.Citation{File: "server.go", StartLine: 22, EndLine: 29},
-			Snippet:  "func (s *Server) Listen() error { ... }",
-			Symbol:   "Server.Listen",
+			ChunkID:    "x",
+			Citation:   types.Citation{File: "server.go", StartLine: 22, EndLine: 29},
+			Snippet:    "func (s *Server) Listen() error { ... }",
+			Symbol:     "Server.Listen",
 			SymbolKind: types.KindMethod,
-			Score:    types.HitScore{Normalized: 0.92},
+			Score:      types.HitScore{Normalized: 0.92},
 		},
 	}
 	p := buildPrompt("bind TCP socket", hits)

@@ -32,9 +32,9 @@ const DefaultSignatureContextLines = 5
 type DensityTier string
 
 const (
-	DensityFull           DensityTier = "full"
-	DensitySignature5     DensityTier = "signature+N"
-	DensitySignatureOnly  DensityTier = "signature_only"
+	DensityFull          DensityTier = "full"
+	DensitySignature5    DensityTier = "signature+N"
+	DensitySignatureOnly DensityTier = "signature_only"
 )
 
 // DensityAdjust converts store hits into response Hits with snippets

@@ -38,6 +38,7 @@ func init() {
 //   - inactive    : will be reclaimed before paging
 //   - speculative : prefetch buffer, cheap to drop
 //   - purgeable   : explicitly purgeable allocations
+//
 // "wired" and "active" are NOT counted — touching them costs disk I/O.
 var vmStatPagesRe = regexp.MustCompile(`(?m)^Pages (free|inactive|speculative|purgeable):\s+(\d+)\.`)
 

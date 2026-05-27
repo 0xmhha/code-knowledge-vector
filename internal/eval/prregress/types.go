@@ -10,13 +10,14 @@
 // armed with ckv would have proposed something close to what shipped.
 //
 // Module layout (one file per concern, all in this package):
-//   types.go    — data model + fixture loader (this file)
-//   fetcher.go  — gh CLI metadata fetch (PR title/body/files)
-//   checkout.go — detached git worktree at base_sha
-//   ground.go   — PR diff → changed file set (truth)
-//   agent.go    — Claude CLI headless plan generation
-//   score.go    — LLM-as-judge + file-set F1
-//   runner.go   — flow orchestration over a Fixture
+//
+//	types.go    — data model + fixture loader (this file)
+//	fetcher.go  — gh CLI metadata fetch (PR title/body/files)
+//	checkout.go — detached git worktree at base_sha
+//	ground.go   — PR diff → changed file set (truth)
+//	agent.go    — Claude CLI headless plan generation
+//	score.go    — LLM-as-judge + file-set F1
+//	runner.go   — flow orchestration over a Fixture
 //
 // Build tag none — uses standard library + gh CLI subprocess + git.
 // Test tag prregress_smoke for the end-to-end PR #70 test that depends
@@ -58,7 +59,7 @@ type Fixture struct {
 // absent.
 type Entry struct {
 	ID                string   `yaml:"id"`
-	Repo              string   `yaml:"repo"`        // owner/name
+	Repo              string   `yaml:"repo"` // owner/name
 	PRNumber          int      `yaml:"pr_number"`
 	SourcePath        string   `yaml:"source_path"` // local clone path
 	BaseSHA           string   `yaml:"base_sha"`
@@ -151,9 +152,9 @@ func (e Entry) validate() error {
 // during scoring to keep the regression deterministic across reruns.
 type Meta struct {
 	Title          string        `json:"title"`
-	Body           string        `json:"body"`            // full PR description (Background + Solution + Changes)
-	Background     string        `json:"background"`      // extracted: the "what's wrong" piece, agent sees this
-	Files          []ChangedFile `json:"files"`           // truth: what the PR actually changed
+	Body           string        `json:"body"`                      // full PR description (Background + Solution + Changes)
+	Background     string        `json:"background"`                // extracted: the "what's wrong" piece, agent sees this
+	Files          []ChangedFile `json:"files"`                     // truth: what the PR actually changed
 	CommitMessages []string      `json:"commit_messages,omitempty"` // E3: ground truth for plan-step decomposition (headline + body, one entry per commit)
 }
 
@@ -194,15 +195,15 @@ type Score struct {
 	TruthFiles []string `json:"truth_files"`
 
 	// Multi-stage E1/E2/E3 metrics
-	IntentScore     float64  `json:"intent_score,omitempty"`      // E1: pure-Go token-F1 vs IntentGroundTruth || Title
-	IntentCosine    float64  `json:"intent_cosine,omitempty"`     // E1 (optional): embedder cosine, populated only when RunOptions.Embedder is real
-	IntentError     string   `json:"intent_error,omitempty"`      // E1 cosine subprocess error, if any
-	SymbolPrecision float64  `json:"symbol_precision,omitempty"`  // E2
-	SymbolRecall    float64  `json:"symbol_recall,omitempty"`     // E2
-	SymbolF1        float64  `json:"symbol_f1,omitempty"`         // E2
-	PlanSymbols     []string `json:"plan_symbols,omitempty"`      // E2 evidence (extracted from plan)
-	TruthSymbols    []string `json:"truth_symbols,omitempty"`     // E2 evidence (= Entry.ChangedSymbols)
-	PlanStepsScore  float64  `json:"plan_steps_score,omitempty"`  // E3
+	IntentScore     float64  `json:"intent_score,omitempty"`     // E1: pure-Go token-F1 vs IntentGroundTruth || Title
+	IntentCosine    float64  `json:"intent_cosine,omitempty"`    // E1 (optional): embedder cosine, populated only when RunOptions.Embedder is real
+	IntentError     string   `json:"intent_error,omitempty"`     // E1 cosine subprocess error, if any
+	SymbolPrecision float64  `json:"symbol_precision,omitempty"` // E2
+	SymbolRecall    float64  `json:"symbol_recall,omitempty"`    // E2
+	SymbolF1        float64  `json:"symbol_f1,omitempty"`        // E2
+	PlanSymbols     []string `json:"plan_symbols,omitempty"`     // E2 evidence (extracted from plan)
+	TruthSymbols    []string `json:"truth_symbols,omitempty"`    // E2 evidence (= Entry.ChangedSymbols)
+	PlanStepsScore  float64  `json:"plan_steps_score,omitempty"` // E3
 }
 
 // Result is one Entry's outcome. Persisted to disk for report
