@@ -11,8 +11,9 @@ var Version = "dev"
 // set via PersistentFlags so any leaf command can read them.
 type rootFlags struct {
 	noFootprint bool
-	embedder    string // mock | bgeonnx
-	modelDir    string // override default ~/.cache/ckv/models/<name>
+	embedder    string // mock | bgeonnx | ollama
+	modelDir    string // override default model cache directory
+	modelName   string // model name for backends that support multiple models (ollama)
 	logLevel    string // debug | info | warn | error; empty → $CKV_LOG_LEVEL → info
 	profile     string // path to write profile.json on Close (empty = disabled)
 }
@@ -32,9 +33,11 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&globalFlags.noFootprint, "no-footprint", false,
 		"disable the JSONL footprint log written to <out>/footprint.jsonl")
 	cmd.PersistentFlags().StringVar(&globalFlags.embedder, "embedder", "mock",
-		"embedder backend: mock (default, no deps) or bgeonnx (requires model + libonnxruntime)")
+		"embedder backend: mock | bgeonnx | ollama")
 	cmd.PersistentFlags().StringVar(&globalFlags.modelDir, "model-dir", "",
-		"override the model directory (default ~/.cache/ckv/models/<name>)")
+		"override the model cache directory")
+	cmd.PersistentFlags().StringVar(&globalFlags.modelName, "model-name", "",
+		"model name (for ollama: e.g. bge-m3; for bgeonnx: overrides default)")
 	cmd.PersistentFlags().StringVar(&globalFlags.logLevel, "log-level", "",
 		"slog minimum level: debug | info | warn | error (default info; falls back to $CKV_LOG_LEVEL)")
 	cmd.PersistentFlags().StringVar(&globalFlags.profile, "profile", "",

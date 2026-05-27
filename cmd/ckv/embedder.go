@@ -6,6 +6,7 @@ import (
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/bgeonnx"
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
+	"github.com/0xmhha/code-knowledge-vector/internal/embed/ollama"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
@@ -28,7 +29,13 @@ func resolveEmbedder(name, modelDir string) (types.Embedder, func(), error) {
 			return nil, noop, fmt.Errorf("embedder bgeonnx: %w", err)
 		}
 		return a, func() { _ = a.Close() }, nil
+	case "ollama":
+		a, err := ollama.Open(ollama.Options{ModelName: globalFlags.modelName})
+		if err != nil {
+			return nil, noop, fmt.Errorf("embedder ollama: %w", err)
+		}
+		return a, func() { _ = a.Close() }, nil
 	default:
-		return nil, noop, errors.New("unknown --embedder " + name + " (supported: mock, bgeonnx)")
+		return nil, noop, errors.New("unknown --embedder " + name + " (supported: mock, bgeonnx, ollama)")
 	}
 }
