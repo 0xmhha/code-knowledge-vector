@@ -22,7 +22,6 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
-	"github.com/0xmhha/code-knowledge-vector/internal/query/bm25"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
@@ -186,6 +185,13 @@ type Engine struct {
 	man     *manifest.Manifest
 	srcRoot string
 	fp      *footprint.Logger
+
+	// Core services (independently callable)
+	embedSvc     *EmbedService
+	searchSvc    *StoreSearchService
+	rerankSvc    *RerankService
+	thresholdSvc *ThresholdService
+	densitySvc   *DensityService
 }
 
 // OpenOption customizes Engine construction (functional options).
@@ -230,11 +236,16 @@ func Open(outDir string, emb types.Embedder, opts ...OpenOption) (*Engine, error
 	}
 
 	e := &Engine{
-		store:   store,
-		emb:     emb,
-		man:     man,
-		srcRoot: man.SrcRoot,
-		fp:      footprint.Discard(),
+		store:        store,
+		emb:          emb,
+		man:          man,
+		srcRoot:      man.SrcRoot,
+		fp:           footprint.Discard(),
+		embedSvc:     &EmbedService{emb: emb},
+		searchSvc:    &StoreSearchService{store: store},
+		rerankSvc:    &RerankService{},
+		thresholdSvc: &ThresholdService{},
+		densitySvc:   &DensityService{},
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -374,11 +385,29 @@ func (e *Engine) EmbedderInfo() EmbedderInfo {
 	return info
 }
 
-// Search runs the full pipeline: embed → over-fetch → threshold drop →
-// citation enforcement → snippet density → top-K trim.
+// Embed exposes the embedding service for independent use.
+// Converts text into a vector without running the full search pipeline.
+func (e *Engine) Embed(ctx context.Context, text string) ([]float32, error) {
+	return e.embedSvc.Run(ctx, text)
+}
+
+// VectorSearch runs ANN search against the store without reranking,
+// threshold, or citation. Returns raw candidate hits.
+func (e *Engine) VectorSearch(ctx context.Context, queryVec []float32, k int, filter types.Filter) ([]types.Hit, error) {
+	return e.searchSvc.Run(ctx, queryVec, k, filter)
+}
+
+// Rerank reorders candidate hits using BM25 + RRF fusion.
+func (e *Engine) Rerank(ctx context.Context, candidates []types.Hit, intent string) ([]types.Hit, error) {
+	reordered, _ := e.rerankSvc.Run(ctx, candidates, intent)
+	return reordered, nil
+}
+
+// Search runs the full pipeline (Facade): embed → vector search →
+// rerank → threshold → citation → test split → density adjust.
 //
-// Returns an empty Hits slice (never nil) when nothing passes the
-// gates; the Warnings field surfaces the cause (e.g. all_results_below_threshold).
+// For fine-grained control, use the individual service methods
+// (Embed, VectorSearch, Rerank) and compose them manually.
 func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Response, error) {
 	if e == nil || e.store == nil {
 		return nil, errors.New("query: engine is closed")
@@ -387,296 +416,147 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		return nil, errors.New("query: empty intent")
 	}
 
-	// Resolve trace_id: caller-supplied wins; engine-generated fallback
-	// is the same intent_hash used in spans so existing log queries
-	// keep working.
 	traceID := opts.TraceID
 	if traceID == "" {
 		traceID = intentHash(intent)
 	}
 
-	// Vocabulary bridge: widen the intent with curated
-	// keyword aliases before embedding. The expanded intent flows
-	// through every downstream step including the embed sub-span
-	// fingerprint, so trace consumers see exactly what reached the
-	// embedder. The top-level query.search span echoes the *original*
-	// intent so log readers can correlate the human input.
+	// Alias expansion
 	embedIntent := intent
-	aliasApplied := 0
 	if len(opts.Aliases) > 0 {
-		expanded := ExpandQuery(intent, opts.Aliases)
-		if expanded != intent {
+		if expanded := ExpandQuery(intent, opts.Aliases); expanded != intent {
 			embedIntent = expanded
-			aliasApplied = 1
 		}
 	}
 
 	doneSearch := e.fp.Span("query.search",
 		"trace_id", traceID,
 		"intent_hash", intentHash(intent),
-		"intent_preview", preview(intent, 80),
 		"k", opts.K,
-		"threshold", opts.Threshold,
-		"language", opts.Filter.Language,
 		"dry_run", opts.DryRun,
-		"alias_applied", aliasApplied,
 	)
 
-	// Dry-run short-circuit: skip embed, store, citation, density.
-	// Return metadata-only response so the caller can validate envelope
-	// shape, intent, and embedder identity without paying the query
-	// cost. Useful for plan/budget validation in CKS multiplex flows.
+	// Dry-run: return metadata only
 	if opts.DryRun {
-		response := &Response{
-			Hits: []Hit{}, // never nil
+		doneSearch("dry_run", true)
+		return &Response{
+			Hits: []Hit{},
 			Metadata: ResponseMetadata{
 				IndexedHeadCKV: e.man.IndexedHead,
 				Fresh:          true,
 				TraceID:        traceID,
 				DryRun:         true,
 			},
-		}
-		doneSearch("dry_run", true, "trace_id", traceID)
-		return response, nil
+		}, nil
 	}
 
 	k := opts.K
 	if k <= 0 {
 		k = DefaultK
 	}
-	threshold := opts.Threshold
-	if threshold == 0 {
-		threshold = DefaultThreshold
-	}
 	budget := opts.BudgetTokens
 	if budget == 0 {
 		budget = DefaultBudgetTokens
 	}
-	// budget < 0 means "disable budgeting"; engine returns hits at full
-	// density. budget > 0 but tiny is a contract violation — the engine
-	// can't represent even one signature-only hit below MinBudgetTokens.
 	if budget > 0 && budget < MinBudgetTokens {
-		return nil, fmt.Errorf("%w: budget=%d, minimum=%d (pass <0 to disable budgeting)",
+		return nil, fmt.Errorf("%w: budget=%d, minimum=%d",
 			ErrBudgetExceeded, budget, MinBudgetTokens)
 	}
 
-	// Step 1: embed.
-	// Sub-span query.embed — tunable knob: --embedder, --model-dir,
-	// CKV_DISABLE_CONTEXTUAL_PREFIX, --alias. p95 outliers point to
-	// cold-start or CoreML compile churn. embed_intent_hash differs
-	// from the top-level intent_hash when alias expansion fired.
-	doneEmbed := e.fp.Span("query.embed",
-		"trace_id", traceID,
-		"alias_applied", aliasApplied,
-		"embed_intent_hash", intentHash(embedIntent),
-	)
-	vecs, err := e.emb.Embed(ctx, []string{embedIntent})
-	if err != nil {
+	// Build and run the pipeline via SearchContext
+	sc := &SearchContext{
+		Intent:      intent,
+		EmbedIntent: embedIntent,
+		Options:     opts,
+		TraceID:     traceID,
+	}
+
+	// 1. Embed
+	doneEmbed := e.fp.Span("query.embed", "trace_id", traceID)
+	if err := e.embedSvc.RunContext(ctx, sc); err != nil {
 		doneEmbed("error", err.Error())
-		return nil, fmt.Errorf("embed intent: %w", err)
+		return nil, err
 	}
-	if len(vecs) == 0 {
-		doneEmbed("error", "no_vector")
-		return nil, errors.New("query: embedder returned no vector")
-	}
-	doneEmbed("dim", len(vecs[0]))
+	doneEmbed("dim", len(sc.QueryVec))
 
-	// Step 2: store-side ANN with over-fetch.
-	// Sub-span query.store.search — tunable knob: overfetchFactor (k×3
-	// today) and Filter. candidates_out / fingerprint give cheap drift
-	// detection: same intent should produce the same top hit between
-	// rebuilds when the corpus is stable.
-	overfetch := k * overfetchFactor
-	doneStore := e.fp.Span("query.store.search",
-		"trace_id", traceID,
-		"k_overfetch", overfetch,
-		"filter_language", opts.Filter.Language,
-		"filter_commit_hash", opts.Filter.CommitHash,
-	)
-	rawHits, err := e.store.Search(ctx, vecs[0], overfetch, opts.Filter)
-	if err != nil {
+	// 2. Vector search
+	doneStore := e.fp.Span("query.store.search", "trace_id", traceID, "k_overfetch", k*overfetchFactor)
+	if err := e.searchSvc.RunContext(ctx, sc); err != nil {
 		doneStore("error", err.Error())
-		return nil, fmt.Errorf("store search: %w", err)
+		return nil, err
 	}
-	doneStore(
-		"candidates_out", len(rawHits),
-		"top_chunk_id", topChunkID(rawHits),
-		"top_score", topScore(rawHits),
-	)
+	doneStore("candidates_out", len(sc.RawHits))
 
-	warnings := []string{}
-
-	// Step 2.5 (optional): BM25 rerank.
-	// Default off — vector-only behavior is the baseline. When
-	// EnableBM25Rerank is set, we build a candidate-set BM25 corpus
-	// (chunk.SymbolName + first text line), score against the
-	// *original* intent (alias expansion happens for the embedder only),
-	// and reorder rawHits by RRF fusion of vector + BM25 ranks.
-	//
-	// The footprint span fires unconditionally so operators comparing
-	// runs with/without the flag see a symmetric trace; `disabled=true`
-	// when the flag is off so log readers can filter quickly.
-	doneBM25 := e.fp.Span("query.bm25.rerank",
-		"trace_id", traceID,
-		"candidates_in", len(rawHits),
-		"enabled", opts.EnableBM25Rerank,
-	)
-	if opts.EnableBM25Rerank && len(rawHits) > 0 {
-		cands := make([]bm25.Candidate, len(rawHits))
-		for i, h := range rawHits {
-			cands[i] = bm25.Candidate{Hit: h, Corpus: bm25.BuildCorpusText(h)}
-		}
-		results, bstats := bm25.Rerank(cands, intent)
-		// Re-materialize rawHits in the new order; the per-hit Score now
-		// carries BM25Score + HybridRank so downstream layers (citation,
-		// density) keep the rerank fingerprint without re-running BM25.
-		reordered := make([]types.Hit, len(results))
-		for i, r := range results {
-			reordered[i] = r.Hit
-		}
-		rawHits = reordered
-		doneBM25(
-			"candidates_out", bstats.CandidatesOut,
-			"rank_changes", bstats.RankChanges,
-			"top1_score_delta", bstats.Top1ScoreDelta,
-			"top1_chunk_id", bstats.Top1ChunkID,
-			"disabled", bstats.BM25Disabled,
-		)
-	} else {
-		doneBM25(
-			"candidates_out", len(rawHits),
-			"rank_changes", 0,
-			"top1_score_delta", 0.0,
-			"top1_chunk_id", topChunkID(rawHits),
-			"disabled", true,
-		)
+	// 3. Rerank (conditional)
+	doneBM25 := e.fp.Span("query.bm25.rerank", "trace_id", traceID, "enabled", opts.EnableBM25Rerank)
+	if err := e.rerankSvc.RunContext(ctx, sc); err != nil {
+		doneBM25("error", err.Error())
+		return nil, err
 	}
+	doneBM25("candidates_out", len(sc.RawHits))
 
-	// Step 3: threshold drop. Sub-span query.threshold.drop — tunable
-	// knob: --threshold. dropped count growing across runs means the
-	// distribution shifted (rebuild needed or model drift).
-	doneThreshold := e.fp.Span("query.threshold.drop",
-		"trace_id", traceID,
-		"threshold", threshold,
-		"candidates_in", len(rawHits),
-	)
-	var passed []types.Hit
-	for _, h := range rawHits {
-		if threshold > 0 && h.Score.Normalized < threshold {
-			continue
-		}
-		passed = append(passed, h)
+	// 4. Threshold
+	doneThreshold := e.fp.Span("query.threshold.drop", "trace_id", traceID)
+	if err := e.thresholdSvc.RunContext(ctx, sc); err != nil {
+		doneThreshold("error", err.Error())
+		return nil, err
 	}
-	doneThreshold(
-		"candidates_out", len(passed),
-		"dropped", len(rawHits)-len(passed),
-	)
-	if len(rawHits) > 0 && len(passed) == 0 {
-		warnings = append(warnings, "all_results_below_threshold")
-	}
+	doneThreshold("candidates_out", len(sc.FilteredHits))
 
-	// Step 4: citation enforcement — drop any hit whose file we can't
-	// resolve against the recorded src_root. Sub-span
-	// query.citation.enforce — tunable knob: --src override. dropped /
-	// stale counts feed the operator's reindex decision.
+	// 5. Citation enforcement
 	srcRoot := opts.SrcRoot
 	if srcRoot == "" {
 		srcRoot = e.srcRoot
 	}
-	// Cheap stale detection: pull the source tree's current HEAD
-	// once and compare against each chunk's CommitHash. Mismatch is a
-	// warning, not a drop — file content at the new commit is usually
-	// still relevant. The git call here is the same one freshness uses;
-	// we accept its 5-10ms cost on the query hot path because the
-	// signal is high-value for the caller deciding whether to reindex.
-	doneCitation := e.fp.Span("query.citation.enforce",
-		"trace_id", traceID,
-		"candidates_in", len(passed),
-		"src_root", srcRoot,
-	)
+	doneCitation := e.fp.Span("query.citation.enforce", "trace_id", traceID)
 	currentHead := currentGitHead(srcRoot)
-	enforced, droppedCitations, staleCitations := EnforceCitationsAt(passed, srcRoot, currentHead)
-	doneCitation(
-		"candidates_out", len(enforced),
-		"dropped", droppedCitations,
-		"stale", staleCitations,
-	)
-	if droppedCitations > 0 {
-		warnings = append(warnings, fmt.Sprintf("dropped_%d_unverified_citations", droppedCitations))
+	enforced, dropped, stale := EnforceCitationsAt(sc.FilteredHits, srcRoot, currentHead)
+	sc.DroppedCitations = dropped
+	sc.StaleCitations = stale
+	if dropped > 0 {
+		sc.Warnings = append(sc.Warnings, fmt.Sprintf("dropped_%d_unverified_citations", dropped))
 	}
-	if staleCitations > 0 {
-		warnings = append(warnings, fmt.Sprintf("stale_%d_citations", staleCitations))
+	if stale > 0 {
+		sc.Warnings = append(sc.Warnings, fmt.Sprintf("stale_%d_citations", stale))
 	}
-	// Catastrophic citation failure: we had threshold-passing candidates
-	// but lost every one to citation enforcement. Almost always means the
-	// source tree was moved or deleted without rebuilding the index — the
-	// remaining response would be empty and the cause non-obvious. Raise.
-	if len(passed) > 0 && len(enforced) == 0 {
-		return nil, fmt.Errorf("%w: dropped all %d candidate hits — source root may be missing or out of sync (rebuild with `ckv build --src <path>`)",
-			ErrCitationNotFound, droppedCitations)
+	doneCitation("candidates_out", len(enforced), "dropped", dropped)
+	if len(sc.FilteredHits) > 0 && len(enforced) == 0 {
+		return nil, fmt.Errorf("%w: dropped all %d hits — source may be out of sync",
+			ErrCitationNotFound, dropped)
 	}
 
-	// Step 5: split tests out of primary hits when ExamplesK > 0.
-	// We keep the same score-sorted order in both groups so the top of
-	// each is the highest-similarity result of its kind.
-	primary, examples := splitByTest(enforced, opts.ExamplesK > 0)
-
-	// Step 6: trim each group to its respective limit *before* density
-	// adjustment, so the budget only applies to the visible hits.
-	if len(primary) > k {
-		primary = primary[:k]
+	// 6. Test split + trim
+	sc.PrimaryHits, sc.ExampleHits = splitByTest(enforced, opts.ExamplesK > 0)
+	if len(sc.PrimaryHits) > k {
+		sc.PrimaryHits = sc.PrimaryHits[:k]
 	}
-	if opts.ExamplesK > 0 && len(examples) > opts.ExamplesK {
-		examples = examples[:opts.ExamplesK]
+	if opts.ExamplesK > 0 && len(sc.ExampleHits) > opts.ExamplesK {
+		sc.ExampleHits = sc.ExampleHits[:opts.ExamplesK]
 	}
 
-	// Step 7: snippet density. Combine primary + examples into a single
-	// DensityAdjust call so the token budget is shared across both
-	// groups (primary downgrades last because it's earlier in the slice).
-	// Sub-span query.density.adjust — tunable knob: --budget-tokens.
-	// tier_full / tier_sig5 / tier_sig_only distribution shows whether
-	// the budget commonly bites; if mostly sig_only, raise budget or
-	// trim K.
-	combined := append(append([]types.Hit{}, primary...), examples...)
-	doneDensity := e.fp.Span("query.density.adjust",
-		"trace_id", traceID,
-		"candidates_in", len(combined),
-		"budget_tokens", budget,
-		"max_density", string(opts.MaxDensity),
-	)
-	combinedHits, tokensUsed := DensityAdjustWith(combined, budget, opts.MaxDensity, opts.SignatureContextLines)
-	tierFull, tierSig5, tierSigOnly := countTiers(combinedHits)
-	doneDensity(
-		"tokens_used", tokensUsed,
-		"tier_full", tierFull,
-		"tier_sig5", tierSig5,
-		"tier_sig_only", tierSigOnly,
-	)
-
-	hits := combinedHits[:len(primary)]
-	var exampleHits []Hit
-	if opts.ExamplesK > 0 {
-		exampleHits = combinedHits[len(primary):]
+	// 7. Density adjust
+	doneDensity := e.fp.Span("query.density.adjust", "trace_id", traceID, "budget_tokens", budget)
+	if err := e.densitySvc.RunContext(ctx, sc); err != nil {
+		doneDensity("error", err.Error())
+		return nil, err
 	}
+	doneDensity("tokens_used", sc.TokensUsed)
 
 	response := &Response{
-		Hits:     hits,
-		Examples: exampleHits,
-		Warnings: warnings,
+		Hits:     sc.FinalHits,
+		Examples: sc.FinalExamples,
+		Warnings: sc.Warnings,
 		Metadata: ResponseMetadata{
-			TokensUsed:     tokensUsed,
+			TokensUsed:     sc.TokensUsed,
 			IndexedHeadCKV: e.man.IndexedHead,
-			Fresh:          true, // freshness check arrives with `ckv freshness`
+			Fresh:          true,
 			TraceID:        traceID,
 		},
 	}
 	doneSearch(
-		"hits", len(hits),
-		"examples", len(exampleHits),
-		"citation_drops", droppedCitations,
-		"warnings", warnings,
-		"tokens_used", tokensUsed,
-		"top_file", topFile(hits),
+		"hits", len(sc.FinalHits),
+		"examples", len(sc.FinalExamples),
+		"tokens_used", sc.TokensUsed,
 	)
 	return response, nil
 }
@@ -705,64 +585,4 @@ func splitByTest(hits []types.Hit, separateTests bool) (primary, examples []type
 func intentHash(intent string) string {
 	sum := sha256.Sum256([]byte(intent))
 	return hex.EncodeToString(sum[:6]) // 12 hex chars
-}
-
-// preview truncates intent for human-readable logs without dumping the
-// whole prompt. The full intent is recoverable via intent_hash + the
-// caller's own log of the original request.
-func preview(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
-}
-
-// topFile returns the file of the top-ranked hit, or empty when none.
-// Useful single field for grep-friendly footprint audit.
-func topFile(hits []Hit) string {
-	if len(hits) == 0 {
-		return ""
-	}
-	return hits[0].Citation.File
-}
-
-// topChunkID returns the first 12 hex chars of the top-ranked hit's
-// chunk_id, or empty when none. Used as a sub-span fingerprint so
-// log readers can spot drift between runs without dumping the full id.
-func topChunkID(hits []types.Hit) string {
-	if len(hits) == 0 {
-		return ""
-	}
-	id := hits[0].Chunk.ID
-	if len(id) > 12 {
-		return id[:12]
-	}
-	return id
-}
-
-// topScore returns the normalized score of the top-ranked store hit,
-// or 0 when none. Logged as a sub-span field so threshold tuning has
-// a concrete number to anchor on.
-func topScore(hits []types.Hit) float64 {
-	if len(hits) == 0 {
-		return 0
-	}
-	return hits[0].Score.Normalized
-}
-
-// countTiers tallies the 3-tier density distribution across the
-// response hits. Surfaced in the query.density.adjust footprint so
-// operators can decide whether to raise --budget-tokens.
-func countTiers(hits []Hit) (full, sig5, sigOnly int) {
-	for _, h := range hits {
-		switch h.Density {
-		case DensityFull:
-			full++
-		case DensitySignature5:
-			sig5++
-		case DensitySignatureOnly:
-			sigOnly++
-		}
-	}
-	return full, sig5, sigOnly
 }
