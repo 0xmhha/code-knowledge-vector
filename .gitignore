@@ -64,8 +64,9 @@ mem.out
 *.sqlite3
 *.lance
 
-# Embedding caches and downloaded models
-/models/
+# Embedding caches and downloaded models (keep README)
+/models/*
+!/models/README.md
 /.cache/
 *.gguf
 *.onnx
