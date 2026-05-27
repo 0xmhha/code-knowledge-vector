@@ -2,27 +2,23 @@ package bgeonnx
 
 import (
 	"testing"
+
+	"github.com/0xmhha/code-knowledge-vector/internal/embed/registry"
 )
 
 func TestRegistry_DefaultModelExists(t *testing.T) {
-	cfg, err := LookupModel(DefaultModelName)
+	cfg, err := registry.Lookup(registry.DefaultModelName)
 	if err != nil {
-		t.Fatalf("DefaultModelName %q must be in registry: %v", DefaultModelName, err)
+		t.Fatalf("DefaultModelName %q must be in registry: %v", registry.DefaultModelName, err)
 	}
-	if cfg.Name != DefaultModelName {
-		t.Errorf("registry mismatch: lookup %q got Name=%q", DefaultModelName, cfg.Name)
+	if cfg.Name != registry.DefaultModelName {
+		t.Errorf("registry mismatch: lookup %q got Name=%q", registry.DefaultModelName, cfg.Name)
 	}
 }
 
 func TestRegistry_EntryShape(t *testing.T) {
-	// Every registered model must have non-zero values for the fields
-	// that are load-bearing at runtime. Catching a forgotten field
-	// here is cheaper than diagnosing a silent zero-vector output.
-	for name, cfg := range registry {
-		t.Run(name, func(t *testing.T) {
-			if cfg.Name != name {
-				t.Errorf("registry key %q != cfg.Name %q", name, cfg.Name)
-			}
+	for _, cfg := range registry.List() {
+		t.Run(cfg.Name, func(t *testing.T) {
 			if cfg.Dim <= 0 {
 				t.Errorf("Dim must be > 0, got %d", cfg.Dim)
 			}
@@ -41,9 +37,6 @@ func TestRegistry_EntryShape(t *testing.T) {
 			if len(cfg.Outputs) == 0 {
 				t.Error("Outputs must not be empty")
 			}
-			// Every name in InputOrder beyond input_ids / attention_mask
-			// must have an ExtraInputFn — otherwise Session.Run will
-			// fail mysteriously.
 			for _, in := range cfg.InputOrder {
 				if in == "input_ids" || in == "attention_mask" {
 					continue
@@ -57,14 +50,14 @@ func TestRegistry_EntryShape(t *testing.T) {
 }
 
 func TestLookupModel_UnknownReturnsError(t *testing.T) {
-	_, err := LookupModel("definitely-not-a-real-model")
+	_, err := registry.Lookup("definitely-not-a-real-model")
 	if err == nil {
 		t.Fatal("expected error for unknown model")
 	}
 }
 
 func TestZeroExtraInput_ShapeAndValues(t *testing.T) {
-	out := ZeroExtraInput(2, 3)
+	out := registry.ZeroExtraInput(2, 3)
 	if len(out) != 6 {
 		t.Fatalf("expected 6 elements (2×3), got %d", len(out))
 	}
@@ -76,8 +69,7 @@ func TestZeroExtraInput_ShapeAndValues(t *testing.T) {
 }
 
 func TestPositionIDsExtraInput_BroadcastsPosOverBatch(t *testing.T) {
-	// batch=2, seqLen=3 → row 0 = [0,1,2], row 1 = [0,1,2]
-	out := PositionIDsExtraInput(2, 3)
+	out := registry.PositionIDsExtraInput(2, 3)
 	if len(out) != 6 {
 		t.Fatalf("expected 6 elements, got %d", len(out))
 	}
@@ -90,21 +82,17 @@ func TestPositionIDsExtraInput_BroadcastsPosOverBatch(t *testing.T) {
 }
 
 func TestPoolingMode_StringSurvivesUnknown(t *testing.T) {
-	// String() shouldn't panic on an out-of-range mode — it lands in
-	// error messages, so it must always produce something readable.
-	got := PoolingMode(99).String()
+	got := registry.PoolingMode(99).String()
 	if got == "" {
 		t.Error("String() returned empty for unknown mode")
 	}
 }
 
 func TestPoolByMode_DispatchesToRightPool(t *testing.T) {
-	// Simple 1×1×2 input: hidden state at position 0 is (3, 4).
 	raw := []float32{3, 4}
 	mask := [][]int64{{1}}
 
-	// CLS pool → (0.6, 0.8) (L2-normalized).
-	clsOut, err := poolByMode(PoolingCLS, raw, mask, 1, 1, 2)
+	clsOut, err := poolByMode(registry.PoolingCLS, raw, mask, 1, 1, 2)
 	if err != nil {
 		t.Fatalf("CLS pool: %v", err)
 	}
@@ -112,8 +100,7 @@ func TestPoolByMode_DispatchesToRightPool(t *testing.T) {
 		t.Errorf("CLS pool dim 0: got %f, want 0.6", clsOut[0][0])
 	}
 
-	// Mean pool over single token → same result (mask sum = 1).
-	meanOut, err := poolByMode(PoolingMean, raw, mask, 1, 1, 2)
+	meanOut, err := poolByMode(registry.PoolingMean, raw, mask, 1, 1, 2)
 	if err != nil {
 		t.Fatalf("Mean pool: %v", err)
 	}
@@ -121,15 +108,12 @@ func TestPoolByMode_DispatchesToRightPool(t *testing.T) {
 		t.Errorf("Mean pool dim 0: got %f, want 0.6", meanOut[0][0])
 	}
 
-	// LastToken not yet implemented — should error, not silently
-	// return wrong vectors.
-	_, err = poolByMode(PoolingLastToken, raw, mask, 1, 1, 2)
+	_, err = poolByMode(registry.PoolingLastToken, raw, mask, 1, 1, 2)
 	if err == nil {
 		t.Error("LastToken pool should error until implemented")
 	}
 
-	// Unknown mode must error.
-	_, err = poolByMode(PoolingMode(99), raw, mask, 1, 1, 2)
+	_, err = poolByMode(registry.PoolingMode(99), raw, mask, 1, 1, 2)
 	if err == nil {
 		t.Error("unknown pool mode must error")
 	}

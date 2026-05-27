@@ -7,7 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/0xmhha/code-knowledge-vector/internal/embed/bgeonnx"
+	"github.com/0xmhha/code-knowledge-vector/internal/embed/model"
+	"github.com/0xmhha/code-knowledge-vector/internal/embed/registry"
 )
 
 func newModelCmd() *cobra.Command {
@@ -35,7 +36,7 @@ Supported models:
 			name := args[0]
 			fmt.Printf("ckv model fetch: %s\n", name)
 
-			destDir, err := bgeonnx.FetchModel(name, globalFlags.modelDir, func(msg string) {
+			destDir, err := model.FetchModel(name, globalFlags.modelDir, func(msg string) {
 				fmt.Println(msg)
 			})
 			if err != nil {
@@ -52,7 +53,7 @@ func newModelListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List cached embedding models",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			models := bgeonnx.RegisteredModels()
+			models := registry.List()
 
 			fmt.Printf("%-25s %-6s %-8s %s\n", "MODEL", "DIM", "STATUS", "PATH")
 			for _, cfg := range models {
