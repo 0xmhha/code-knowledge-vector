@@ -1,4 +1,4 @@
-.PHONY: all build test test-race lint fmt tidy audit clean help
+.PHONY: all build test test-race lint fmt tidy audit clean help model-fetch eval-pr eval-pr-1run eval-ab
 
 GO ?= go
 BIN_DIR := bin
@@ -59,6 +59,34 @@ audit: ## govulncheck (call-graph reachable vulns)
 	    echo "  install: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
 	    exit 1; \
 	fi
+
+# ---- bgeonnx targets (require -tags bgeonnx + model files) ----
+
+model-fetch: ## Download bge-large-en-v1.5 ONNX model (~1.34GB)
+	$(GO) run ./cmd/ckv model fetch bge-large-en-v1.5
+
+eval-pr: ## Run 12-PR regression eval with bgeonnx (32GB+ RAM, CoreML)
+	$(GO) run -tags bgeonnx ./cmd/ckv eval \
+		--pr-fixture ./testdata/prs.yaml \
+		--embedder=bgeonnx --pr-runs 3 \
+		--judge claude --json
+
+eval-pr-1run: ## Single-run PR eval (faster, no noise averaging)
+	$(GO) run -tags bgeonnx ./cmd/ckv eval \
+		--pr-fixture ./testdata/prs.yaml \
+		--embedder=bgeonnx --pr-runs 1 \
+		--judge claude --json
+
+eval-ab: ## A/B measurement: bgeonnx BM25 OFF vs ON (testdata/sample)
+	@echo "=== BM25 OFF ===" && \
+	TMP=$$(mktemp -d) && \
+	CKV_MEM_GUARD=off CKV_DISABLE_COREML=1 $(GO) run -tags bgeonnx ./cmd/ckv build --src ./testdata/sample --out "$$TMP" --embedder=bgeonnx && \
+	CKV_MEM_GUARD=off CKV_DISABLE_COREML=1 $(GO) run -tags bgeonnx ./cmd/ckv eval --fixture ./testdata/queries.yaml --out "$$TMP" --src ./testdata/sample --embedder=bgeonnx --json && \
+	echo "=== BM25 ON ===" && \
+	CKV_MEM_GUARD=off CKV_DISABLE_COREML=1 $(GO) run -tags bgeonnx ./cmd/ckv eval --fixture ./testdata/queries.yaml --out "$$TMP" --src ./testdata/sample --embedder=bgeonnx --bm25-rerank --json && \
+	rm -rf "$$TMP"
+
+# ---- cleanup ----
 
 clean: ## Remove build artifacts
 	rm -rf $(BIN_DIR)/ coverage.out /tmp/ckv-*
