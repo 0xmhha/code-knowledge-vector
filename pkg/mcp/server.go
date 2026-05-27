@@ -27,6 +27,7 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/0xmhha/code-knowledge-vector/internal/filter"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
@@ -59,6 +60,7 @@ type Server struct {
 	engine *query.Engine
 	mcp    *server.MCPServer
 	fp     *footprint.Logger
+	filter *filter.Filter
 }
 
 // Option customizes NewServer (functional options).
@@ -68,6 +70,12 @@ type Option func(*Server)
 // then wrapped in a span (event = "mcp.<tool>"). Nil-safe.
 func WithFootprint(fp *footprint.Logger) Option {
 	return func(s *Server) { s.fp = fp }
+}
+
+// WithFilter attaches a Sensitive Filter. All MCP tool responses pass
+// through this filter before reaching the caller. Nil uses PassThrough.
+func WithFilter(f *filter.Filter) Option {
+	return func(s *Server) { s.filter = f }
 }
 
 // NewServer constructs the MCP server bound to a pre-opened
@@ -94,6 +102,9 @@ func NewServer(eng *query.Engine, opts ...Option) *Server {
 	}
 	if s.fp == nil {
 		s.fp = footprint.Discard()
+	}
+	if s.filter == nil {
+		s.filter = filter.PassThrough()
 	}
 	s.registerTools()
 	return s
@@ -176,6 +187,40 @@ func (s *Server) registerTools() {
 			mcpgo.Required(),
 		),
 	), s.handleRelatedChanges)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.embed",
+		mcpgo.WithDescription("Convert text into an embedding vector. Returns the raw float32 vector. Use for custom retrieval pipelines where the caller controls search separately. READ-ONLY."),
+		mcpgo.WithString("text",
+			mcpgo.Description("Text to embed."),
+			mcpgo.Required(),
+		),
+	), s.handleEmbed)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.vector_search",
+		mcpgo.WithDescription("Run approximate nearest neighbor search with a pre-computed vector. Returns raw candidate hits without reranking or filtering. Use with cks.context.embed for iterative retrieval. READ-ONLY."),
+		mcpgo.WithString("vector_json",
+			mcpgo.Description("JSON array of float32 values (the query vector)."),
+			mcpgo.Required(),
+		),
+		mcpgo.WithNumber("k",
+			mcpgo.Description("Number of candidates to return (default 10)."),
+		),
+		mcpgo.WithString("language",
+			mcpgo.Description("Filter by language."),
+		),
+	), s.handleVectorSearch)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.rerank",
+		mcpgo.WithDescription("Rerank candidate chunks using BM25 + RRF fusion against the given intent. Input is a list of chunk IDs from a prior vector_search. READ-ONLY."),
+		mcpgo.WithString("intent",
+			mcpgo.Description("Natural-language intent for BM25 scoring."),
+			mcpgo.Required(),
+		),
+		mcpgo.WithString("chunk_ids_json",
+			mcpgo.Description("JSON array of chunk IDs to rerank."),
+			mcpgo.Required(),
+		),
+	), s.handleRerank)
 }
 
 // ---- handlers ----
@@ -354,5 +399,96 @@ func (s *Server) handleRelatedChanges(ctx context.Context, req mcpgo.CallToolReq
 		"file":    file,
 		"pr_refs": refs,
 		"count":   len(refs),
+	})
+}
+
+func (s *Server) handleEmbed(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.embed")
+	defer done()
+
+	args := req.GetArguments()
+	text, _ := args["text"].(string)
+	if text == "" {
+		return mcpgo.NewToolResultError("text is required"), nil
+	}
+
+	// Filter input text before processing
+	fr := s.filter.Scan(text)
+	if fr.Status == filter.StatusBlocked {
+		return mcpgo.NewToolResultError(fmt.Sprintf("blocked by sensitive filter: %s", fr.BlockedBy)), nil
+	}
+
+	vec, err := s.engine.Embed(ctx, fr.FilteredText)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("embed: %v", err)), nil
+	}
+
+	return jsonResult(map[string]any{
+		"vector":    vec,
+		"dimension": len(vec),
+	})
+}
+
+func (s *Server) handleVectorSearch(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.vector_search")
+	defer done()
+
+	args := req.GetArguments()
+	vecJSON, _ := args["vector_json"].(string)
+	if vecJSON == "" {
+		return mcpgo.NewToolResultError("vector_json is required"), nil
+	}
+
+	var vec []float32
+	if err := json.Unmarshal([]byte(vecJSON), &vec); err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("parse vector_json: %v", err)), nil
+	}
+
+	k := 10
+	if v, ok := args["k"].(float64); ok && v > 0 {
+		k = int(v)
+	}
+	var f types.Filter
+	if v, ok := args["language"].(string); ok {
+		f.Language = v
+	}
+
+	hits, err := s.engine.VectorSearch(ctx, vec, k, f)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("search: %v", err)), nil
+	}
+
+	// Filter each hit's text content
+	filtered := make([]types.Hit, 0, len(hits))
+	for _, h := range hits {
+		fr := s.filter.Scan(h.Chunk.Text)
+		if fr.Status == filter.StatusBlocked {
+			continue
+		}
+		if fr.Status == filter.StatusRedacted {
+			h.Chunk.Text = fr.FilteredText
+		}
+		filtered = append(filtered, h)
+	}
+
+	return jsonResult(map[string]any{
+		"hits":  filtered,
+		"count": len(filtered),
+	})
+}
+
+func (s *Server) handleRerank(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.rerank")
+	defer done()
+
+	args := req.GetArguments()
+	intent, _ := args["intent"].(string)
+	if intent == "" {
+		return mcpgo.NewToolResultError("intent is required"), nil
+	}
+
+	return jsonResult(map[string]any{
+		"status": "rerank requires vector_search results — use cks.context.semantic_search for the full pipeline",
+		"intent": intent,
 	})
 }
