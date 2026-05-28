@@ -120,6 +120,11 @@ type Options struct {
 	// the Engine: comparison runs (`--bm25-rerank` vs no-flag) share
 	// the same Engine + index, only the rerank step toggles.
 	EnableBM25Rerank bool
+
+	// EnableScoreBoost applies signature/doc/recent/package multipliers
+	// to the rerank pass. Default false.
+	EnableScoreBoost bool
+	Boost            BoostOptions
 }
 
 // Hit is the response-shaped record: only what callers (LLM, CLI) need.
@@ -190,6 +195,7 @@ type Engine struct {
 	embedSvc     *EmbedService
 	searchSvc    *StoreSearchService
 	rerankSvc    *RerankService
+	boostSvc     *BoostService
 	thresholdSvc *ThresholdService
 	densitySvc   *DensityService
 }
@@ -244,6 +250,7 @@ func Open(outDir string, emb types.Embedder, opts ...OpenOption) (*Engine, error
 		embedSvc:     &EmbedService{emb: emb},
 		searchSvc:    &StoreSearchService{store: store},
 		rerankSvc:    &RerankService{},
+		boostSvc:     &BoostService{},
 		thresholdSvc: &ThresholdService{},
 		densitySvc:   &DensityService{},
 	}
@@ -494,6 +501,11 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		return nil, err
 	}
 	doneBM25("candidates_out", len(sc.RawHits))
+
+	// 3.5 Score boost (conditional)
+	doneBoost := e.fp.Span("query.score.boost", "trace_id", traceID, "enabled", opts.EnableScoreBoost)
+	e.boostSvc.RunContext(sc, e.man.IndexedHead)
+	doneBoost("candidates_out", len(sc.RawHits))
 
 	// 4. Threshold
 	doneThreshold := e.fp.Span("query.threshold.drop", "trace_id", traceID)
