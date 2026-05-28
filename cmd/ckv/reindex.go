@@ -18,6 +18,7 @@ type reindexOpts struct {
 	out     string
 	since   string
 	files   []string
+	exclude []string
 	jsonOut bool
 }
 
@@ -50,6 +51,7 @@ Examples:
 	f.StringVar(&opts.out, "out", "./ckv-data", "data directory (vector.db, manifest.json)")
 	f.StringVar(&opts.since, "since", "", "git commit to diff from (default: manifest.indexed_head)")
 	f.StringSliceVar(&opts.files, "files", nil, "force-reindex these src-relative paths (bypasses git diff)")
+	f.StringSliceVar(&opts.exclude, "exclude", nil, "extra ignore patterns (repeatable; e.g. --exclude='vendor/**')")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 
 	return cmd
@@ -78,6 +80,7 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 		SrcRoot:                 opts.src,
 		OutDir:                  opts.out,
 		Embedder:                emb,
+		CKVIgnore:               opts.exclude,
 		Since:                   opts.since,
 		Files:                   opts.files,
 		Footprint:               fp,

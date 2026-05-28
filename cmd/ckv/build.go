@@ -18,6 +18,7 @@ type buildOpts struct {
 	out       string
 	ckgPath   string
 	languages []string
+	exclude   []string
 	configPth string
 	jsonOut   bool
 
@@ -47,6 +48,7 @@ Re-running on a populated --out updates chunks in place (Upsert).`,
 	f.StringVar(&opts.out, "out", "./ckv-data", "output data directory (vector.db, manifest.json)")
 	f.StringVar(&opts.ckgPath, "ckg", "", "CKG data directory for symbol alignment (optional)")
 	f.StringSliceVar(&opts.languages, "lang", nil, "languages to index (default: auto-detect; supported: go, typescript, javascript, solidity, markdown)")
+	f.StringSliceVar(&opts.exclude, "exclude", nil, "extra ignore patterns (repeatable; e.g. --exclude='vendor/**' --exclude='**/*_gen.go')")
 	f.StringVar(&opts.configPth, "config", "", "path to ckv.yaml (optional)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 	f.BoolVar(&opts.includePR, "include-pr-history", false, "fetch merged PRs via gh CLI and index descriptions + commit messages")
@@ -83,6 +85,7 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 		SrcRoot:                 opts.src,
 		OutDir:                  opts.out,
 		Embedder:                emb,
+		CKVIgnore:               opts.exclude,
 		Footprint:               fp,
 		ProgressOut:             os.Stderr,
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
