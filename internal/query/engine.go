@@ -198,6 +198,7 @@ type Engine struct {
 	emb     types.Embedder
 	man     *manifest.Manifest
 	srcRoot string
+	outDir  string
 	fp      *footprint.Logger
 
 	// Core services (independently callable)
@@ -256,6 +257,7 @@ func Open(outDir string, emb types.Embedder, opts ...OpenOption) (*Engine, error
 		emb:          emb,
 		man:          man,
 		srcRoot:      man.SrcRoot,
+		outDir:       outDir,
 		fp:           footprint.Discard(),
 		embedSvc:     &EmbedService{emb: emb},
 		searchSvc:    &StoreSearchService{store: store},
@@ -290,6 +292,23 @@ func (e *Engine) LookupPRsByFile(ctx context.Context, file string) ([]types.PRRe
 		return nil, nil
 	}
 	return e.store.LookupPRsByFile(ctx, file)
+}
+
+// Embedder returns the underlying embedder. Callers (MCP index handler)
+// reuse it to avoid re-initializing the embedder for build/reindex.
+func (e *Engine) Embedder() types.Embedder {
+	if e == nil {
+		return nil
+	}
+	return e.emb
+}
+
+// OutDir returns the data directory the engine was opened from.
+func (e *Engine) OutDir() string {
+	if e == nil {
+		return ""
+	}
+	return e.outDir
 }
 
 // Manifest returns a copy of the loaded manifest. Callers (ckv freshness)

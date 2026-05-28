@@ -27,6 +27,7 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/0xmhha/code-knowledge-vector/internal/build"
 	"github.com/0xmhha/code-knowledge-vector/internal/filter"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
@@ -231,6 +232,18 @@ func (s *Server) registerTools() {
 			mcpgo.Required(),
 		),
 	), s.handleRerank)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.ops.index",
+		mcpgo.WithDescription("Trigger indexing of a source repository. mode=full rebuilds from scratch; mode=incremental updates only files changed since the last index. Returns stats on processed/created/updated/deleted chunks."),
+		mcpgo.WithString("mode",
+			mcpgo.Description("Indexing mode: full | incremental"),
+			mcpgo.Required(),
+		),
+		mcpgo.WithString("project_root",
+			mcpgo.Description("Absolute path to the source repository."),
+			mcpgo.Required(),
+		),
+	), s.handleIndex)
 }
 
 // ---- handlers ----
@@ -501,4 +514,65 @@ func (s *Server) handleRerank(ctx context.Context, req mcpgo.CallToolRequest) (*
 		"status": "rerank requires vector_search results — use cks.context.semantic_search for the full pipeline",
 		"intent": intent,
 	})
+}
+
+func (s *Server) handleIndex(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.index")
+	defer done()
+
+	args := req.GetArguments()
+	mode, _ := args["mode"].(string)
+	projectRoot, _ := args["project_root"].(string)
+	if mode == "" {
+		return mcpgo.NewToolResultError("mode is required (full | incremental)"), nil
+	}
+	if projectRoot == "" {
+		return mcpgo.NewToolResultError("project_root is required"), nil
+	}
+
+	outDir := s.engine.OutDir()
+	if outDir == "" {
+		return mcpgo.NewToolResultError("engine has no out directory configured"), nil
+	}
+
+	start := time.Now()
+	payload := map[string]any{"mode": mode, "project_root": projectRoot}
+
+	switch mode {
+	case "full":
+		res, err := build.Run(ctx, build.Options{
+			SrcRoot:  projectRoot,
+			OutDir:   outDir,
+			Embedder: s.engine.Embedder(),
+		})
+		if err != nil {
+			return mcpgo.NewToolResultError(fmt.Sprintf("build: %v", err)), nil
+		}
+		payload["files_processed"] = res.FilesIndexed
+		payload["chunks_created"] = res.Chunks.Total
+		payload["chunks_updated"] = 0
+		payload["chunks_deleted"] = 0
+		payload["index_commit"] = res.IndexedHead
+
+	case "incremental":
+		res, err := build.Reindex(ctx, build.ReindexOptions{
+			SrcRoot:  projectRoot,
+			OutDir:   outDir,
+			Embedder: s.engine.Embedder(),
+		})
+		if err != nil {
+			return mcpgo.NewToolResultError(fmt.Sprintf("reindex: %v", err)), nil
+		}
+		payload["files_processed"] = res.FilesProcessed
+		payload["chunks_created"] = res.Chunks.Total
+		payload["chunks_updated"] = res.FilesModified
+		payload["chunks_deleted"] = res.FilesDeleted
+		payload["index_commit"] = res.NewHead
+
+	default:
+		return mcpgo.NewToolResultError(fmt.Sprintf("unknown mode %q (must be full or incremental)", mode)), nil
+	}
+
+	payload["duration_ms"] = time.Since(start).Milliseconds()
+	return jsonResult(payload)
 }
