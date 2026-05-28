@@ -22,13 +22,23 @@ func newMCPCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Run the CKV MCP server (stdio JSON-RPC)",
-		Long: `Speaks MCP JSON-RPC over stdio by default. Exposes:
-  cks.context.semantic_search   — query.Search wrapper
+		Long: `Speaks MCP JSON-RPC over stdio by default, or HTTP when --http is set.
+
+Tools exposed:
+  cks.context.semantic_search   — full search pipeline
+  cks.context.embed             — text to vector
+  cks.context.vector_search     — ANN search with pre-computed vector
+  cks.context.rerank            — BM25 rerank candidate hits
+  cks.context.related_changes   — PR breadcrumb lookup
   cks.ops.get_freshness         — git diff vs indexed_head
   cks.ops.health                — index identity probe
+  cks.ops.warmup                — pre-load embedder
 
-Register with Claude Code:
-  claude mcp add cks --command "$(pwd)/bin/ckv mcp --out=$(pwd)/ckv-data"`,
+Register with Claude Code (stdio):
+  claude mcp add cks --command "$(pwd)/bin/ckv mcp --out=$(pwd)/ckv-data"
+
+Run as HTTP server (multi-client):
+  ckv mcp --out=$(pwd)/ckv-data --http=:8080`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMCP(opts)
 		},
@@ -36,16 +46,12 @@ Register with Claude Code:
 
 	f := cmd.Flags()
 	f.StringVar(&opts.out, "out", "./ckv-data", "data directory")
-	f.StringVar(&opts.httpAddr, "http", "", "(reserved) HTTP listen addr — not yet wired")
+	f.StringVar(&opts.httpAddr, "http", "", "HTTP listen address (e.g. :8080); empty uses stdio")
 
 	return cmd
 }
 
 func runMCP(opts *mcpOpts) error {
-	if opts.httpAddr != "" {
-		return errors.New("mcp: --http transport not yet implemented")
-	}
-
 	fp := newFootprint(opts.out, "")
 	defer fp.Close()
 
@@ -65,11 +71,18 @@ func runMCP(opts *mcpOpts) error {
 	defer eng.Close()
 
 	srv := ckvmcp.NewServer(eng, ckvmcp.WithFootprint(fp))
-	// ServeStdio blocks until stdin EOF or fatal transport error.
-	// We deliberately log nothing on stdout — MCP stdio transport
-	// reserves stdout for JSON-RPC frames.
+
+	if opts.httpAddr != "" {
+		fmt.Fprintf(os.Stderr, "ckv mcp: HTTP listening on %s\n", opts.httpAddr)
+		if err := srv.ServeHTTP(opts.httpAddr); err != nil {
+			return fmt.Errorf("mcp serve http: %w", err)
+		}
+		return nil
+	}
+
+	// stdio default: reserves stdout for JSON-RPC frames, so logs only to stderr.
 	if err := srv.ServeStdio(); err != nil {
-		return fmt.Errorf("mcp serve: %w", err)
+		return fmt.Errorf("mcp serve stdio: %w", err)
 	}
 	return nil
 }

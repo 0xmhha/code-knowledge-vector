@@ -116,6 +116,16 @@ func (s *Server) ServeStdio() error {
 	return server.ServeStdio(s.mcp)
 }
 
+// ServeHTTP runs the streamable HTTP transport on the given address
+// (e.g. ":8080"). Blocks until the listener is closed. Use when
+// multiple clients need to share one MCP server instance — stdio is
+// 1:1, HTTP supports concurrent sessions over the streamable
+// protocol (POST for requests, GET for SSE notifications).
+func (s *Server) ServeHTTP(addr string) error {
+	httpSrv := server.NewStreamableHTTPServer(s.mcp)
+	return httpSrv.Start(addr)
+}
+
 // Underlying returns the *server.MCPServer for cross-package multiplex.
 //
 // Used by CKS (separate repo) to register CKG tools alongside CKV's
