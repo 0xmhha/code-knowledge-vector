@@ -125,6 +125,11 @@ type Options struct {
 	// to the rerank pass. Default false.
 	EnableScoreBoost bool
 	Boost            BoostOptions
+
+	// EnableMetadataEnrichment attaches git log history to each hit.
+	// Default false (calls git log per file, has IO cost).
+	EnableMetadataEnrichment bool
+	MaxHistoryCommits        int // 0 → 5
 }
 
 // Hit is the response-shaped record: only what callers (LLM, CLI) need.
@@ -151,6 +156,10 @@ type Hit struct {
 	Symbol        string           `json:"symbol,omitempty"`
 	SymbolKind    types.SymbolKind `json:"symbol_kind,omitempty"`
 	CKGNodeID     string           `json:"ckg_node_id,omitempty"`
+
+	// GitHistory holds recent commits touching this hit's file.
+	// Populated when Options.EnableMetadataEnrichment is set.
+	GitHistory []CommitSummary `json:"git_history,omitempty"`
 }
 
 // Response is the full search response — hits plus diagnostics so MCP
@@ -198,6 +207,7 @@ type Engine struct {
 	boostSvc     *BoostService
 	thresholdSvc *ThresholdService
 	densitySvc   *DensityService
+	enrichSvc    *EnrichService
 }
 
 // OpenOption customizes Engine construction (functional options).
@@ -253,6 +263,7 @@ func Open(outDir string, emb types.Embedder, opts ...OpenOption) (*Engine, error
 		boostSvc:     &BoostService{},
 		thresholdSvc: &ThresholdService{},
 		densitySvc:   &DensityService{},
+		enrichSvc:    &EnrichService{},
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -553,6 +564,11 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 		return nil, err
 	}
 	doneDensity("tokens_used", sc.TokensUsed)
+
+	// 8. Metadata enrichment (git history per hit's file)
+	doneEnrich := e.fp.Span("query.metadata.enrich", "trace_id", traceID, "enabled", opts.EnableMetadataEnrichment)
+	e.enrichSvc.RunContext(ctx, sc, srcRoot)
+	doneEnrich()
 
 	response := &Response{
 		Hits:     sc.FinalHits,
