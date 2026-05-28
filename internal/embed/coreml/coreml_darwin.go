@@ -16,8 +16,8 @@ import (
 	"unsafe"
 )
 
-// Open loads a CoreML model (.mlpackage or .mlmodelc) and returns an
-// Adapter that runs inference on the ANE/GPU/CPU via CoreML.
+// Open loads a CoreML model (.mlpackage or .mlmodelc) and its
+// tokenizer, returning an Adapter that runs inference on ANE/GPU/CPU.
 func Open(opts Options) (*Adapter, error) {
 	if opts.ModelPath == "" {
 		return nil, fmt.Errorf("coreml: model path is required")
@@ -37,12 +37,22 @@ func Open(opts Options) (*Adapter, error) {
 		return nil, fmt.Errorf("coreml: failed to load model from %s (error %d)", opts.ModelPath, result)
 	}
 
-	return &Adapter{
+	a := &Adapter{
 		modelPath: opts.ModelPath,
 		modelName: opts.ModelName,
 		dim:       opts.Dim,
 		maxSeqLen: opts.MaxSeqLen,
-	}, nil
+	}
+
+	if opts.TokenizerPath != "" {
+		tk, err := newTokenizer(opts.TokenizerPath)
+		if err != nil {
+			C.ckv_coreml_unload()
+			return nil, err
+		}
+		a.tokenizer = tk
+	}
+	return a, nil
 }
 
 func (a *Adapter) Name() string        { return a.modelName }
@@ -50,6 +60,9 @@ func (a *Adapter) Dimension() int      { return a.dim }
 func (a *Adapter) MaxInputTokens() int { return a.maxSeqLen }
 
 func (a *Adapter) Close() error {
+	if a.tokenizer != nil {
+		_ = a.tokenizer.Close()
+	}
 	C.ckv_coreml_unload()
 	return nil
 }
@@ -62,24 +75,24 @@ func (a *Adapter) Embed(_ context.Context, batch []string) ([][]float32, error) 
 	if len(batch) == 0 {
 		return nil, nil
 	}
+	if a.tokenizer == nil {
+		return nil, fmt.Errorf("coreml: tokenizer not configured — pass TokenizerPath in Options")
+	}
 
 	batchSize := len(batch)
 	seqLen := a.maxSeqLen
 
-	// Tokenize: for now, simple whitespace split + truncate/pad.
-	// Production use should wire libtokenizers via the same CGO path
-	// as bgeonnx. This placeholder enables end-to-end testing of the
-	// CoreML inference path.
 	inputIDs := make([]int64, batchSize*seqLen)
 	attMask := make([]int64, batchSize*seqLen)
 
 	for i, text := range batch {
-		tokens := simpleTokenize(text, seqLen)
-		base := i * seqLen
-		for j, tok := range tokens {
-			inputIDs[base+j] = int64(tok)
-			attMask[base+j] = 1
+		ids, mask, err := a.tokenizer.Encode(text, seqLen)
+		if err != nil {
+			return nil, fmt.Errorf("coreml: tokenize[%d]: %w", i, err)
 		}
+		base := i * seqLen
+		copy(inputIDs[base:base+seqLen], ids)
+		copy(attMask[base:base+seqLen], mask)
 	}
 
 	// Allocate output buffer [batch, seqLen, dim]
@@ -108,25 +121,6 @@ func (a *Adapter) Embed(_ context.Context, batch []string) ([][]float32, error) 
 		result[i] = vec
 	}
 	return result, nil
-}
-
-// simpleTokenize is a placeholder tokenizer that maps bytes to token IDs.
-// Production should use libtokenizers for proper BPE/WordPiece tokenization.
-func simpleTokenize(text string, maxLen int) []int {
-	// CLS=101, SEP=102, bytes offset by 1000
-	tokens := []int{101} // [CLS]
-	for _, b := range []byte(text) {
-		if len(tokens) >= maxLen-1 {
-			break
-		}
-		tokens = append(tokens, int(b)+1000)
-	}
-	tokens = append(tokens, 102) // [SEP]
-	// Pad to maxLen
-	for len(tokens) < maxLen {
-		tokens = append(tokens, 0)
-	}
-	return tokens[:maxLen]
 }
 
 func l2Normalize(vec []float32) {

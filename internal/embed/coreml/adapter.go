@@ -22,14 +22,24 @@ type Adapter struct {
 	modelName string
 	dim       int
 	maxSeqLen int
+	tokenizer adapterTokenizer
+}
+
+// adapterTokenizer is the interface the platform-specific tokenizer
+// satisfies. Defined here so the Adapter struct compiles on all
+// platforms; only darwin has a real implementation.
+type adapterTokenizer interface {
+	Encode(text string, maxLen int) (ids, mask []int64, err error)
+	Close() error
 }
 
 // Options configures the CoreML adapter.
 type Options struct {
-	ModelPath string // path to .mlpackage or .mlmodelc directory
-	ModelName string // display name for manifest
-	Dim       int    // output vector dimension (must match model)
-	MaxSeqLen int    // max sequence length for tokenization (default 512)
+	ModelPath     string // path to .mlpackage or .mlmodelc directory
+	TokenizerPath string // path to tokenizer.json (required for inference)
+	ModelName     string // display name for manifest
+	Dim           int    // output vector dimension (must match model)
+	MaxSeqLen     int    // max sequence length for tokenization (default 512)
 }
 
 // errNotAvailable is returned on non-macOS platforms.
