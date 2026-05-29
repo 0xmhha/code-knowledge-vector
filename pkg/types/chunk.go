@@ -74,24 +74,39 @@ type Citation struct {
 	CommitHash string `json:"commit_hash"`
 }
 
+// ModificationGuidance is project-policy advice attached to a chunk by
+// the policy loader. It surfaces "if you touch this code, here is what
+// else to consider" hints derived from the chunk's path category
+// (e.g. consensus, state, p2p). All fields may be empty.
+//
+// Guidance is informative, not enforcement. A nil pointer means the
+// chunk's path did not match any policy rule.
+type ModificationGuidance struct {
+	AlsoReview    []string `json:"also_review,omitempty"`    // other categories/files to inspect together
+	RequiredTests []string `json:"required_tests,omitempty"` // test suites the change should exercise
+	WatchOut      []string `json:"watch_out,omitempty"`      // pitfalls / hard-fork / byzantine risks
+}
+
 // Chunk is the unit CKV embeds and stores. It is the indexable record
 // produced by parse → chunk; the embedder turns Text into a vector and
 // the store persists everything except Text-derived caches.
 type Chunk struct {
-	ID            string     `json:"id"` // see ChunkID
-	File          string     `json:"file"`
-	StartLine     int        `json:"start_line"`
-	EndLine       int        `json:"end_line"`
-	Language      string     `json:"language"`          // "go" | "typescript" | "solidity" | "markdown"
-	IsTest        bool       `json:"is_test,omitempty"` // _test.go, *.test.ts, *.spec.ts, *.t.sol, test/... — populated by IsTestPath
-	SymbolName    string     `json:"symbol_name,omitempty"`
-	SymbolKind    SymbolKind `json:"symbol_kind,omitempty"`
-	ChunkKind     ChunkKind  `json:"chunk_kind"`
-	CommitHash    string     `json:"commit_hash"`
-	ContentSHA256 string     `json:"content_sha256"`
-	CKGNodeID     string     `json:"ckg_node_id,omitempty"` // 1:1 alignment when CKG path is provided
-	RecentPRs     []PRRef    `json:"recent_prs,omitempty"`  // PRs that touched this chunk's file
-	Text          string     `json:"text"`                  // chunk source (for re-embedding / display)
+	ID            string                `json:"id"` // see ChunkID
+	File          string                `json:"file"`
+	StartLine     int                   `json:"start_line"`
+	EndLine       int                   `json:"end_line"`
+	Language      string                `json:"language"`          // "go" | "typescript" | "solidity" | "markdown"
+	IsTest        bool                  `json:"is_test,omitempty"` // _test.go, *.test.ts, *.spec.ts, *.t.sol, test/... — populated by IsTestPath
+	SymbolName    string                `json:"symbol_name,omitempty"`
+	SymbolKind    SymbolKind            `json:"symbol_kind,omitempty"`
+	ChunkKind     ChunkKind             `json:"chunk_kind"`
+	CommitHash    string                `json:"commit_hash"`
+	ContentSHA256 string                `json:"content_sha256"`
+	CKGNodeID     string                `json:"ckg_node_id,omitempty"` // 1:1 alignment when CKG path is provided
+	RecentPRs     []PRRef               `json:"recent_prs,omitempty"`  // PRs that touched this chunk's file
+	Category      string                `json:"category,omitempty"`    // policy category: consensus|state|crypto|p2p|... (empty = unclassified)
+	Guidance      *ModificationGuidance `json:"guidance,omitempty"`    // attached by policy loader; nil for unclassified
+	Text          string                `json:"text"`                  // chunk source (for re-embedding / display)
 }
 
 // Citation returns the citation view of this chunk. Always populated for

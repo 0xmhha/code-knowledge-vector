@@ -309,8 +309,9 @@ func TestMigrationRunner_IgnoresNonMatchingFiles(t *testing.T) {
 	}
 }
 
-func TestOpen_AutoMigrate_AppliesBaseline(t *testing.T) {
-	// Uses the real embedded migrations: 000_baseline must auto-apply.
+func TestOpen_AutoMigrate_AppliesAllPending(t *testing.T) {
+	// Uses the real embedded migrations: at minimum 000_baseline must
+	// auto-apply, and the latest version on disk must be reached.
 	dbPath := filepath.Join(t.TempDir(), "v.db")
 	s, err := Open(dbPath, testDim)
 	if err != nil {
@@ -318,13 +319,17 @@ func TestOpen_AutoMigrate_AppliesBaseline(t *testing.T) {
 	}
 	defer s.Close()
 
-	var version string
-	err = s.db.QueryRow(`SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version)
+	runner := NewMigrationRunner(s.db, dbPath, WithBackup(false))
+	status, err := runner.Status(context.Background())
 	if err != nil {
-		t.Fatalf("read schema_migrations: %v", err)
+		t.Fatalf("Status: %v", err)
 	}
-	if version != "000" {
-		t.Errorf("auto-migrate version=%q, want 000", version)
+	if len(status.Pending) != 0 {
+		t.Errorf("Open should have applied all migrations, %d still pending: %v",
+			len(status.Pending), status.Pending)
+	}
+	if len(status.Applied) == 0 {
+		t.Fatal("at least 000_baseline should be applied after Open")
 	}
 }
 

@@ -156,6 +156,13 @@ type Hit struct {
 	Symbol        string           `json:"symbol,omitempty"`
 	SymbolKind    types.SymbolKind `json:"symbol_kind,omitempty"`
 	CKGNodeID     string           `json:"ckg_node_id,omitempty"`
+	// Category and Guidance are populated by the policy loader at build
+	// time. Category labels the chunk's domain ("consensus", "state",
+	// ...); Guidance lists what the agent should also review, test, and
+	// watch out for when modifying this code. Both omitted when the
+	// chunk did not match any policy rule (or no policy was loaded).
+	Category string                      `json:"category,omitempty"`
+	Guidance *types.ModificationGuidance `json:"guidance,omitempty"`
 
 	// GitHistory holds recent commits touching this hit's file.
 	// Populated when Options.EnableMetadataEnrichment is set.

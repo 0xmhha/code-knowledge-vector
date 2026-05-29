@@ -19,6 +19,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
+	"github.com/0xmhha/code-knowledge-vector/internal/policy"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
@@ -52,6 +53,12 @@ type Options struct {
 	// via `gh` CLI and indexes their descriptions + commit messages
 	// as additional chunks alongside the source code.
 	PRFetch *PRFetchOptions
+
+	// PolicyPath is the path to a policy yaml (e.g. policy/stablenet.yaml).
+	// When set and the file exists, every emitted chunk is annotated with
+	// Category + ModificationGuidance based on its path. Empty disables
+	// classification — chunks ship with Category="" and Guidance=nil.
+	PolicyPath string
 }
 
 // Result is what Run returns to the CLI for the summary log.
@@ -183,6 +190,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	chunker := newChunker(o.Embedder, cfg)
 	embedTextFn := resolveEmbedTextFn(o.DisableContextualPrefix)
 
+	// Policy is optional. Absence is silent so existing callers without
+	// a policy file behave unchanged. Malformed yaml is fatal — same
+	// rationale as projectcfg above (better to fail-fast than ship
+	// chunks with surprise classifications).
+	pol, err := policy.Load(o.PolicyPath)
+	if err != nil {
+		return nil, fmt.Errorf("policy: %w", err)
+	}
+	categoryCounts := map[string]int{}
+
 	// progress writes a throttled stderr-side status line so the user
 	// can watch ckv build advance. Library callers leave ProgressOut
 	// nil and get a silent no-op.
@@ -208,6 +225,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			if len(chunks) == 0 {
 				return
+			}
+			for cat, n := range pol.Apply(chunks) {
+				categoryCounts[cat] += n
 			}
 			if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, memSig, embedTextFn); err != nil {
 				perFileErr = fmt.Errorf("embed/upsert %s: %w", f.RelPath, err)
@@ -304,6 +324,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		"chunks_truncated", totalStats.Truncated,
 		"indexed_head", commit,
 		"languages", languageCounts,
+		"policy_loaded", o.PolicyPath != "",
+		"category_counts", categoryCounts,
 	)
 
 	return &Result{

@@ -53,7 +53,8 @@ const (
 // Read-side contract: callers should compare the major version and
 // degrade gracefully on mismatch (e.g. cks could log a warning and
 // fall back to last-known-good fields).
-const ResponseSchemaVersion = "1"
+// 1.1 (2026-05-29): added Hit.category + Hit.guidance from policy loader.
+const ResponseSchemaVersion = "1.1"
 
 // Server owns the long-lived query engine + the underlying MCP server
 // object. One Server per --out directory.

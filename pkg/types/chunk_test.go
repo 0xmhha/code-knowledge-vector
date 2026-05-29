@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestChunkIDIsDeterministic(t *testing.T) {
 	h := ContentSHA256("func foo() { return 1 }")
@@ -74,5 +78,61 @@ func TestFilterIsZero(t *testing.T) {
 	}
 	if (Filter{Language: "go"}).IsZero() {
 		t.Error("non-empty filter must not report IsZero")
+	}
+}
+
+func TestChunkCategoryAndGuidance_JSONOmitempty(t *testing.T) {
+	// Unclassified chunk: Category="" and Guidance=nil should be omitted
+	// from JSON so old consumers (schema_version 1.0) stay compatible.
+	plain := Chunk{
+		ID: "x", File: "f.go", StartLine: 1, EndLine: 2,
+		Language: "go", ChunkKind: ChunkSymbol, ContentSHA256: "h",
+	}
+	b, err := json.Marshal(plain)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(b), `"category"`) {
+		t.Errorf("empty Category must be omitted: %s", b)
+	}
+	if strings.Contains(string(b), `"guidance"`) {
+		t.Errorf("nil Guidance must be omitted: %s", b)
+	}
+}
+
+func TestChunkCategoryAndGuidance_RoundTrip(t *testing.T) {
+	in := Chunk{
+		ID: "x", File: "consensus/parlia/parlia.go",
+		StartLine: 100, EndLine: 200,
+		Language: "go", ChunkKind: ChunkSymbol, ContentSHA256: "h",
+		Category: "consensus",
+		Guidance: &ModificationGuidance{
+			AlsoReview:    []string{"state", "params"},
+			RequiredTests: []string{"fork choice", "byzantine"},
+			WatchOut:      []string{"validator set change requires hard-fork coordination"},
+		},
+	}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out Chunk
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Category != "consensus" {
+		t.Errorf("Category=%q, want consensus", out.Category)
+	}
+	if out.Guidance == nil {
+		t.Fatal("Guidance must round-trip non-nil")
+	}
+	if len(out.Guidance.AlsoReview) != 2 || out.Guidance.AlsoReview[0] != "state" {
+		t.Errorf("AlsoReview=%v", out.Guidance.AlsoReview)
+	}
+	if len(out.Guidance.RequiredTests) != 2 {
+		t.Errorf("RequiredTests=%v", out.Guidance.RequiredTests)
+	}
+	if len(out.Guidance.WatchOut) != 1 {
+		t.Errorf("WatchOut=%v", out.Guidance.WatchOut)
 	}
 }

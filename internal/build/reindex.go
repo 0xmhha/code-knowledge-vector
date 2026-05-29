@@ -17,6 +17,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
+	"github.com/0xmhha/code-knowledge-vector/internal/policy"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
@@ -67,6 +68,11 @@ type ReindexOptions struct {
 	// — mixing prefixed and raw embeddings in one store would degrade
 	// retrieval.
 	DisableContextualPrefix bool
+
+	// PolicyPath mirrors Options.PolicyPath. Reindexed chunks pass
+	// through the policy loader so category/guidance stay current with
+	// the yaml even when only some files change.
+	PolicyPath string
 }
 
 // ReindexResult is what Reindex returns to the caller.
@@ -180,6 +186,10 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 	parsers := newParsers()
 	chunker := newChunker(o.Embedder, cfg)
 	embedTextFn := resolveEmbedTextFn(o.DisableContextualPrefix)
+	pol, err := policy.Load(o.PolicyPath)
+	if err != nil {
+		return nil, fmt.Errorf("policy: %w", err)
+	}
 
 	result := &ReindexResult{
 		PrevHead: prevHead,
@@ -257,6 +267,7 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		if len(chunks) == 0 {
 			continue
 		}
+		pol.Apply(chunks)
 		if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, nil, embedTextFn); err != nil {
 			return nil, fmt.Errorf("embed/upsert %s: %w", rel, err)
 		}

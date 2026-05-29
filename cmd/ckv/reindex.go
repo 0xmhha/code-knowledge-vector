@@ -19,6 +19,7 @@ type reindexOpts struct {
 	since   string
 	files   []string
 	exclude []string
+	policy  string
 	jsonOut bool
 }
 
@@ -52,6 +53,7 @@ Examples:
 	f.StringVar(&opts.since, "since", "", "git commit to diff from (default: manifest.indexed_head)")
 	f.StringSliceVar(&opts.files, "files", nil, "force-reindex these src-relative paths (bypasses git diff)")
 	f.StringSliceVar(&opts.exclude, "exclude", nil, "extra ignore patterns (repeatable; e.g. --exclude='vendor/**')")
+	f.StringVar(&opts.policy, "policy", "", "path to policy yaml (must match the build's policy; categorizes chunks by path)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 
 	return cmd
@@ -86,6 +88,7 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 		Footprint:               fp,
 		ProgressOut:             os.Stderr,
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
+		PolicyPath:              opts.policy,
 	})
 	if err != nil {
 		// Surface the two domain errors with operator-friendly hints.

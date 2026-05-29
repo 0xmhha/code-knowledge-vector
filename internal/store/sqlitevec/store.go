@@ -18,6 +18,7 @@ import (
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3" // sqlite3 driver
 
+	"github.com/0xmhha/code-knowledge-vector/internal/policy"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
@@ -282,8 +283,9 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 	insChunk, err := tx.PrepareContext(ctx, `INSERT INTO chunks (
 		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
-		commit_hash, content_sha256, ckg_node_id, recent_prs, text
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		commit_hash, content_sha256, ckg_node_id, recent_prs,
+		category, guidance, text
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
@@ -297,6 +299,8 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		content_sha256 = excluded.content_sha256,
 		ckg_node_id = excluded.ckg_node_id,
 		recent_prs = excluded.recent_prs,
+		category = excluded.category,
+		guidance = excluded.guidance,
 		text = excluded.text`)
 	if err != nil {
 		return fmt.Errorf("prepare chunk insert: %w", err)
@@ -320,10 +324,15 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 			return fmt.Errorf("sqlitevec: chunk %s embedding dim %d != store dim %d", c.ID, got, s.dim)
 		}
 		prJSON := marshalPRRefs(c.RecentPRs)
+		guideJSON, err := policy.GuidanceJSON(c.Guidance)
+		if err != nil {
+			return fmt.Errorf("marshal guidance for %s: %w", c.ID, err)
+		}
 		if _, err := insChunk.ExecContext(ctx,
 			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
-			c.CommitHash, c.ContentSHA256, c.CKGNodeID, prJSON, c.Text,
+			c.CommitHash, c.ContentSHA256, c.CKGNodeID, prJSON,
+			c.Category, guideJSON, c.Text,
 		); err != nil {
 			return fmt.Errorf("insert chunk %s: %w", c.ID, err)
 		}
@@ -400,7 +409,8 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	stmt := `SELECT
 			c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
-			c.commit_hash, c.content_sha256, c.ckg_node_id, c.recent_prs, c.text,
+			c.commit_hash, c.content_sha256, c.ckg_node_id, c.recent_prs,
+			c.category, c.guidance, c.text,
 			v.distance
 		FROM chunk_vec v
 		JOIN chunks c ON c.id = v.chunk_id
@@ -416,18 +426,21 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	rank := 0
 	for rows.Next() {
 		var (
-			c        types.Chunk
-			isTest   int
-			symKind  sql.NullString
-			chKind   string
-			ckgID    sql.NullString
-			prJSON   sql.NullString
-			distance float64
+			c         types.Chunk
+			isTest    int
+			symKind   sql.NullString
+			chKind    string
+			ckgID     sql.NullString
+			prJSON    sql.NullString
+			catCol    sql.NullString
+			guideJSON sql.NullString
+			distance  float64
 		)
 		if err := rows.Scan(
 			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 			&c.SymbolName, &symKind, &chKind,
-			&c.CommitHash, &c.ContentSHA256, &ckgID, &prJSON, &c.Text,
+			&c.CommitHash, &c.ContentSHA256, &ckgID, &prJSON,
+			&catCol, &guideJSON, &c.Text,
 			&distance,
 		); err != nil {
 			return nil, fmt.Errorf("scan hit: %w", err)
@@ -437,6 +450,12 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		c.ChunkKind = types.ChunkKind(chKind)
 		c.CKGNodeID = ckgID.String
 		c.RecentPRs = unmarshalPRRefs(prJSON.String)
+		c.Category = catCol.String
+		guide, err := policy.GuidanceFromJSON(guideJSON.String)
+		if err != nil {
+			return nil, fmt.Errorf("scan guidance for %s: %w", c.ID, err)
+		}
+		c.Guidance = guide
 
 		if !filter.Matches(c) {
 			continue
