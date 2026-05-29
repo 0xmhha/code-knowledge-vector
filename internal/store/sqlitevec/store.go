@@ -575,6 +575,72 @@ func (s *Store) LookupByIDs(ctx context.Context, ids []string) ([]types.Chunk, e
 	return out, nil
 }
 
+// FindInvariants returns ChunkInvariant rows matching the file or
+// category filter. Both filters are optional; passing both ANDs them.
+// Empty file + empty category returns every invariant in the index.
+//
+// The returned chunks are the invariant rows themselves
+// (ChunkKind == ChunkInvariant). To navigate back to a source chunk,
+// callers walk the source chunk's Invariants field — invariants
+// register their refs by ChunkID on the source side.
+func (s *Store) FindInvariants(ctx context.Context, file, category string) ([]types.Chunk, error) {
+	cond := `c.chunk_kind = 'invariant'`
+	args := []any{}
+	if file != "" {
+		cond += ` AND c.file = ?`
+		args = append(args, file)
+	}
+	if category != "" {
+		cond += ` AND c.category = ?`
+		args = append(args, category)
+	}
+	stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c WHERE ` + cond + ` ORDER BY c.file, c.start_line`
+	rows, err := s.db.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return nil, fmt.Errorf("find_invariants: %w", err)
+	}
+	defer rows.Close()
+
+	var out []types.Chunk
+	for rows.Next() {
+		c, scanErr := scanChunk(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// FindConventions returns ChunkConvention rows for the given package
+// prefix. Empty prefix returns every convention chunk in the index.
+// The prefix is matched against the chunk's File field using SQLite's
+// LIKE ('prefix%') so subdirectories are included.
+func (s *Store) FindConventions(ctx context.Context, packagePrefix string) ([]types.Chunk, error) {
+	cond := `c.chunk_kind = 'convention'`
+	args := []any{}
+	if packagePrefix != "" {
+		cond += ` AND c.file LIKE ?`
+		args = append(args, packagePrefix+"%")
+	}
+	stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c WHERE ` + cond + ` ORDER BY c.file`
+	rows, err := s.db.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return nil, fmt.Errorf("find_conventions: %w", err)
+	}
+	defer rows.Close()
+
+	var out []types.Chunk
+	for rows.Next() {
+		c, scanErr := scanChunk(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // AllFiles returns every distinct file path indexed in the store. Used
 // by the keyword index builder to enumerate the corpus without holding
 // the whole result set in memory at once.

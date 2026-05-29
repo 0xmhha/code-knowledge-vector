@@ -280,6 +280,26 @@ func (s *Server) registerTools() {
 		),
 	), s.handleNarrowCandidates)
 
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.find_invariants",
+		mcpgo.WithDescription("List invariant statements (CRITICAL / IMPORTANT / INVARIANT / CONSENSUS / panic with policy keywords) for a file or category. tier_min filters by detection confidence (1 = explicit markers, 2 = new convention markers, 3 = heuristic). Returns marker name, tier, text, and the source chunk's category/guidance. READ-ONLY."),
+		mcpgo.WithString("file",
+			mcpgo.Description("Repo-relative file path. Empty matches every file."),
+		),
+		mcpgo.WithString("category",
+			mcpgo.Description("Policy category (consensus / state / ...). Empty matches every category."),
+		),
+		mcpgo.WithNumber("tier_min",
+			mcpgo.Description("Minimum tier to include (1, 2, or 3; default 1)."),
+		),
+	), s.handleFindInvariants)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.get_conventions",
+		mcpgo.WithDescription("Return the per-package AST convention summary plus raw stats (error patterns, logger family, naming, concurrency, table-driven idioms). Use before proposing code edits so the new code matches the package's existing idioms. READ-ONLY."),
+		mcpgo.WithString("package",
+			mcpgo.Description("Package directory prefix (e.g. 'consensus/parlia'). Empty returns every package's conventions."),
+		),
+	), s.handleGetConventions)
+
 	s.mcp.AddTool(mcpgo.NewTool("cks.context.expand_in_file",
 		mcpgo.WithDescription("Return the chunk at chunk_id plus its N neighbours in the same file, ordered by start_line. Useful for context expansion after a precise hit. READ-ONLY."),
 		mcpgo.WithString("chunk_id",
@@ -700,6 +720,45 @@ func (s *Server) handleNarrowCandidates(ctx context.Context, req mcpgo.CallToolR
 	return jsonResult(map[string]any{
 		"hits":  hits,
 		"count": len(hits),
+	})
+}
+
+func (s *Server) handleFindInvariants(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.find_invariants")
+	defer done()
+
+	args := req.GetArguments()
+	file, _ := args["file"].(string)
+	category, _ := args["category"].(string)
+	tierMin := 1
+	if v, ok := args["tier_min"].(float64); ok && v > 0 {
+		tierMin = int(v)
+	}
+
+	hits, err := s.engine.FindInvariants(ctx, file, category, tierMin)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("find_invariants: %v", err)), nil
+	}
+	return jsonResult(map[string]any{
+		"invariants": hits,
+		"count":      len(hits),
+	})
+}
+
+func (s *Server) handleGetConventions(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.get_conventions")
+	defer done()
+
+	args := req.GetArguments()
+	pkg, _ := args["package"].(string)
+
+	hits, err := s.engine.GetConventions(ctx, pkg)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("get_conventions: %v", err)), nil
+	}
+	return jsonResult(map[string]any{
+		"conventions": hits,
+		"count":       len(hits),
 	})
 }
 

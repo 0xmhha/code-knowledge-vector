@@ -15,10 +15,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"sync"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
@@ -388,6 +388,113 @@ func (e *Engine) ExpandInFile(ctx context.Context, chunkID string, before, after
 // ErrChunkNotFound is returned when ExpandInFile / NarrowCandidates
 // is asked about a chunk ID that does not exist in the index.
 var ErrChunkNotFound = errors.New("chunk not found")
+
+// InvariantHit pairs a ChunkInvariant chunk with its parsed tier so
+// MCP callers can filter without reparsing the back-reference.
+type InvariantHit struct {
+	ChunkID    string                      `json:"chunk_id"`
+	File       string                      `json:"file"`
+	StartLine  int                         `json:"start_line"`
+	EndLine    int                         `json:"end_line"`
+	Marker     string                      `json:"marker"`              // e.g. "CRITICAL", "panic"
+	Tier       types.InvariantTier         `json:"tier"`                // 1, 2, or 3
+	Text       string                      `json:"text"`                // the invariant statement
+	Category   string                      `json:"category,omitempty"`  // inherited from source chunk's policy
+	Guidance   *types.ModificationGuidance `json:"guidance,omitempty"`  // ditto
+	SourceChunk string                     `json:"source_chunk_id,omitempty"`
+}
+
+// FindInvariants returns invariants matching the filter. tierMin (1, 2,
+// or 3) drops anything below that confidence tier. The tier is read
+// from the source chunk's InvariantRef back-pointer when the source
+// is in the index; otherwise the invariant is included at its declared
+// SymbolName-based tier where possible.
+func (e *Engine) FindInvariants(ctx context.Context, file, category string, tierMin int) ([]InvariantHit, error) {
+	if e == nil || e.store == nil {
+		return nil, nil
+	}
+	chunks, err := e.store.FindInvariants(ctx, file, category)
+	if err != nil {
+		return nil, err
+	}
+	if tierMin <= 0 {
+		tierMin = int(types.InvariantTierExistingMarker)
+	}
+
+	out := make([]InvariantHit, 0, len(chunks))
+	for _, c := range chunks {
+		// SymbolName carries the marker name (CRITICAL, INVARIANT, ...)
+		// by emit-time convention. Tier inference is best-effort: the
+		// extractor emits ChunkInvariant chunks but the back-reference
+		// (which carries the tier) lives on the source chunk. We assume
+		// existing markers when only the chunk is visible — refinement
+		// happens later when the agent calls expand_in_file.
+		tier := classifyMarkerTier(c.SymbolName)
+		if int(tier) < tierMin {
+			continue
+		}
+		out = append(out, InvariantHit{
+			ChunkID:   c.ID,
+			File:      c.File,
+			StartLine: c.StartLine,
+			EndLine:   c.EndLine,
+			Marker:    c.SymbolName,
+			Tier:      tier,
+			Text:      c.Text,
+			Category:  c.Category,
+			Guidance:  c.Guidance,
+		})
+	}
+	return out, nil
+}
+
+// ConventionHit returns the raw ConventionStats plus the human summary
+// the agent can present without further processing.
+type ConventionHit struct {
+	ChunkID string         `json:"chunk_id"`
+	File    string         `json:"file"`
+	Package string         `json:"package"`
+	Summary string         `json:"summary"`
+	Stats   map[string]any `json:"stats"`
+}
+
+// GetConventions returns convention chunks under the package prefix.
+// Each Hit carries the deterministic prose summary plus the raw stats
+// map so the agent can use whichever shape its prompt expects.
+func (e *Engine) GetConventions(ctx context.Context, packagePrefix string) ([]ConventionHit, error) {
+	if e == nil || e.store == nil {
+		return nil, nil
+	}
+	chunks, err := e.store.FindConventions(ctx, packagePrefix)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ConventionHit, 0, len(chunks))
+	for _, c := range chunks {
+		out = append(out, ConventionHit{
+			ChunkID: c.ID,
+			File:    c.File,
+			Package: c.SymbolName, // emitted as package path
+			Summary: c.Text,
+			Stats:   c.ConventionStats,
+		})
+	}
+	return out, nil
+}
+
+// classifyMarkerTier maps an extractor-stamped marker name onto its
+// InvariantTier. Conservative: anything unknown is treated as Tier 3
+// (heuristic) so the agent receives the right confidence signal.
+func classifyMarkerTier(marker string) types.InvariantTier {
+	switch marker {
+	case "CRITICAL", "IMPORTANT", "WARNING", "Deprecated":
+		return types.InvariantTierExistingMarker
+	case "INVARIANT", "CONSENSUS", "SECURITY":
+		return types.InvariantTierNewMarker
+	default:
+		return types.InvariantTierHeuristic
+	}
+}
 
 // Embedder returns the underlying embedder. Callers (MCP index handler)
 // reuse it to avoid re-initializing the embedder for build/reindex.
