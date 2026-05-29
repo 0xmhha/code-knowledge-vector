@@ -1,6 +1,26 @@
 # CKS 오케스트레이터 설계 초안
 
-문서 버전: 0.1 (2026-05-29)
+> **⚠️ ARCHIVED — Hypothetical 초안.** 이 문서는 작성 시점에 CKS repo의
+> 실제 진행 상태를 모른 채 작성된 가설적 설계다. 다음 사항이 실제 CKS와 다름:
+>
+> - 실제 CKS는 이미 11개 MCP 도구 노출 (`semantic_search`, `find_symbol`,
+>   `find_callers/callees`, `get_subgraph`, `impact_analysis`,
+>   `change_history`, `get_for_task`, `search_text`, `ops.health`,
+>   `ops.freshness`)
+> - 실제 CKS는 `cks.flow.*` 도구 없음 — composer 파이프라인이 내부 처리
+> - 실제 CKS의 `ckvclient.Client` 인터페이스는 `SemanticSearch` 하나만
+> - `vocab/`, `inventory/` 가 CKS의 핵심 컴포넌트 (이 문서에 누락)
+>
+> 진실은 다음 두 문서:
+>
+> 1. `docs/session-handoff-2026-05-29.md` §2 — CKS 실제 상태
+> 2. `/Users/wm-it-22-00661/Work/github/tools/code-knowledge-system/docs/integrated-workplan-2026-05-27.md`
+>    — CKS의 실제 계획서
+>
+> 이 문서는 아래 일부 (캐시 2-tier, query_history 스키마, 토큰 회계 가설)에
+> 재활용 가치가 있어 보존만 한다.
+
+문서 버전: 0.1 (2026-05-29, ARCHIVED)
 대상: 별도 프로젝트(`code-knowledge-system`)의 진입점 설계
 선행 합의: D3 아키텍처 분리 (CKV semantic+keyword, CKG graph, CKS orchestrate)
 
