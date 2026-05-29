@@ -284,8 +284,8 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
 		commit_hash, content_sha256, ckg_node_id, recent_prs,
-		category, guidance, text
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		category, guidance, invariants, text
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
@@ -301,6 +301,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		recent_prs = excluded.recent_prs,
 		category = excluded.category,
 		guidance = excluded.guidance,
+		invariants = excluded.invariants,
 		text = excluded.text`)
 	if err != nil {
 		return fmt.Errorf("prepare chunk insert: %w", err)
@@ -328,11 +329,12 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		if err != nil {
 			return fmt.Errorf("marshal guidance for %s: %w", c.ID, err)
 		}
+		invJSON := marshalInvariantRefs(c.Invariants)
 		if _, err := insChunk.ExecContext(ctx,
 			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
 			c.CommitHash, c.ContentSHA256, c.CKGNodeID, prJSON,
-			c.Category, guideJSON, c.Text,
+			c.Category, guideJSON, invJSON, c.Text,
 		); err != nil {
 			return fmt.Errorf("insert chunk %s: %w", c.ID, err)
 		}
@@ -410,7 +412,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
 			c.commit_hash, c.content_sha256, c.ckg_node_id, c.recent_prs,
-			c.category, c.guidance, c.text,
+			c.category, c.guidance, c.invariants, c.text,
 			v.distance
 		FROM chunk_vec v
 		JOIN chunks c ON c.id = v.chunk_id
@@ -434,13 +436,14 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			prJSON    sql.NullString
 			catCol    sql.NullString
 			guideJSON sql.NullString
+			invJSON   sql.NullString
 			distance  float64
 		)
 		if err := rows.Scan(
 			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 			&c.SymbolName, &symKind, &chKind,
 			&c.CommitHash, &c.ContentSHA256, &ckgID, &prJSON,
-			&catCol, &guideJSON, &c.Text,
+			&catCol, &guideJSON, &invJSON, &c.Text,
 			&distance,
 		); err != nil {
 			return nil, fmt.Errorf("scan hit: %w", err)
@@ -456,6 +459,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			return nil, fmt.Errorf("scan guidance for %s: %w", c.ID, err)
 		}
 		c.Guidance = guide
+		c.Invariants = unmarshalInvariantRefs(invJSON.String)
 
 		if !filter.Matches(c) {
 			continue
@@ -620,6 +624,23 @@ func unmarshalPRRefs(s string) []types.PRRef {
 		return nil
 	}
 	var refs []types.PRRef
+	_ = json.Unmarshal([]byte(s), &refs)
+	return refs
+}
+
+func marshalInvariantRefs(refs []types.InvariantRef) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(refs)
+	return string(b)
+}
+
+func unmarshalInvariantRefs(s string) []types.InvariantRef {
+	if s == "" {
+		return nil
+	}
+	var refs []types.InvariantRef
 	_ = json.Unmarshal([]byte(s), &refs)
 	return refs
 }

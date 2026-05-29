@@ -53,7 +53,39 @@ const (
 	ChunkPRBackground  ChunkKind = "pr_background"
 	ChunkPRSolution    ChunkKind = "pr_solution"
 	ChunkCommitMessage ChunkKind = "commit_message"
+
+	// ChunkInvariant carries an invariant statement found inside or
+	// adjacent to a source chunk. Each invariant chunk is paired (via
+	// the source chunk's Invariants []InvariantRef list) with the code
+	// it constrains. The agent can query invariants for a file to
+	// learn what changes must NOT break.
+	ChunkInvariant ChunkKind = "invariant"
 )
+
+// InvariantTier classifies how an invariant was detected.
+//
+//	Tier 1 — existing marker (// CRITICAL, // IMPORTANT, // WARNING, // Deprecated:)
+//	Tier 2 — new convention marker (// INVARIANT:, // CONSENSUS:, // SECURITY:)
+//	Tier 3 — heuristic (panic(...) / fmt.Errorf(...) with policy keywords)
+//
+// Lower tiers carry higher confidence; the agent can filter by tier
+// when noise tolerance is low (e.g. only tier 1+2 during a release).
+type InvariantTier int
+
+const (
+	InvariantTierExistingMarker InvariantTier = 1
+	InvariantTierNewMarker      InvariantTier = 2
+	InvariantTierHeuristic      InvariantTier = 3
+)
+
+// InvariantRef is a back-pointer attached to a source Chunk pointing
+// at the ChunkInvariant(s) extracted from inside or near it. Kept
+// small so adding it to every chunk does not balloon storage.
+type InvariantRef struct {
+	ChunkID string        `json:"chunk_id"`         // ID of the ChunkInvariant chunk
+	Tier    InvariantTier `json:"tier"`             // 1, 2, or 3
+	Marker  string        `json:"marker,omitempty"` // e.g. "CRITICAL", "panic"
+}
 
 // PRRef records a PR that touched a chunk's file or symbol. Stored as
 // JSON in the recent_prs column; the temporal slicing key (MergedAtUTC)
@@ -106,6 +138,7 @@ type Chunk struct {
 	RecentPRs     []PRRef               `json:"recent_prs,omitempty"`  // PRs that touched this chunk's file
 	Category      string                `json:"category,omitempty"`    // policy category: consensus|state|crypto|p2p|... (empty = unclassified)
 	Guidance      *ModificationGuidance `json:"guidance,omitempty"`    // attached by policy loader; nil for unclassified
+	Invariants    []InvariantRef        `json:"invariants,omitempty"`  // back-pointers to ChunkInvariant chunks extracted from this source
 	Text          string                `json:"text"`                  // chunk source (for re-embedding / display)
 }
 

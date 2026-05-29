@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
+	"github.com/0xmhha/code-knowledge-vector/internal/invariant"
 	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/javascript"
@@ -49,6 +50,11 @@ func resolveEmbedTextFn(disablePrefix bool) func(types.Chunk) string {
 // processFile reads, parses, and chunks a single source file.
 // Returns nil chunks when the file should be skipped (unknown language,
 // parser not available, empty parse result).
+//
+// For Go files, runs the invariant extractor and appends ChunkInvariant
+// chunks plus back-references on overlapping source chunks. Failures
+// in extraction degrade gracefully — we log to stderr and continue with
+// the source chunks unannotated rather than failing the whole file.
 func processFile(
 	absPath, relPath, language, commitHash string,
 	parsers map[string]cparse.Parser,
@@ -77,6 +83,18 @@ func processFile(
 		Source:     src,
 		Spans:      spans,
 	})
+
+	if language == "go" && len(chunks) > 0 {
+		results, ierr := invariant.Extract(relPath, src, invariant.Options{SkipTier3InTests: true})
+		if ierr != nil {
+			fmt.Fprintf(os.Stderr, "ckv: invariant skipped %s: %v\n", relPath, ierr)
+		} else if len(results) > 0 {
+			invChunks, refs := invariant.EmitChunks(relPath, commitHash, results)
+			invariant.AttachRefs(chunks, results, refs)
+			chunks = append(chunks, invChunks...)
+		}
+	}
+
 	return chunks, nil
 }
 
@@ -89,5 +107,6 @@ func accumulateStats(total *chunk.Stats, chunks []types.Chunk) {
 	total.Doc += s.Doc
 	total.FunctionSplit += s.FunctionSplit
 	total.PRDoc += s.PRDoc
+	total.Invariant += s.Invariant
 	total.Truncated += s.Truncated
 }

@@ -280,6 +280,7 @@ type Stats struct {
 	Doc           int
 	FunctionSplit int
 	PRDoc         int
+	Invariant     int
 	Truncated     int
 }
 
@@ -299,6 +300,8 @@ func Summarize(chunks []types.Chunk) Stats {
 			s.FunctionSplit++
 		case types.ChunkPRBackground, types.ChunkPRSolution, types.ChunkCommitMessage:
 			s.PRDoc++
+		case types.ChunkInvariant:
+			s.Invariant++
 		}
 		if strings.Contains(c.Text, "[CKV-TRUNCATED]") {
 			s.Truncated++
