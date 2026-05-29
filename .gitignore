@@ -120,3 +120,7 @@ secrets/
 # Claude Code / tool-specific local settings
 # ==============================================================================
 .claude/settings.local.json
+
+# CKV V1 verification artifacts (do not commit)
+ckv-stablenet/
+ckv-*-data/

@@ -24,15 +24,34 @@ func newMCPCmd() *cobra.Command {
 		Short: "Run the CKV MCP server (stdio JSON-RPC)",
 		Long: `Speaks MCP JSON-RPC over stdio by default, or HTTP when --http is set.
 
-Tools exposed:
-  cks.context.semantic_search   — full search pipeline
-  cks.context.embed             — text to vector
-  cks.context.vector_search     — ANN search with pre-computed vector
-  cks.context.rerank            — BM25 rerank candidate hits
-  cks.context.related_changes   — PR breadcrumb lookup
-  cks.ops.get_freshness         — git diff vs indexed_head
-  cks.ops.health                — index identity probe
-  cks.ops.warmup                — pre-load embedder
+Tools exposed (15):
+
+  Search:
+    cks.context.semantic_search    — full retrieval pipeline (embed → vector → rerank → boost → enrich)
+    cks.context.keyword_search     — BM25 keyword search for exact symbol / domain vocabulary
+    cks.context.vector_search      — ANN with a pre-computed vector
+
+  Refinement:
+    cks.context.narrow_candidates  — filter a hit set by category / language / path
+    cks.context.expand_in_file     — return neighbouring chunks of a hit
+
+  Meta:
+    cks.context.find_invariants    — list CRITICAL / INVARIANT / panic-heuristic invariants
+    cks.context.get_conventions    — per-package AST stats (errors, loggers, naming, concurrency)
+    cks.context.explain_match      — explain why a chunk matched (vector + BM25 + matched tokens)
+
+  Helpers:
+    cks.context.embed              — text → vector
+    cks.context.rerank             — BM25 + RRF rerank on candidate IDs
+    cks.context.related_changes    — PR breadcrumbs by file
+
+  Operations:
+    cks.ops.health                 — index identity probe
+    cks.ops.get_freshness          — git diff vs indexed_head
+    cks.ops.warmup                 — pre-load embedder
+    cks.ops.index                  — trigger full / incremental rebuild
+
+Full schema reference: docs/mcp-tools.md.
 
 Register with Claude Code (stdio):
   claude mcp add cks --command "$(pwd)/bin/ckv mcp --out=$(pwd)/ckv-data"
