@@ -1,0 +1,200 @@
+# go-stablenet modification guidance policy.
+#
+# Each category maps a set of path globs to advice the agent should
+# surface when proposing or reviewing changes. Categories are matched
+# in order — put the most specific rules first.
+#
+# Glob syntax: `*` matches one path segment, `**` matches zero or more.
+# Paths are anchored to the chunk's repo-relative File field.
+#
+# Maintainers: this is a project-policy file. Updates require sign-off
+# from the area owner listed in CODEOWNERS for the matched directory.
+
+version: 1
+categories:
+
+  # Test files first so test-only edits do not pick up production
+  # guidance from a broader rule below.
+  - name: test
+    paths:
+      - "**/*_test.go"
+      - "tests/**"
+      - "**/testdata/**"
+    watch_out:
+      - "test-only change: production guidance does not apply"
+
+  - name: consensus
+    paths:
+      - "consensus/**"
+      - "miner/**"
+    also_review:
+      - "state"
+      - "params"
+      - "core/forkchoice"
+    required_tests:
+      - "consensus integration"
+      - "fork choice (core/forkchoice_test.go)"
+      - "byzantine fault simulation"
+    watch_out:
+      - "validator set / quorum math changes require hard-fork coordination"
+      - "wbft and clique have different finality semantics; do not mix assumptions"
+      - "BLS signature verification is consensus-critical; never bypass it"
+
+  - name: beacon
+    paths:
+      - "beacon/**"
+    also_review:
+      - "consensus"
+      - "crypto/bls"
+    required_tests:
+      - "beacon chain integration"
+      - "sync committee"
+    watch_out:
+      - "BLS aggregation correctness is critical for beacon finality"
+      - "sync committee rotation depends on accurate slot/epoch arithmetic"
+
+  - name: state
+    paths:
+      - "core/state/**"
+      - "trie/**"
+      - "triedb/**"
+    also_review:
+      - "consensus"
+      - "ethdb"
+    required_tests:
+      - "state root consistency"
+      - "journal replay"
+      - "snapshot generation"
+    watch_out:
+      - "state-root divergence breaks consensus silently — verify root after every change"
+      - "DB migration compatibility (older nodes must keep replaying)"
+      - "pruning + snapshot interaction is subtle; do not change one in isolation"
+
+  - name: crypto
+    paths:
+      - "crypto/**"
+      - "signer/**"
+    required_tests:
+      - "known-answer vectors"
+      - "signature round-trip"
+      - "benchmark regression"
+    watch_out:
+      - "timing-side channels in comparison / aggregation"
+      - "BLS subgroup checks must not be skipped"
+      - "deprecated APIs (FastAggregateVerify older variants) exist for spec tests only"
+
+  - name: p2p
+    paths:
+      - "p2p/**"
+      - "eth/protocols/**"
+      - "eth/downloader/**"
+      - "eth/fetcher/**"
+      - "eth/handler*.go"
+    also_review:
+      - "consensus"
+      - "txpool"
+    required_tests:
+      - "wire protocol compatibility"
+      - "peer score / ban path"
+    watch_out:
+      - "protocol version bumps must coordinate with peers (rolling deploy)"
+      - "peer-scoring loops can cause split-brain isolation under stress"
+
+  - name: txpool
+    paths:
+      - "core/txpool/**"
+      - "core/tx_*.go"
+      - "core/tx*.go"
+    also_review:
+      - "miner"
+      - "consensus"
+      - "params"
+    required_tests:
+      - "concurrent insert / eviction"
+      - "gas pricing accuracy"
+      - "reorg replay"
+    watch_out:
+      - "mempool poisoning vectors (replacement DoS, address-grinding)"
+      - "memory pressure under burst load — eviction policy is load-bearing"
+
+  - name: rpc
+    paths:
+      - "rpc/**"
+      - "ethclient/**"
+      - "graphql/**"
+      - "internal/ethapi/**"
+      - "eth/api*.go"
+      - "eth/filters/**"
+    also_review:
+      - "consensus"
+      - "state"
+    required_tests:
+      - "web3 API golden output"
+      - "long-lived subscription stability"
+    watch_out:
+      - "JSON-RPC field renames break wallets and indexers"
+      - "subscription back-pressure; slow consumers must not block the node"
+      - "PII / token-balance disclosure on public endpoints"
+
+  - name: systemcontracts
+    paths:
+      - "systemcontracts/**"
+    also_review:
+      - "params"
+      - "state"
+      - "core"
+    required_tests:
+      - "governance integration (systemcontracts/test/)"
+      - "gov_minter reservation cleanup"
+      - "burn balance rollback"
+    watch_out:
+      - "governance flows are CONSENSUS-critical: bug in council tally affects chain-wide policy"
+      - "_safeBurn vulnerability class — see CRITICAL-tagged tests"
+      - "contract initial version must always be v1 (per systemcontracts.go IMPORTANT)"
+
+  - name: params
+    paths:
+      - "params/**"
+    also_review:
+      - "consensus"
+      - "state"
+      - "systemcontracts"
+    required_tests:
+      - "chainconfig load / validate"
+      - "fork-height transition"
+    watch_out:
+      - "fork-height changes are network-wide policy (every node must agree)"
+      - "config ordering contract (per params/config.go IMPORTANT) must be preserved"
+
+  - name: miner
+    paths:
+      - "miner/**"
+    also_review:
+      - "consensus"
+      - "txpool"
+      - "params"
+    required_tests:
+      - "block production happy path"
+      - "gas limit + parent comparison"
+    watch_out:
+      - "block-building fairness (MEV / private-mempool concerns)"
+      - "do not skip consensus.Prepare / Seal callbacks"
+
+  - name: cli
+    paths:
+      - "cmd/**"
+      - "console/**"
+      - "internal/cmdtest/**"
+    required_tests:
+      - "smoke test for changed subcommand"
+    watch_out:
+      - "flag renames are user-facing — add deprecation alias for one release"
+      - "exit codes are consumed by ops scripts; keep them stable"
+
+  - name: docs
+    paths:
+      - "docs/**"
+      - "**/*.md"
+      - "**/README*"
+    watch_out:
+      - "public-facing wording — avoid leaking pre-release feature names"
