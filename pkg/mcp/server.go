@@ -280,6 +280,18 @@ func (s *Server) registerTools() {
 		),
 	), s.handleNarrowCandidates)
 
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.explain_match",
+		mcpgo.WithDescription("Explain why a chunk would have matched an intent. Returns the cosine distance to the intent vector, the BM25 score, which query tokens matched the chunk body, and the chunk's category + guidance. Useful when the agent wants to justify or debug a retrieval decision. READ-ONLY."),
+		mcpgo.WithString("chunk_id",
+			mcpgo.Description("Chunk ID returned by an earlier search."),
+			mcpgo.Required(),
+		),
+		mcpgo.WithString("intent",
+			mcpgo.Description("Natural-language intent to score against."),
+			mcpgo.Required(),
+		),
+	), s.handleExplainMatch)
+
 	s.mcp.AddTool(mcpgo.NewTool("cks.context.find_invariants",
 		mcpgo.WithDescription("List invariant statements (CRITICAL / IMPORTANT / INVARIANT / CONSENSUS / panic with policy keywords) for a file or category. tier_min filters by detection confidence (1 = explicit markers, 2 = new convention markers, 3 = heuristic). Returns marker name, tier, text, and the source chunk's category/guidance. READ-ONLY."),
 		mcpgo.WithString("file",
@@ -721,6 +733,23 @@ func (s *Server) handleNarrowCandidates(ctx context.Context, req mcpgo.CallToolR
 		"hits":  hits,
 		"count": len(hits),
 	})
+}
+
+func (s *Server) handleExplainMatch(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.explain_match")
+	defer done()
+
+	args := req.GetArguments()
+	chunkID, _ := args["chunk_id"].(string)
+	intent, _ := args["intent"].(string)
+	if chunkID == "" || intent == "" {
+		return mcpgo.NewToolResultError("chunk_id and intent are required"), nil
+	}
+	exp, err := s.engine.ExplainMatch(ctx, chunkID, intent)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("explain: %v", err)), nil
+	}
+	return jsonResult(exp)
 }
 
 func (s *Server) handleFindInvariants(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
