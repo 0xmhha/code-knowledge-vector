@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"sync"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -216,6 +217,10 @@ type Engine struct {
 	thresholdSvc *ThresholdService
 	densitySvc   *DensityService
 	enrichSvc    *EnrichService
+
+	// Lazy-built BM25 keyword index for KeywordSearch.
+	kwMu  sync.Mutex
+	kwIdx *KeywordIndex
 }
 
 // OpenOption customizes Engine construction (functional options).

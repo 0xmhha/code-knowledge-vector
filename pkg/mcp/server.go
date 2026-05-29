@@ -246,6 +246,23 @@ func (s *Server) registerTools() {
 		),
 	), s.handleIndex)
 
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.keyword_search",
+		mcpgo.WithDescription("BM25 keyword search over chunk text + symbol names. Use for exact-symbol or domain-vocabulary queries (e.g. 'ValidateToken', 'BLS aggregation'). Complements semantic_search — pick keyword when the user knows the identifier, semantic when the user describes the concept. READ-ONLY."),
+		mcpgo.WithString("query",
+			mcpgo.Description("Search query (will be code-aware-tokenized: CamelCase and snake_case are split into sub-tokens automatically)."),
+			mcpgo.Required(),
+		),
+		mcpgo.WithNumber("k",
+			mcpgo.Description("Number of hits to return (default 10)."),
+		),
+		mcpgo.WithString("language",
+			mcpgo.Description("Filter by language (go, typescript, ...)."),
+		),
+		mcpgo.WithString("path_glob",
+			mcpgo.Description("filepath.Match-style glob; keeps hits whose File matches."),
+		),
+	), s.handleKeywordSearch)
+
 	s.mcp.AddTool(mcpgo.NewTool("cks.context.narrow_candidates",
 		mcpgo.WithDescription("Refine a previous result set by filtering chunk IDs through category / language / path constraints. Returns the subset that survives the filter, in the input order. Score fields are zero — this is a metadata refinement, not a re-rank. READ-ONLY."),
 		mcpgo.WithString("chunk_ids_json",
@@ -607,6 +624,37 @@ func (s *Server) handleIndex(ctx context.Context, req mcpgo.CallToolRequest) (*m
 
 	payload["duration_ms"] = time.Since(start).Milliseconds()
 	return jsonResult(payload)
+}
+
+func (s *Server) handleKeywordSearch(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.keyword_search")
+	defer done()
+
+	args := req.GetArguments()
+	q, _ := args["query"].(string)
+	if q == "" {
+		return mcpgo.NewToolResultError("query is required"), nil
+	}
+	k := 10
+	if v, ok := args["k"].(float64); ok && v > 0 {
+		k = int(v)
+	}
+	f := types.Filter{}
+	if v, ok := args["language"].(string); ok {
+		f.Language = v
+	}
+	if v, ok := args["path_glob"].(string); ok {
+		f.PathGlob = v
+	}
+
+	hits, err := s.engine.KeywordSearch(ctx, q, k, f)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("keyword_search: %v", err)), nil
+	}
+	return jsonResult(map[string]any{
+		"hits":  hits,
+		"count": len(hits),
+	})
 }
 
 func (s *Server) handleNarrowCandidates(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {

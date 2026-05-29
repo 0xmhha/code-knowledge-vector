@@ -575,6 +575,26 @@ func (s *Store) LookupByIDs(ctx context.Context, ids []string) ([]types.Chunk, e
 	return out, nil
 }
 
+// AllFiles returns every distinct file path indexed in the store. Used
+// by the keyword index builder to enumerate the corpus without holding
+// the whole result set in memory at once.
+func (s *Store) AllFiles(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT file FROM chunks ORDER BY file`)
+	if err != nil {
+		return nil, fmt.Errorf("all_files: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // LookupByFileOrdered returns every chunk in file ordered by start_line.
 // Used by expand_in_file to fetch the neighbour set for a given hit.
 func (s *Store) LookupByFileOrdered(ctx context.Context, file string) ([]types.Chunk, error) {
