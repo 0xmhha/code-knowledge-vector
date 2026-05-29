@@ -89,11 +89,11 @@ func Extract(relPath string, src []byte, opts Options) ([]Result, error) {
 	if opts.MaxTier3PerFile == 0 {
 		opts.MaxTier3PerFile = MaxTier3PerFile
 	}
-	// SkipTier3InTests defaults to true; the zero-value bool is true
-	// in the sense that callers who pass an empty Options struct want
-	// the safer behavior. We express that here.
-	skipTier3 := !(opts.SkipTier3InTests && relPath != "")
-	skipTier3 = opts.SkipTier3InTests || (relPath != "" && strings.HasSuffix(relPath, "_test.go"))
+	// Tier 3 is suppressed in *_test.go regardless of the SkipTier3InTests
+	// flag (test fixtures emit too many noise hits otherwise). When the
+	// flag is true we also skip Tier 3 for non-test files — useful for
+	// callers that want explicit-marker-only results.
+	skipTier3 := opts.SkipTier3InTests || (relPath != "" && strings.HasSuffix(relPath, "_test.go"))
 
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, relPath, src, parser.ParseComments)

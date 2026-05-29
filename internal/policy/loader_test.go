@@ -125,6 +125,7 @@ categories:
 	g := chunks[0].Guidance
 	if g == nil {
 		t.Fatal("Guidance must be set for matched chunk")
+		return // satisfy staticcheck flow-analysis (t.Fatal already exits)
 	}
 	if len(g.AlsoReview) != 2 || g.AlsoReview[0] != "state" {
 		t.Errorf("AlsoReview=%v", g.AlsoReview)
@@ -174,6 +175,7 @@ func TestLoad_EmptyPath_ReturnsEmptyPolicy(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatal("empty Load must return non-nil empty Policy, not nil")
+		return // satisfy staticcheck flow-analysis
 	}
 	if len(p.Categories) != 0 {
 		t.Errorf("empty policy should have 0 categories, got %d", len(p.Categories))

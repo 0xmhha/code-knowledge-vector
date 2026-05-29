@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"sync"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/query/bm25"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
@@ -18,8 +17,10 @@ import (
 // and the index then serves arbitrary keyword queries with no per-call
 // IO. For sustained high-write workloads a future revision can move
 // this into the persistence layer.
+//
+// Build serialization is handled by Engine.kwMu — KeywordIndex itself
+// is read-only after construction so it needs no internal lock.
 type KeywordIndex struct {
-	mu     sync.Mutex
 	scorer *bm25.Okapi
 	idToCh map[string]types.Chunk // chunk_id → Chunk (for hit reconstruction)
 }
@@ -35,6 +36,7 @@ func buildKeywordIndex(ctx context.Context, store *sqlitevec.Store) (*KeywordInd
 	if stats.ChunkCount == 0 {
 		return &KeywordIndex{scorer: bm25.NewOkapi(), idToCh: map[string]types.Chunk{}}, nil
 	}
+	_ = stats
 
 	// Pull every chunk via LookupByFileOrdered — there is no global
 	// iterator on the Store, but reading file-by-file via a one-pass
