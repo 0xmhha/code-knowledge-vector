@@ -33,8 +33,8 @@ type Cached struct {
 	size  int
 
 	mu   sync.Mutex
-	keys []string                  // LRU recency order; index 0 = oldest
-	data map[string][]float32      // key → vector
+	keys []string             // LRU recency order; index 0 = oldest
+	data map[string][]float32 // key → vector
 	hits int
 	miss int
 }
