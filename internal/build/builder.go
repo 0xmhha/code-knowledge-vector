@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
+	"github.com/0xmhha/code-knowledge-vector/internal/convention"
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
@@ -200,6 +201,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	categoryCounts := map[string]int{}
 
+	// Convention aggregator accumulates per-package AST statistics
+	// across all observed Go files. We emit ChunkConvention chunks at
+	// build end (one per package) so the agent can query "what idioms
+	// does this package follow?" without rebuilding the AST.
+	convAgg := convention.NewAggregator()
+
 	// progress writes a throttled stderr-side status line so the user
 	// can watch ckv build advance. Library callers leave ProgressOut
 	// nil and get a silent no-op.
@@ -225,6 +232,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			if len(chunks) == 0 {
 				return
+			}
+			// Convention stats: feed Go source through the aggregator
+			// before chunks are upserted. Convention emission happens
+			// at build end so per-package summaries see all files.
+			if f.Language == "go" {
+				if src, rerr := os.ReadFile(f.AbsPath); rerr == nil {
+					if cerr := convAgg.ObserveFile(f.RelPath, src); cerr != nil {
+						fmt.Fprintf(os.Stderr, "ckv: convention skipped %s: %v\n", f.RelPath, cerr)
+					}
+				}
 			}
 			for cat, n := range pol.Apply(chunks) {
 				categoryCounts[cat] += n
@@ -281,6 +298,19 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				fmt.Fprintf(o.ProgressOut, "ckv: indexed %d PRs → %d PR chunks\n", len(prMetas), len(prChunks))
 			}
 		}
+	}
+
+	// Emit convention chunks (one per Go package observed). Runs after
+	// the file loop so every file has contributed to its package's stats.
+	if convChunks := emitConventionChunks(convAgg, commit); len(convChunks) > 0 {
+		// Convention chunks pass through the policy loader too so they
+		// inherit the same category metadata as source chunks in their
+		// package directory. Useful for narrow_candidates(category=...).
+		pol.Apply(convChunks)
+		if err := embedAndUpsert(ctx, store, o.Embedder, convChunks, o.BatchSize, memSig, embedTextFn); err != nil {
+			return nil, fmt.Errorf("embed/upsert convention chunks: %w", err)
+		}
+		accumulateStats(&totalStats, convChunks)
 	}
 
 	builtAt := o.Now().UTC().Format(time.RFC3339)

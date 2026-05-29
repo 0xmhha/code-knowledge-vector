@@ -284,8 +284,8 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
 		commit_hash, content_sha256, ckg_node_id, recent_prs,
-		category, guidance, invariants, text
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		category, guidance, invariants, convention_stats, text
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
@@ -302,6 +302,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		category = excluded.category,
 		guidance = excluded.guidance,
 		invariants = excluded.invariants,
+		convention_stats = excluded.convention_stats,
 		text = excluded.text`)
 	if err != nil {
 		return fmt.Errorf("prepare chunk insert: %w", err)
@@ -330,11 +331,12 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 			return fmt.Errorf("marshal guidance for %s: %w", c.ID, err)
 		}
 		invJSON := marshalInvariantRefs(c.Invariants)
+		convJSON := marshalConventionStats(c.ConventionStats)
 		if _, err := insChunk.ExecContext(ctx,
 			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
 			c.CommitHash, c.ContentSHA256, c.CKGNodeID, prJSON,
-			c.Category, guideJSON, invJSON, c.Text,
+			c.Category, guideJSON, invJSON, convJSON, c.Text,
 		); err != nil {
 			return fmt.Errorf("insert chunk %s: %w", c.ID, err)
 		}
@@ -412,7 +414,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
 			c.commit_hash, c.content_sha256, c.ckg_node_id, c.recent_prs,
-			c.category, c.guidance, c.invariants, c.text,
+			c.category, c.guidance, c.invariants, c.convention_stats, c.text,
 			v.distance
 		FROM chunk_vec v
 		JOIN chunks c ON c.id = v.chunk_id
@@ -437,13 +439,14 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			catCol    sql.NullString
 			guideJSON sql.NullString
 			invJSON   sql.NullString
+			convJSON  sql.NullString
 			distance  float64
 		)
 		if err := rows.Scan(
 			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 			&c.SymbolName, &symKind, &chKind,
 			&c.CommitHash, &c.ContentSHA256, &ckgID, &prJSON,
-			&catCol, &guideJSON, &invJSON, &c.Text,
+			&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
 			&distance,
 		); err != nil {
 			return nil, fmt.Errorf("scan hit: %w", err)
@@ -460,6 +463,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		}
 		c.Guidance = guide
 		c.Invariants = unmarshalInvariantRefs(invJSON.String)
+		c.ConventionStats = unmarshalConventionStats(convJSON.String)
 
 		if !filter.Matches(c) {
 			continue
@@ -643,4 +647,21 @@ func unmarshalInvariantRefs(s string) []types.InvariantRef {
 	var refs []types.InvariantRef
 	_ = json.Unmarshal([]byte(s), &refs)
 	return refs
+}
+
+func marshalConventionStats(stats map[string]any) string {
+	if len(stats) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(stats)
+	return string(b)
+}
+
+func unmarshalConventionStats(s string) map[string]any {
+	if s == "" {
+		return nil
+	}
+	var stats map[string]any
+	_ = json.Unmarshal([]byte(s), &stats)
+	return stats
 }

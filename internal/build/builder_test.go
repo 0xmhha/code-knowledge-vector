@@ -163,12 +163,15 @@ chunking:
 	if res.FilesIndexed != 1 {
 		t.Errorf("expected 1 file indexed (go only), got %d", res.FilesIndexed)
 	}
-	// 1 file_header + 1 symbol (func A) = 2 chunks.
-	if res.Chunks.Total != 2 {
-		t.Errorf("expected 2 chunks, got %d (%+v)", res.Chunks.Total, res.Chunks)
+	// 1 file_header + 1 symbol (func A) + 1 package convention chunk = 3.
+	if res.Chunks.Total != 3 {
+		t.Errorf("expected 3 chunks (header + symbol + convention), got %d (%+v)", res.Chunks.Total, res.Chunks)
 	}
 	if res.Chunks.FileHeader != 1 {
 		t.Errorf("expected 1 file_header chunk, got %d", res.Chunks.FileHeader)
+	}
+	if res.Chunks.Invariant != 0 {
+		t.Errorf("expected 0 invariant chunks for trivial source, got %d", res.Chunks.Invariant)
 	}
 }
 

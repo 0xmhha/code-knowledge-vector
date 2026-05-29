@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
+	"github.com/0xmhha/code-knowledge-vector/internal/convention"
 	"github.com/0xmhha/code-knowledge-vector/internal/invariant"
 	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
@@ -109,4 +110,41 @@ func accumulateStats(total *chunk.Stats, chunks []types.Chunk) {
 	total.PRDoc += s.PRDoc
 	total.Invariant += s.Invariant
 	total.Truncated += s.Truncated
+}
+
+// emitConventionChunks materializes one ChunkConvention per package
+// from a convention.Aggregator. The returned chunks are ready to feed
+// the embedder; each carries Text = Stats.Summary(pkg) so the embed
+// vector represents the convention summary. Stats themselves are also
+// attached via ConventionStats so the agent can query raw counts.
+func emitConventionChunks(agg *convention.Aggregator, commitHash string) []types.Chunk {
+	if agg == nil {
+		return nil
+	}
+	stats := agg.Result()
+	if len(stats) == 0 {
+		return nil
+	}
+	out := make([]types.Chunk, 0, len(stats))
+	for pkg, st := range stats {
+		text := st.Summary(pkg)
+		sha := types.ContentSHA256(text)
+		file := pkg + "/<convention>"
+		id := types.ChunkID(file, 0, 0, sha)
+		out = append(out, types.Chunk{
+			ID:              id,
+			File:            file,
+			StartLine:       0,
+			EndLine:         0,
+			Language:        "go",
+			SymbolName:      pkg,
+			SymbolKind:      "ConventionSummary",
+			ChunkKind:       types.ChunkConvention,
+			CommitHash:      commitHash,
+			ContentSHA256:   sha,
+			ConventionStats: st.ToMap(),
+			Text:            text,
+		})
+	}
+	return out
 }
