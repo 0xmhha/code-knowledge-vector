@@ -245,6 +245,37 @@ func (s *Server) registerTools() {
 			mcpgo.Required(),
 		),
 	), s.handleIndex)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.narrow_candidates",
+		mcpgo.WithDescription("Refine a previous result set by filtering chunk IDs through category / language / path constraints. Returns the subset that survives the filter, in the input order. Score fields are zero — this is a metadata refinement, not a re-rank. READ-ONLY."),
+		mcpgo.WithString("chunk_ids_json",
+			mcpgo.Description("JSON array of chunk IDs to filter."),
+			mcpgo.Required(),
+		),
+		mcpgo.WithString("category",
+			mcpgo.Description("Keep only chunks whose policy category matches this value (e.g. 'consensus', 'state'). Empty disables this filter."),
+		),
+		mcpgo.WithString("language",
+			mcpgo.Description("Keep only chunks of this language."),
+		),
+		mcpgo.WithString("path_glob",
+			mcpgo.Description("filepath.Match-style glob; keeps chunks whose File matches."),
+		),
+	), s.handleNarrowCandidates)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.expand_in_file",
+		mcpgo.WithDescription("Return the chunk at chunk_id plus its N neighbours in the same file, ordered by start_line. Useful for context expansion after a precise hit. READ-ONLY."),
+		mcpgo.WithString("chunk_id",
+			mcpgo.Description("Chunk ID returned by an earlier search."),
+			mcpgo.Required(),
+		),
+		mcpgo.WithNumber("before",
+			mcpgo.Description("Number of preceding chunks in the same file to include (default 2)."),
+		),
+		mcpgo.WithNumber("after",
+			mcpgo.Description("Number of following chunks in the same file to include (default 2)."),
+		),
+	), s.handleExpandInFile)
 }
 
 // ---- handlers ----
@@ -576,4 +607,78 @@ func (s *Server) handleIndex(ctx context.Context, req mcpgo.CallToolRequest) (*m
 
 	payload["duration_ms"] = time.Since(start).Milliseconds()
 	return jsonResult(payload)
+}
+
+func (s *Server) handleNarrowCandidates(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.narrow_candidates")
+	defer done()
+
+	args := req.GetArguments()
+	idsJSON, _ := args["chunk_ids_json"].(string)
+	if idsJSON == "" {
+		return mcpgo.NewToolResultError("chunk_ids_json is required"), nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(idsJSON), &ids); err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("parse chunk_ids_json: %v", err)), nil
+	}
+	if len(ids) == 0 {
+		return jsonResult(map[string]any{"hits": []query.Hit{}, "count": 0})
+	}
+
+	f := types.Filter{}
+	if v, ok := args["language"].(string); ok {
+		f.Language = v
+	}
+	if v, ok := args["path_glob"].(string); ok {
+		f.PathGlob = v
+	}
+	category, _ := args["category"].(string)
+
+	hits, err := s.engine.NarrowCandidates(ctx, ids, f)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("narrow: %v", err)), nil
+	}
+	if category != "" {
+		kept := make([]query.Hit, 0, len(hits))
+		for _, h := range hits {
+			if h.Category == category {
+				kept = append(kept, h)
+			}
+		}
+		hits = kept
+	}
+
+	return jsonResult(map[string]any{
+		"hits":  hits,
+		"count": len(hits),
+	})
+}
+
+func (s *Server) handleExpandInFile(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.expand_in_file")
+	defer done()
+
+	args := req.GetArguments()
+	chunkID, _ := args["chunk_id"].(string)
+	if chunkID == "" {
+		return mcpgo.NewToolResultError("chunk_id is required"), nil
+	}
+	before := 2
+	if v, ok := args["before"].(float64); ok && v >= 0 {
+		before = int(v)
+	}
+	after := 2
+	if v, ok := args["after"].(float64); ok && v >= 0 {
+		after = int(v)
+	}
+
+	hits, err := s.engine.ExpandInFile(ctx, chunkID, before, after)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("expand_in_file: %v", err)), nil
+	}
+	return jsonResult(map[string]any{
+		"hits":  hits,
+		"count": len(hits),
+	})
 }

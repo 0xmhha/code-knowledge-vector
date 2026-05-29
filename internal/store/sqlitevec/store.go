@@ -487,6 +487,115 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	return out, nil
 }
 
+// chunkSelectCols lists every metadata column on chunks. Centralized so
+// new columns added in migrations only need one SELECT update.
+const chunkSelectCols = `c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
+	c.symbol_name, c.symbol_kind, c.chunk_kind,
+	c.commit_hash, c.content_sha256, c.ckg_node_id, c.recent_prs,
+	c.category, c.guidance, c.invariants, c.convention_stats, c.text`
+
+// scanChunk reads one chunks row using the chunkSelectCols column
+// order. Used by Search (with an extra distance column) and by the
+// metadata-only lookups below.
+func scanChunk(rs interface {
+	Scan(dest ...any) error
+}) (types.Chunk, error) {
+	var (
+		c         types.Chunk
+		isTest    int
+		symKind   sql.NullString
+		chKind    string
+		ckgID     sql.NullString
+		prJSON    sql.NullString
+		catCol    sql.NullString
+		guideJSON sql.NullString
+		invJSON   sql.NullString
+		convJSON  sql.NullString
+	)
+	if err := rs.Scan(
+		&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
+		&c.SymbolName, &symKind, &chKind,
+		&c.CommitHash, &c.ContentSHA256, &ckgID, &prJSON,
+		&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
+	); err != nil {
+		return types.Chunk{}, err
+	}
+	c.IsTest = isTest != 0
+	c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
+	c.ChunkKind = types.ChunkKind(chKind)
+	c.CKGNodeID = ckgID.String
+	c.RecentPRs = unmarshalPRRefs(prJSON.String)
+	c.Category = catCol.String
+	guide, gerr := policy.GuidanceFromJSON(guideJSON.String)
+	if gerr != nil {
+		return types.Chunk{}, fmt.Errorf("scan guidance for %s: %w", c.ID, gerr)
+	}
+	c.Guidance = guide
+	c.Invariants = unmarshalInvariantRefs(invJSON.String)
+	c.ConventionStats = unmarshalConventionStats(convJSON.String)
+	return c, nil
+}
+
+// LookupByIDs returns the chunks with the given IDs in arbitrary order.
+// IDs that do not exist are silently skipped. The input slice is
+// processed in groups of 900 to respect SQLite's parameter limit (999).
+func (s *Store) LookupByIDs(ctx context.Context, ids []string) ([]types.Chunk, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	const groupSize = 900
+
+	out := make([]types.Chunk, 0, len(ids))
+	for start := 0; start < len(ids); start += groupSize {
+		end := start + groupSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		group := ids[start:end]
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(group)), ",")
+		args := make([]any, len(group))
+		for i, id := range group {
+			args[i] = id
+		}
+		stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c WHERE c.id IN (` + placeholders + `)`
+		rows, err := s.db.QueryContext(ctx, stmt, args...)
+		if err != nil {
+			return nil, fmt.Errorf("lookup_by_ids: %w", err)
+		}
+		for rows.Next() {
+			c, scanErr := scanChunk(rows)
+			if scanErr != nil {
+				rows.Close()
+				return nil, scanErr
+			}
+			out = append(out, c)
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// LookupByFileOrdered returns every chunk in file ordered by start_line.
+// Used by expand_in_file to fetch the neighbour set for a given hit.
+func (s *Store) LookupByFileOrdered(ctx context.Context, file string) ([]types.Chunk, error) {
+	stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c WHERE c.file = ? ORDER BY c.start_line`
+	rows, err := s.db.QueryContext(ctx, stmt, file)
+	if err != nil {
+		return nil, fmt.Errorf("lookup_by_file: %w", err)
+	}
+	defer rows.Close()
+
+	var out []types.Chunk
+	for rows.Next() {
+		c, scanErr := scanChunk(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // boolToInt converts a Go bool to SQLite's 0/1 integer convention.
 // SQLite has no native BOOLEAN type — integer columns + 0/1 values are
 // the universal pattern.

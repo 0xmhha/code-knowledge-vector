@@ -301,6 +301,89 @@ func (e *Engine) LookupPRsByFile(ctx context.Context, file string) ([]types.PRRe
 	return e.store.LookupPRsByFile(ctx, file)
 }
 
+// NarrowCandidates loads the chunks for the given IDs and returns the
+// subset that matches the filter. Score fields are zero-valued (this
+// is a metadata refinement step, not a ranking step). Useful for
+// multi-hop retrieval flows where an earlier semantic_search produced
+// hit IDs and a follow-up wants to drop everything outside a category
+// or path.
+func (e *Engine) NarrowCandidates(ctx context.Context, ids []string, filter types.Filter) ([]Hit, error) {
+	if e == nil || e.store == nil {
+		return nil, nil
+	}
+	chunks, err := e.store.LookupByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Hit, 0, len(chunks))
+	for _, c := range chunks {
+		if !filter.Matches(c) {
+			continue
+		}
+		out = append(out, toResponseHit(types.Hit{Chunk: c}, ""))
+	}
+	return out, nil
+}
+
+// ExpandInFile returns chunks immediately surrounding chunkID inside
+// the same file. The window is [match - before, match + after] in
+// chunk-index space (chunks ordered by start_line). When chunkID is
+// unknown, returns ErrChunkNotFound. Score is zero on the returned
+// hits — they are context, not ranked results.
+//
+// before / after of 0 returns just the source chunk. before or after
+// over the edge are silently clamped (no error for "ran out of chunks").
+func (e *Engine) ExpandInFile(ctx context.Context, chunkID string, before, after int) ([]Hit, error) {
+	if e == nil || e.store == nil {
+		return nil, nil
+	}
+	if before < 0 {
+		before = 0
+	}
+	if after < 0 {
+		after = 0
+	}
+	seed, err := e.store.LookupByIDs(ctx, []string{chunkID})
+	if err != nil {
+		return nil, err
+	}
+	if len(seed) == 0 {
+		return nil, ErrChunkNotFound
+	}
+	siblings, err := e.store.LookupByFileOrdered(ctx, seed[0].File)
+	if err != nil {
+		return nil, err
+	}
+	idx := -1
+	for i, c := range siblings {
+		if c.ID == chunkID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, ErrChunkNotFound
+	}
+	lo := idx - before
+	if lo < 0 {
+		lo = 0
+	}
+	hi := idx + after + 1
+	if hi > len(siblings) {
+		hi = len(siblings)
+	}
+	window := siblings[lo:hi]
+	out := make([]Hit, 0, len(window))
+	for _, c := range window {
+		out = append(out, toResponseHit(types.Hit{Chunk: c}, ""))
+	}
+	return out, nil
+}
+
+// ErrChunkNotFound is returned when ExpandInFile / NarrowCandidates
+// is asked about a chunk ID that does not exist in the index.
+var ErrChunkNotFound = errors.New("chunk not found")
+
 // Embedder returns the underlying embedder. Callers (MCP index handler)
 // reuse it to avoid re-initializing the embedder for build/reindex.
 func (e *Engine) Embedder() types.Embedder {
