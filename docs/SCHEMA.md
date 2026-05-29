@@ -215,10 +215,37 @@ ORDER BY v.distance;
 
 ### Migrations
 
-`store.go::ensureColumn` is the idempotent ALTER helper. Pre-FU-10
-indexes lacked `is_test`; Open detects the missing column via
-`PRAGMA table_info` and runs `ALTER TABLE chunks ADD COLUMN is_test`
-on first read. No separate `ckv migrate` step.
+Two mechanisms coexist:
+
+1. **Legacy `ensureColumn` (in-Open ALTERs)** — for retroactive column
+   additions before the formal framework existed (`is_test`,
+   `recent_prs`). Stays as-is for already-applied changes; new
+   migrations should use the framework below.
+2. **Formal migration framework** (`internal/store/sqlitevec/migrate.go`)
+   — versioned `.sql` files in `migrations/` are loaded via `go:embed`
+   and applied in lexical order. A `schema_migrations` table tracks
+   which versions have been applied along with the SHA-256 of their
+   source; editing an applied migration is refused.
+
+Auto-apply policy:
+
+- Default: `Open()` applies pending migrations after `initSchema`. A
+  backup `<dbpath>.bak.<unix-ts>` is taken first.
+- Override: `CKV_DISABLE_AUTO_MIGRATE=1` switches to manual mode;
+  `Open()` returns `ErrMigrationRequired` and the operator must run
+  `ckv migrate --out PATH`.
+
+CLI:
+
+```
+ckv migrate --out ./ckv-data            # apply pending
+ckv migrate --out ./ckv-data --status   # show applied vs pending
+ckv migrate --out ./ckv-data --dry-run  # preview without writing
+ckv migrate --out ./ckv-data --no-backup
+```
+
+Authoring new migrations: see
+[`internal/store/sqlitevec/migrations/README.md`](../internal/store/sqlitevec/migrations/README.md).
 
 ---
 

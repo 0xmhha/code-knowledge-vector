@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -44,6 +45,11 @@ func init() {
 // dimension if the DB already has data. Pass dim from the Embedder's
 // Dimension() — that gives us a single source of truth for what the
 // embeddings look like.
+//
+// After schema init, pending migrations from the embedded migrations FS
+// are applied automatically. Set CKV_DISABLE_AUTO_MIGRATE=1 to refuse
+// rather than apply (Open then returns ErrMigrationRequired so callers
+// can surface the recommended `ckv migrate` hint).
 func Open(path string, dim int) (*Store, error) {
 	if dim <= 0 {
 		return nil, fmt.Errorf("sqlitevec: invalid dim %d", dim)
@@ -71,7 +77,33 @@ func Open(path string, dim int) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.runPendingMigrations(path); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return s, nil
+}
+
+// runPendingMigrations applies migrations recorded in the embedded
+// migrations FS that have not yet been recorded in schema_migrations.
+// In auto mode (default) backups are taken and migrations applied. In
+// manual mode (CKV_DISABLE_AUTO_MIGRATE=1) any pending migration causes
+// Open to return ErrMigrationRequired so callers can ask the user to
+// run `ckv migrate`.
+func (s *Store) runPendingMigrations(dbPath string) error {
+	autoOff := os.Getenv("CKV_DISABLE_AUTO_MIGRATE") == "1"
+	runner := NewMigrationRunner(s.db, dbPath, WithBackup(!autoOff))
+	if autoOff {
+		status, err := runner.Status(context.Background())
+		if err != nil {
+			return err
+		}
+		if len(status.Pending) > 0 {
+			return ErrMigrationRequired
+		}
+		return nil
+	}
+	return runner.Apply(context.Background())
 }
 
 // initSchema creates tables and the vec0 virtual table on first run.

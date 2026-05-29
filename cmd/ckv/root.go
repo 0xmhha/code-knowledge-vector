@@ -52,6 +52,7 @@ func newRootCmd() *cobra.Command {
 		newModelCmd(),
 		newEvalCmd(),
 		newGlossaryCmd(),
+		newMigrateCmd(),
 	)
 
 	return cmd
