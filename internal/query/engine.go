@@ -392,16 +392,16 @@ var ErrChunkNotFound = errors.New("chunk not found")
 // InvariantHit pairs a ChunkInvariant chunk with its parsed tier so
 // MCP callers can filter without reparsing the back-reference.
 type InvariantHit struct {
-	ChunkID    string                      `json:"chunk_id"`
-	File       string                      `json:"file"`
-	StartLine  int                         `json:"start_line"`
-	EndLine    int                         `json:"end_line"`
-	Marker     string                      `json:"marker"`              // e.g. "CRITICAL", "panic"
-	Tier       types.InvariantTier         `json:"tier"`                // 1, 2, or 3
-	Text       string                      `json:"text"`                // the invariant statement
-	Category   string                      `json:"category,omitempty"`  // inherited from source chunk's policy
-	Guidance   *types.ModificationGuidance `json:"guidance,omitempty"`  // ditto
-	SourceChunk string                     `json:"source_chunk_id,omitempty"`
+	ChunkID     string                      `json:"chunk_id"`
+	File        string                      `json:"file"`
+	StartLine   int                         `json:"start_line"`
+	EndLine     int                         `json:"end_line"`
+	Marker      string                      `json:"marker"`             // e.g. "CRITICAL", "panic"
+	Tier        types.InvariantTier         `json:"tier"`               // 1, 2, or 3
+	Text        string                      `json:"text"`               // the invariant statement
+	Category    string                      `json:"category,omitempty"` // inherited from source chunk's policy
+	Guidance    *types.ModificationGuidance `json:"guidance,omitempty"` // ditto
+	SourceChunk string                      `json:"source_chunk_id,omitempty"`
 }
 
 // FindInvariants returns invariants matching the filter. tierMin (1, 2,
