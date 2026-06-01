@@ -180,11 +180,94 @@ categories:
       - "block-building fairness (MEV / private-mempool concerns)"
       - "do not skip consensus.Prepare / Seal callbacks"
 
+  - name: evm
+    paths:
+      - "core/vm/**"
+    also_review:
+      - "state"
+      - "params"
+      - "consensus"
+    required_tests:
+      - "EVM opcode semantics"
+      - "gas accounting"
+      - "precompile correctness"
+    watch_out:
+      - "opcode behaviour is consensus-critical; every node must agree byte-for-byte"
+      - "gas table changes require hard-fork coordination"
+      - "precompile address allocation is permanent (no removal)"
+
+  - name: rawdb
+    paths:
+      - "core/rawdb/**"
+      - "ethdb/**"
+    also_review:
+      - "state"
+    required_tests:
+      - "schema round-trip"
+      - "DB iterator correctness"
+    watch_out:
+      - "key prefix changes break upgrade-in-place; need migration logic"
+      - "ancient store (frozen) format is append-only"
+
+  - name: types
+    paths:
+      - "core/types/**"
+      - "common/**"
+    also_review:
+      - "consensus"
+      - "state"
+      - "rpc"
+    required_tests:
+      - "RLP encode / decode round-trip"
+      - "JSON marshal stability"
+    watch_out:
+      - "field renames break wire compatibility (RLP order is positional)"
+      - "wallet / indexer software depends on JSON field names"
+
+  - name: rlp
+    paths:
+      - "rlp/**"
+    also_review:
+      - "types"
+      - "p2p"
+    required_tests:
+      - "round-trip on known fixtures"
+      - "fuzz / malformed input handling"
+    watch_out:
+      - "decoder changes can break consensus if hash differs from upstream"
+      - "buffer reuse vs allocation tradeoffs affect throughput"
+
+  - name: accounts
+    paths:
+      - "accounts/**"
+    also_review:
+      - "crypto"
+      - "rpc"
+    required_tests:
+      - "key import / export"
+      - "hardware wallet protocol fixtures"
+    watch_out:
+      - "private key handling — never log, never write outside keystore"
+      - "hardware wallet protocol bytes are vendor-specific (generated *.pb.go)"
+
+  - name: tracers
+    paths:
+      - "eth/tracers/**"
+    also_review:
+      - "evm"
+      - "state"
+    required_tests:
+      - "tracer fixture replay"
+    watch_out:
+      - "tracer hooks fire on the hot path; performance regressions affect every block"
+      - "JS tracer (goja) embeds an interpreter — keep the host bindings narrow"
+
   - name: cli
     paths:
       - "cmd/**"
       - "console/**"
       - "internal/cmdtest/**"
+      - "internal/debug/**"
     required_tests:
       - "smoke test for changed subcommand"
     watch_out:

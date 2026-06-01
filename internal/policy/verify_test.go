@@ -21,7 +21,8 @@ func TestStablenetYaml_ParsesAndCovers(t *testing.T) {
 	wantCats := []string{
 		"test", "consensus", "beacon", "state", "crypto",
 		"p2p", "txpool", "rpc", "systemcontracts", "params",
-		"miner", "cli", "docs",
+		"miner", "evm", "rawdb", "types", "rlp", "accounts",
+		"tracers", "cli", "docs",
 	}
 	got := map[string]CategoryRule{}
 	for _, c := range p.Categories {
@@ -85,6 +86,19 @@ func TestStablenetYaml_ClassifiesKnownFiles(t *testing.T) {
 		{"core/blockchain_test.go", "test"},
 		{"docs/CONTRIBUTING.md", "docs"},
 		{"README.md", "docs"},
+		// New categories from CKV-Q1.
+		{"accounts/keystore/account_cache.go", "accounts"},
+		{"accounts/usbwallet/trezor/messages-management.pb.go", "accounts"},
+		{"core/vm/contracts.go", "evm"},
+		{"core/vm/instructions.go", "evm"},
+		{"core/rawdb/accessors_chain.go", "rawdb"},
+		{"ethdb/leveldb/leveldb.go", "rawdb"},
+		{"core/types/transaction.go", "types"},
+		{"common/types.go", "types"},
+		{"rlp/decode.go", "rlp"},
+		{"rlp/encode.go", "rlp"},
+		{"eth/tracers/js/goja.go", "tracers"},
+		{"internal/debug/flags.go", "cli"},
 	}
 
 	for _, tc := range cases {
