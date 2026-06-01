@@ -1,6 +1,9 @@
-# Session Handoff — 2026-05-29
+# Session Handoff — 2026-05-29 (updated 2026-06-01)
 
 이 문서는 다른 머신·다른 세션에서 작업을 이어받기 위한 단일 진입점이다. 모든 진행 사항, 검증 결과, 미완료 항목, 다음 액션을 망라한다. 새 세션은 이 문서를 먼저 읽고 시작한다.
+
+> **Update 2026-06-01:** CKV-Q1, CKV-Q2 완료. unclassified 21.2% → 6.9%,
+> invariant 38 → 163. 신규 커밋 `545a89e`, `02bb24b`. §3, §4, §5.2 참조.
 
 ---
 
@@ -181,31 +184,34 @@ type Client interface {
 
 mock embedder로 go-stablenet 빌드. 카테고리 분포, invariant/convention 수, MCP 도구 호출, 마이그레이션 안전성 확인.
 
-### 3.1 빌드 메트릭
+### 3.1 빌드 메트릭 (2026-06-01 갱신, Q1+Q2 적용 후)
 
 ```
-파일: 2,290 / 청크: 25,890 / 시간: 8.66초 (mock)
+파일: 2,290 / 청크: 26,015 / 시간: ~9초 (mock)
 chunk_kind 분포:
   symbol        22,131
   file_header    2,179
   doc            1,335
   convention       207
-  invariant         38
-category 분포 (top 5):
+  invariant        163  (← 이전 38)
+category 분포 (top 8, 19개 카테고리 중):
   systemcontracts  6,736 (26.0%)
-  (unclassified)   5,498 (21.2%)  ← 목표 ≤30% 달성
   test             5,260 (20.3%)
   p2p              1,982 ( 7.7%)
+  (unclassified)   1,790 ( 6.9%)  (← 이전 21.2%)
   rpc              1,254 ( 4.8%)
+  crypto           1,231 ( 4.8%)
+  accounts         1,141 ( 4.4%)  (신규)
+  state            1,043 ( 4.0%)
 ```
 
 ### 3.2 목표 대비
 
-- ✅ unclassified 21.2% (목표 ≤30%)
+- ✅ unclassified 6.9% (목표 ≤30%, Q1으로 21.2% → 6.9%)
 - ✅ Convention 207 (목표 ≥30)
-- ❌ **Invariant 38 (목표 ≥100)** — Tier 3 휴리스틱이 너무 보수적
+- ✅ **Invariant 163 (목표 ≥100, Q2로 38 → 163)**
 
-Invariant tier 분포: Deprecated 28 / CRITICAL 7 / IMPORTANT 2 / WARNING 1. Tier 3 = 0건.
+Invariant tier 분포: Tier 1 = 38 (Deprecated 28 / CRITICAL 7 / IMPORTANT 2 / WARNING 1), Tier 3 = 125 (errors.New 71 / fmt.Errorf 45 / panic 6 / panic+fmt.Errorf 2 / panic(ident) 1).
 
 ### 3.3 MCP 도구 종단 테스트
 
@@ -227,35 +233,20 @@ ckv migrate --dry-run: 동일
 
 ## 4. V1 발견 사항 (개선 후보, 우선순위)
 
-### 4.1 stablenet.yaml glob 보강 (소규모, ROI 높음)
+### 4.1 stablenet.yaml glob 보강 — ✅ 완료 (2026-06-01, `545a89e`)
 
-현재 unclassified 21.2%의 주된 원인. 추가 권장 글로브:
+6개 카테고리 추가 (evm, rawdb, types, rlp, accounts, tracers). 결과: unclassified 21.2% → 6.9%. 13 → 19 카테고리.
 
-```yaml
-- name: accounts        # accounts/ — 키관리, hardware wallet
-  paths: ["accounts/**"]
-- name: evm             # core/vm/ — EVM 실행
-  paths: ["core/vm/**"]
-  also_review: ["state", "params"]
-- name: rawdb           # core/rawdb/ — DB 접근자
-  paths: ["core/rawdb/**", "ethdb/**"]
-- name: types           # core/types/, common/ — 핵심 타입
-  paths: ["core/types/**", "common/**"]
-- name: rlp             # rlp/ — 직렬화
-  paths: ["rlp/**"]
-```
+### 4.2 Tier 3 휴리스틱 확장 — ✅ 완료 (2026-06-01, `02bb24b`)
 
-추가 시 unclassified가 8~12%로 떨어질 것 (예상).
+3가지 패턴 추가 + buggy skipTier3 로직 정정:
 
-### 4.2 Tier 3 휴리스틱 확장 (중간 규모)
+- `panic(err)` + 주변 3줄 내 정책 주석 — 채택, 주석 텍스트가 invariant text가 됨
+- `panic(fmt.Sprintf("...키워드..."))` — 채택
+- `panic(fmt.Errorf("...키워드..."))` — 채택
+- 이전 lint 단순화에서 깨진 `skipTier3` 의미 복원 (`SkipTier3InTests && _test.go`)
 
-현재 `panic("string literal")`만 검출. Go 표준 패턴 누락:
-
-- `panic(err)` (식별자) — 주변 주석에 정책 키워드 있으면 채택
-- `panic(fmt.Sprintf("..."))` — Sprintf 인자의 첫 인자 검사
-- `panic(fmt.Errorf(...))` — 동일
-
-코드: `internal/invariant/extractor.go:classifyCall`. 변경 후 go-stablenet 카운트가 100 이상으로 올라가는지 측정.
+결과: invariant 38 → 163 (+329%). Tier 3 = 125건 신규.
 
 ### 4.3 보안: mcp-go의 graceful error (이미 됨)
 
@@ -303,19 +294,11 @@ CKS의 `internal/mcp/`에 새 핸들러 추가. 이름: `cks.context.keyword_sea
 - Stage 2 후 `find_invariants` + `get_conventions`로 보강
 - 응답 envelope에 invariants/conventions 추가
 
-### 5.2 CKV 내부 개선 (소규모)
+### 5.2 CKV 내부 개선 (완료)
 
-**Task CKV-Q1: stablenet.yaml glob 보강** (30분)
-
-4.1에 명시된 5개 글로브 추가 + verify_test.go 확장. unclassified 비율 재측정.
-
-**Task CKV-Q2: Tier 3 휴리스틱 확장** (1~2시간)
-
-4.2에 명시된 3가지 패턴 추가. go-stablenet에서 invariant 100건 이상 달성 확인.
-
-**Task CKV-Q3: hypothetical cks-design 정정** (30분)
-
-`docs/cks-design-2026-05-29.md`를 삭제하거나 첫 줄에 "ARCHIVED: hypothetical 초안, 실제 CKS와 다름 — `docs/session-handoff-2026-05-29.md` §2 참조" 추가.
+- ✅ CKV-Q1 (commit `545a89e`)
+- ✅ CKV-Q2 (commit `02bb24b`)
+- ✅ CKV-Q3 (commit `4621b8d`)
 
 ### 5.3 CKV envelope 확장 (CKS 통합 의존)
 
