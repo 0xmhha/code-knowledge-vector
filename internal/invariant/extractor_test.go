@@ -103,6 +103,124 @@ func B() {
 	}
 }
 
+func TestExtract_Tier3_PanicFmtSprintf(t *testing.T) {
+	src := []byte(`package x
+
+import "fmt"
+
+func A(v string) {
+	panic(fmt.Sprintf("validator must verify %s", v))
+}
+
+func B(v string) {
+	panic(fmt.Sprintf("plain crash %s", v))
+}
+`)
+	results, err := Extract("x.go", src, Options{SkipTier3InTests: false})
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d, want 1 (only A's panic has policy keyword): %+v", len(results), results)
+	}
+	if !strings.Contains(results[0].Text, "validator must") {
+		t.Errorf("expected 'validator must' in text, got %q", results[0].Text)
+	}
+	if !strings.Contains(results[0].Marker, "fmt.Sprintf") {
+		t.Errorf("expected Marker to mention fmt.Sprintf, got %q", results[0].Marker)
+	}
+}
+
+func TestExtract_Tier3_PanicFmtErrorf(t *testing.T) {
+	src := []byte(`package x
+
+import "fmt"
+
+func A() {
+	panic(fmt.Errorf("byzantine validator detected: %w", nil))
+}
+
+func B() {
+	panic(fmt.Errorf("connection refused: %w", nil))
+}
+`)
+	results, err := Extract("x.go", src, Options{SkipTier3InTests: false})
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d, want 1: %+v", len(results), results)
+	}
+	if !strings.Contains(strings.ToLower(results[0].Text), "byzantine") {
+		t.Errorf("expected byzantine match, got %q", results[0].Text)
+	}
+}
+
+func TestExtract_Tier3_PanicIdentWithNearbyComment(t *testing.T) {
+	src := []byte(`package x
+
+func A(err error) {
+	// CRITICAL: validator quorum must hold; bail out hard rather than
+	// continue with a corrupt state.
+	if err != nil {
+		panic(err)
+	}
+}
+
+func B(err error) {
+	if err != nil {
+		panic(err) // no nearby policy comment — must NOT be flagged
+	}
+}
+
+func C(err error) {
+	// just a debug log
+	if err != nil {
+		panic(err)
+	}
+}
+`)
+	results, err := Extract("x.go", src, Options{SkipTier3InTests: false})
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	// A's panic should be flagged via Tier 1 (CRITICAL marker) AND Tier 3
+	// (panic(err) with nearby policy comment). B and C must not be flagged.
+	tier3 := 0
+	for _, r := range results {
+		if r.Tier == types.InvariantTierHeuristic {
+			tier3++
+			if !strings.Contains(strings.ToLower(r.Text), "validator") {
+				t.Errorf("Tier 3 hit should carry the nearby comment text, got %q", r.Text)
+			}
+		}
+	}
+	if tier3 != 1 {
+		t.Errorf("expected exactly 1 Tier 3 hit (A's panic(err) with CRITICAL comment), got %d", tier3)
+	}
+}
+
+func TestExtract_Tier3_PanicIdent_NotFlaggedWithoutPolicyKeyword(t *testing.T) {
+	src := []byte(`package x
+
+func A(err error) {
+	// Initialize the cache with default values.
+	if err != nil {
+		panic(err)
+	}
+}
+`)
+	results, err := Extract("x.go", src, Options{SkipTier3InTests: false})
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	for _, r := range results {
+		if r.Tier == types.InvariantTierHeuristic {
+			t.Errorf("panic(err) without policy keyword in nearby comment must NOT be flagged: %+v", r)
+		}
+	}
+}
+
 func TestExtract_Tier3_HeuristicErrorf(t *testing.T) {
 	src := []byte(`package x
 

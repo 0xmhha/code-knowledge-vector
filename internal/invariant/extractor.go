@@ -89,11 +89,12 @@ func Extract(relPath string, src []byte, opts Options) ([]Result, error) {
 	if opts.MaxTier3PerFile == 0 {
 		opts.MaxTier3PerFile = MaxTier3PerFile
 	}
-	// Tier 3 is suppressed in *_test.go regardless of the SkipTier3InTests
-	// flag (test fixtures emit too many noise hits otherwise). When the
-	// flag is true we also skip Tier 3 for non-test files — useful for
-	// callers that want explicit-marker-only results.
-	skipTier3 := opts.SkipTier3InTests || (relPath != "" && strings.HasSuffix(relPath, "_test.go"))
+	// Tier 3 (heuristic on panic / Errorf) is suppressed in *_test.go
+	// when opts.SkipTier3InTests is set, because test fixtures emit
+	// far too many noise hits otherwise (assertion panics, mock errors).
+	// Non-test files keep Tier 3 detection so production policy panics
+	// surface to the agent.
+	skipTier3 := opts.SkipTier3InTests && strings.HasSuffix(relPath, "_test.go")
 
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, relPath, src, parser.ParseComments)
@@ -121,13 +122,17 @@ func Extract(relPath string, src []byte, opts Options) ([]Result, error) {
 			if !ok {
 				return true
 			}
-			r, ok := classifyCall(call, fset)
+			r, ok := classifyCall(call, file, fset)
 			if !ok {
 				return true
 			}
 			out = append(out, r)
 			tier3Count++
-			return true
+			// Don't descend into the matched call's args: e.g. when we
+			// matched panic(fmt.Errorf("...")) we already attributed the
+			// inner fmt.Errorf to this hit; visiting it again would
+			// double-count.
+			return false
 		})
 	}
 
@@ -166,10 +171,22 @@ func classifyComment(c *ast.Comment, fset *token.FileSet) (Result, bool) {
 	}, true
 }
 
-// classifyCall flags panic(...) / fmt.Errorf(...) calls whose string
-// literal contains a policy keyword. Conservative: only string
-// literals are inspected (no concat / fmt.Sprintf chains).
-func classifyCall(call *ast.CallExpr, fset *token.FileSet) (Result, bool) {
+// classifyCall flags panic(...) / fmt.Errorf(...) / errors.New(...)
+// calls that contain a policy keyword. Four detection paths:
+//
+//	(a) Direct string literal     : panic("validator must hold")
+//	(b) fmt.Sprintf / fmt.Errorf  : panic(fmt.Sprintf("validator %s", v))
+//	(c) Identifier + nearby doc   : panic(err) — only when a comment
+//	                                within 3 lines above carries a
+//	                                policy keyword (covers the dominant
+//	                                Go pattern of wrapping an error value)
+//	(d) (else)                    : not flagged
+//
+// (c) is conservative on purpose: panic(err) without an accompanying
+// comment is too common in production code to flag as an invariant.
+// The "nearby doc" rule converts the docstring into the chunk text so
+// the agent reads the explanation, not just the bare panic line.
+func classifyCall(call *ast.CallExpr, file *ast.File, fset *token.FileSet) (Result, bool) {
 	name := callableName(call.Fun)
 	switch name {
 	case "panic", "Errorf", "errors.New", "fmt.Errorf":
@@ -179,26 +196,86 @@ func classifyCall(call *ast.CallExpr, fset *token.FileSet) (Result, bool) {
 	if len(call.Args) == 0 {
 		return Result{}, false
 	}
-	lit := stringLiteral(call.Args[len(call.Args)-1])
-	if lit == "" {
-		// Errorf wrap format: the first arg is the format string.
-		lit = stringLiteral(call.Args[0])
-	}
-	if lit == "" {
+	arg0 := call.Args[0]
+
+	// (a) Direct string literal.
+	if lit := stringLiteral(arg0); lit != "" {
+		if containsPolicyWord(lit) {
+			return makeTier3(name, call, fset, lit), true
+		}
 		return Result{}, false
 	}
-	if !containsPolicyWord(lit) {
+
+	// (b) Nested fmt.Sprintf / fmt.Errorf wrapping a literal.
+	if inner, ok := arg0.(*ast.CallExpr); ok {
+		innerName := callableName(inner.Fun)
+		if (innerName == "fmt.Sprintf" || innerName == "fmt.Errorf") && len(inner.Args) > 0 {
+			if lit := stringLiteral(inner.Args[0]); lit != "" && containsPolicyWord(lit) {
+				return makeTier3(name+"+"+innerName, call, fset, lit), true
+			}
+		}
 		return Result{}, false
 	}
+
+	// (c) Identifier (panic(err) etc.) — require nearby policy comment.
+	// Only applies to bare panic: errors.New/fmt.Errorf with non-literal
+	// first arg is too unusual to flag.
+	if name == "panic" {
+		if _, ok := arg0.(*ast.Ident); ok {
+			if text, ok := nearbyPolicyComment(call, file, fset); ok {
+				return makeTier3("panic(ident)", call, fset, text), true
+			}
+		}
+	}
+	return Result{}, false
+}
+
+// makeTier3 is the small constructor shared by every Tier 3 detection
+// path so they record the same line range / fields.
+func makeTier3(marker string, call *ast.CallExpr, fset *token.FileSet, text string) Result {
 	pos := fset.Position(call.Pos())
 	end := fset.Position(call.End())
 	return Result{
 		Tier:      types.InvariantTierHeuristic,
-		Marker:    name,
+		Marker:    marker,
 		StartLine: pos.Line,
 		EndLine:   end.Line,
-		Text:      lit,
-	}, true
+		Text:      text,
+	}
+}
+
+// nearbyPolicyComment returns (text, true) when a comment within 3
+// lines above call contains a policy keyword. The returned text is the
+// concatenated comment body — it is what the invariant chunk stores
+// in lieu of the bare panic source, giving the agent the explanation
+// the developer left behind.
+func nearbyPolicyComment(call *ast.CallExpr, file *ast.File, fset *token.FileSet) (string, bool) {
+	callLine := fset.Position(call.Pos()).Line
+	for _, cg := range file.Comments {
+		endLine := fset.Position(cg.End()).Line
+		if endLine >= callLine {
+			continue // comment is on / below the panic
+		}
+		if callLine-endLine > 3 {
+			continue // too far above
+		}
+		var b strings.Builder
+		for _, c := range cg.List {
+			body := commentBody(c.Text)
+			if body == "" {
+				continue
+			}
+			if b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(body)
+		}
+		joined := b.String()
+		if containsPolicyWord(joined) {
+			return joined, true
+		}
+	}
+	return "", false
 }
 
 // commentBody strips "//" / "/* */" wrappers and leading whitespace.
