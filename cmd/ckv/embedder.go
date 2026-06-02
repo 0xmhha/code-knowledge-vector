@@ -24,7 +24,10 @@ func resolveEmbedder(name, modelDir string) (types.Embedder, func(), error) {
 	case "", "mock":
 		return mock.Default(), noop, nil
 	case "bgeonnx":
-		a, err := bgeonnx.Open(bgeonnx.Options{ModelDir: modelDir})
+		// Forward --model-name so `--embedder=bgeonnx --model-name=X` selects X
+		// (registry lookup); empty falls back to bgeonnx's default. Mirrors the
+		// ollama case below, which already forwards globalFlags.modelName.
+		a, err := bgeonnx.Open(bgeonnx.Options{ModelDir: modelDir, ModelName: globalFlags.modelName})
 		if err != nil {
 			return nil, noop, fmt.Errorf("embedder bgeonnx: %w", err)
 		}
