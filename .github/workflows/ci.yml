@@ -37,7 +37,17 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test ./... -count=1 -timeout 5m
+        shell: bash
+        run: |
+          # internal/embed/coreml requires libtokenizers (HuggingFace Rust)
+          # which is not installed in the CI runner; the package is
+          # darwin-only and dev/local. R1' contract uses Ollama as the
+          # production embedder (pkg/embed/ollama). On non-macOS the
+          # package compiles its !darwin stub, so the exclusion only
+          # matters on macOS — applied uniformly here so the test
+          # command stays single-shape.
+          pkgs=$(go list ./... | grep -v '/internal/embed/coreml')
+          go test $pkgs -count=1 -timeout 5m
 
       - name: Vet
         run: go vet ./...
