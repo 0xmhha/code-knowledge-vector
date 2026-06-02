@@ -27,6 +27,7 @@ import (
 	"errors"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
+	"github.com/0xmhha/code-knowledge-vector/internal/freshness"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
@@ -102,6 +103,14 @@ const (
 // root. Engine.Manifest returns a copy.
 type Manifest = manifest.Manifest
 
+// FreshnessReport is the structured index-vs-HEAD comparison returned
+// by Engine.Freshness: IndexedHead, CurrentHead, ChangedFiles, Stale,
+// Fresh, Warnings. Aliased from internal/freshness.Report (same shape
+// the MCP cks.ops.freshness tool serializes) so consumers read the
+// fields through pkg/ckv without importing internal/freshness — the
+// same re-export pattern SearchOptions/Response already use.
+type FreshnessReport = freshness.Report
+
 // OpenOptions configures Open. Embedder is required; the field exists
 // as a struct rather than a positional argument so future options
 // (footprint logger, read-only flag, etc.) can land without breaking
@@ -176,6 +185,20 @@ func (e *Engine) CheckFreshness() error {
 		return errors.New("ckv: engine is closed")
 	}
 	return e.inner.CheckFreshness()
+}
+
+// Freshness returns the structured index-vs-HEAD report (IndexedHead,
+// CurrentHead, ChangedFiles, Stale, Fresh, Warnings). Unlike
+// CheckFreshness — which collapses the comparison to a single error —
+// this gives cks's cks.ops.freshness tool the full Report. Git
+// unavailability surfaces as Report.Warnings with Fresh=false, not as a
+// returned error; a returned error means the engine is closed or has no
+// manifest.
+func (e *Engine) Freshness() (FreshnessReport, error) {
+	if e == nil || e.inner == nil {
+		return FreshnessReport{}, errors.New("ckv: engine is closed")
+	}
+	return e.inner.FreshnessReport()
 }
 
 // Close releases the underlying store. Idempotent — calling twice is

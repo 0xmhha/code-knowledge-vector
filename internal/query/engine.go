@@ -546,6 +546,20 @@ func (e *Engine) CheckFreshness() error {
 	return nil
 }
 
+// FreshnessReport returns the structured index-vs-HEAD comparison
+// (IndexedHead, CurrentHead, ChangedFiles, Stale, Fresh, Warnings).
+// Unlike CheckFreshness (which collapses the comparison to a single
+// error), this exposes the full Report so the pkg/ckv facade can hand
+// it to cks's cks.ops.freshness tool without re-deriving it. Git
+// unavailability is reported via Report.Warnings (Fresh=false), not as
+// a hard error — same contract as freshness.Check.
+func (e *Engine) FreshnessReport() (freshness.Report, error) {
+	if e == nil || e.man == nil {
+		return freshness.Report{}, errors.New("query: engine has no manifest")
+	}
+	return freshness.Check(e.srcRoot, e.man.IndexedHead)
+}
+
 // EmbedderInfo is the health-endpoint view of the embedder this Engine
 // was opened with. Status answers "is this embedder useful for real
 // semantic search?" — operators can distinguish "ckv alive but mock
