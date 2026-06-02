@@ -2,12 +2,8 @@ package prregress
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 )
@@ -16,116 +12,14 @@ import (
 // hits into a markdown implementation plan. The agent never sees the
 // PR's Solution / Changes — that's the gap we're measuring.
 //
-// Interface kept small so the test harness can stub it without dragging
-// in Claude CLI / network. Production impl is ClaudePlanAgent.
+// The interface is the seam where LLM work crosses out of this binary
+// (00 §2.2: binary = deterministic). The ckv binary ships NO concrete
+// PlanAgent — plan generation is inherently an LLM task, so the
+// agent/session layer injects its own implementation. The plan it
+// returns is parsed back into structured form by ExtractExpectedFiles,
+// which stays here as a deterministic, tested parser.
 type PlanAgent interface {
 	Generate(ctx context.Context, e Entry, m Meta, hints []query.Hit) (Plan, error)
-}
-
-// ClaudePlanAgent invokes the Claude Code CLI in headless mode to
-// produce an implementation plan. Same binary as internal/judge but
-// a different prompt — keeping the two as separate types avoids
-// implicit coupling between "score this" and "plan this."
-type ClaudePlanAgent struct {
-	// Binary is the executable. Defaults to "claude".
-	Binary string
-	// Timeout caps wall time per Generate(). Plan generation usually
-	// takes longer than grading (the agent may inspect snippets,
-	// reason about architecture) so the default is generous.
-	Timeout time.Duration
-	// Model lets callers pin a model id (forwarded as `--model`).
-	Model string
-}
-
-// NewClaudePlanAgent returns a ClaudePlanAgent with sane defaults.
-func NewClaudePlanAgent() *ClaudePlanAgent {
-	return &ClaudePlanAgent{Binary: "claude", Timeout: 5 * time.Minute}
-}
-
-// Generate builds a planning prompt that hands the agent the
-// problem description plus top ckv hits as evidence, runs Claude CLI,
-// and parses the markdown response into Plan{Markdown, ExpectedFiles}.
-//
-// On failure the returned Plan keeps the raw output (truncated) for
-// inspection and the error explains why parsing or invocation failed.
-// The runner can choose to treat that as a zero-score Result rather
-// than aborting the whole fixture.
-func (a *ClaudePlanAgent) Generate(ctx context.Context, e Entry, m Meta, hints []query.Hit) (Plan, error) {
-	if a.Binary == "" {
-		a.Binary = "claude"
-	}
-	if a.Timeout == 0 {
-		a.Timeout = 5 * time.Minute
-	}
-	if _, err := exec.LookPath(a.Binary); err != nil {
-		return Plan{}, fmt.Errorf("plan agent: %s not in PATH", a.Binary)
-	}
-	if strings.TrimSpace(m.Background) == "" {
-		return Plan{}, fmt.Errorf("plan agent: empty Background — nothing to plan from")
-	}
-
-	prompt := buildPlanPrompt(e, m.Background, hints)
-	cctx, cancel := context.WithTimeout(ctx, a.Timeout)
-	defer cancel()
-
-	args := []string{"-p", prompt}
-	if a.Model != "" {
-		args = append(args, "--model", a.Model)
-	}
-	out, err := exec.CommandContext(cctx, a.Binary, args...).Output()
-	if err != nil {
-		stderr := ""
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			stderr = truncStr(string(ee.Stderr), 1000)
-		}
-		return Plan{}, fmt.Errorf("plan agent: %s exec failed: %w (stderr: %s)", a.Binary, err, stderr)
-	}
-
-	markdown := strings.TrimSpace(string(out))
-	if markdown == "" {
-		return Plan{}, fmt.Errorf("plan agent: empty response")
-	}
-	return Plan{
-		Markdown:      markdown,
-		ExpectedFiles: ExtractExpectedFiles(markdown),
-	}, nil
-}
-
-// buildPlanPrompt assembles the planning prompt. We feed the agent:
-//   - The problem statement (PR Background only).
-//   - The repo path so it can inspect files.
-//   - Top ckv search hits as the "candidates worth looking at" — this
-//     mirrors how the runtime coding agent will use ckv.
-//   - An explicit output schema (markdown body + structured
-//     "Expected Changes" section we can parse downstream).
-func buildPlanPrompt(e Entry, background string, hints []query.Hit) string {
-	var b strings.Builder
-	b.WriteString("You are an experienced software engineer.\n")
-	b.WriteString("You will be shown a software problem and a set of candidate code locations from a vector-search index over the codebase. ")
-	b.WriteString("Your task: write a concise implementation plan in markdown that explains HOW you would solve the problem.\n\n")
-	b.WriteString("Rules:\n")
-	b.WriteString("- Focus on WHICH files change and WHAT the high-level approach is. Do not write full implementation code.\n")
-	b.WriteString("- Treat the search hints below as evidence. The files in the hints are where the relevant code most likely lives — prefer naming files that appear there.\n")
-	b.WriteString("- Do not invent file paths. If you add a file that is NOT in the hints, you must have inspected the repo and have a concrete reason (the symbol referenced by the hint actually lives there, the change must propagate to a sibling file, etc.). Speculative paths produce worse plans than honest 'I do not know'.\n")
-	b.WriteString("- You may inspect files in the repo at: " + e.SourcePath + "\n")
-	b.WriteString("- End your response with a section titled exactly `## Expected Changes` listing one bullet per file in the form:\n")
-	b.WriteString("    - <relative/path/to/file>: <one-line description of the change>\n\n")
-	b.WriteString("PROBLEM:\n")
-	b.WriteString(background)
-	b.WriteString("\n\nVECTOR-SEARCH HINTS (top results from ckv on this problem):\n")
-	if len(hints) == 0 {
-		b.WriteString("(no hints — proceed with file inspection)\n")
-	} else {
-		for i, h := range hints {
-			fmt.Fprintf(&b, "%d. %s:%d-%d  symbol=%s  kind=%s  score=%.3f\n",
-				i+1, h.Citation.File, h.Citation.StartLine, h.Citation.EndLine,
-				defaultIfEmpty(h.Symbol, "(none)"), h.SymbolKind, h.Score.Normalized)
-			fmt.Fprintf(&b, "   snippet: %s\n", truncStr(strings.ReplaceAll(h.Snippet, "\n", " "), 200))
-		}
-	}
-	b.WriteString("\nOutput markdown only. The final section must be exactly `## Expected Changes`.")
-	return b.String()
 }
 
 // expectedHeaderRE matches the structured "Expected Changes" section
@@ -186,18 +80,4 @@ func ExtractExpectedFiles(markdown string) []string {
 		out = append(out, p)
 	}
 	return out
-}
-
-func truncStr(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
-}
-
-func defaultIfEmpty(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
 }

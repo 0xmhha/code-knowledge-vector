@@ -13,7 +13,6 @@ import (
 
 	"github.com/0xmhha/code-knowledge-vector/internal/eval"
 	"github.com/0xmhha/code-knowledge-vector/internal/eval/prregress"
-	"github.com/0xmhha/code-knowledge-vector/internal/judge"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 )
 
@@ -25,8 +24,6 @@ type evalOpts struct {
 	threshold   float64
 	minRecall5  float64 // exit non-zero if recall@5 < this
 	maxHalluc   float64 // exit non-zero if hallucination_rate > this
-	judgeCmd    string  // empty → no judge; "claude" → invoke Claude Code CLI
-	judgeModel  string  // optional --model passthrough
 	jsonOut     bool
 
 	// PR-regression mode (mutually exclusive with --fixture queries).
@@ -61,8 +58,6 @@ Default fixture path: ./testdata/queries.yaml`,
 	f.Float64Var(&opts.minRecall5, "min-recall5", 0.0, "fail with exit 1 if recall@5 < this")
 	f.StringVar(&opts.src, "src", "", "source root for hallucination verification (when empty, verification is skipped and hallucination metrics are omitted)")
 	f.Float64Var(&opts.maxHalluc, "max-halluc", 1.0, "fail with exit 1 if hallucination_rate > this (1.0 = disabled; only meaningful when --src is set)")
-	f.StringVar(&opts.judgeCmd, "judge", "", "LLM-as-judge command (empty=disabled; e.g. 'claude' for Claude Code CLI)")
-	f.StringVar(&opts.judgeModel, "judge-model", "", "model passed to the judge CLI (--model)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable output")
 	f.StringVar(&opts.prFixturePath, "pr-fixture", "", "path to PR fixture YAML (switches into PR-regression mode; mutually exclusive with --fixture)")
 	f.IntVar(&opts.prTopK, "pr-top", 10, "top-K hints passed to the planning agent in PR-regression mode")
@@ -110,12 +105,6 @@ func runEval(ctx context.Context, opts *evalOpts) error {
 		Threshold:        opts.threshold,
 		SrcRoot:          opts.src,
 		EnableBM25Rerank: opts.bm25Rerank,
-	}
-	if opts.judgeCmd != "" {
-		evalOpts.Judge = &judge.ClaudeCLI{
-			Binary: opts.judgeCmd,
-			Model:  opts.judgeModel,
-		}
 	}
 	res, err := eval.Run(ctx, eng, fx, evalOpts)
 	if err != nil {
@@ -172,18 +161,6 @@ func renderEvalHuman(res *eval.Result) {
 	fmt.Printf("  citation    %.3f  (over found)\n", a.CitationAccuracy)
 	if a.TotalHits > 0 {
 		fmt.Printf("  halluc_rate %.3f  (%d / %d hits)\n", a.HallucinationRate, a.HallucinationHits, a.TotalHits)
-	}
-	if len(res.Verdicts) > 0 {
-		fmt.Println()
-		fmt.Println("LLM judge verdicts:")
-		for _, v := range res.Verdicts {
-			if v.Error != "" {
-				fmt.Printf("  %-6s ERROR  %s\n", v.QueryID, truncOneLine(v.Error, 80))
-				continue
-			}
-			fmt.Printf("  %-6s score=%d  %s\n", v.QueryID, v.Score, truncOneLine(v.Rationale, 100))
-		}
-		fmt.Printf("  mean        %.3f  (judge)\n", res.MeanJudge)
 	}
 }
 
@@ -246,16 +223,15 @@ func runPREval(ctx context.Context, opts *evalOpts) error {
 	}
 	defer cleanup()
 
+	// Plan generation is LLM work, excised from the binary (00 §2.2): the
+	// ckv CLI ships no PlanAgent, so prregress.RunEntry will fail fast with
+	// a clear "Agent must be injected" error per entry. PR-regression is
+	// driven from the agent/session layer, which injects its own PlanAgent
+	// (and optionally an LLM JudgeScorer). The deterministic aggregation
+	// below (aggregateRuns/meanStd) stays unit-tested regardless.
 	runOpts := &prregress.RunOptions{
 		Embedder: emb,
 		TopK:     opts.prTopK,
-	}
-	if opts.judgeCmd != "" {
-		// Reuse the same Claude binary for both the planner and judge.
-		// They are separate prompts but the auth / model selection
-		// pipeline should be identical.
-		runOpts.Agent = &prregress.ClaudePlanAgent{Binary: opts.judgeCmd, Model: opts.judgeModel}
-		runOpts.Scorer = &prregress.ClaudeJudgeScorer{Binary: opts.judgeCmd, Model: opts.judgeModel}
 	}
 
 	// Repeat each entry prRuns times. For N == 1 the loop runs once
