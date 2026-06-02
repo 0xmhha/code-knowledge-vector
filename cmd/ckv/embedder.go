@@ -6,7 +6,7 @@ import (
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/bgeonnx"
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
-	"github.com/0xmhha/code-knowledge-vector/internal/embed/ollama"
+	"github.com/0xmhha/code-knowledge-vector/pkg/embed/ollama"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
