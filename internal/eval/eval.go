@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/0xmhha/code-knowledge-vector/internal/judge"
 	"github.com/0xmhha/code-knowledge-vector/internal/query"
 )
 
@@ -13,10 +12,9 @@ const DefaultK = 5
 
 // Options control one eval pass.
 type Options struct {
-	K         int         // top-K for recall counting (default 5)
-	Threshold float64     // pass-through to query.Options.Threshold; <0 disables
-	SrcRoot   string      // pass-through for citation enforcement; empty → manifest default
-	Judge     judge.Judge // optional LLM-as-judge; nil → automatic metrics only
+	K         int     // top-K for recall counting (default 5)
+	Threshold float64 // pass-through to query.Options.Threshold; <0 disables
+	SrcRoot   string  // pass-through for citation enforcement; empty → manifest default
 	// EnableBM25Rerank toggles BM25 candidate-rerank on the eval pass.
 	// Defaults false so existing baselines are preserved by default.
 	// Both A and B legs of an A/B comparison use the same fixture +
@@ -26,12 +24,10 @@ type Options struct {
 
 // Result is the full eval pass output.
 type Result struct {
-	Fixture   string          `json:"fixture"`
-	K         int             `json:"k"`
-	Aggregate Aggregate       `json:"aggregate"`
-	PerQuery  []PerQuery      `json:"per_query"`
-	Verdicts  []judge.Verdict `json:"verdicts,omitempty"`
-	MeanJudge float64         `json:"mean_judge_score,omitempty"` // average over non-error verdicts
+	Fixture   string     `json:"fixture"`
+	K         int        `json:"k"`
+	Aggregate Aggregate  `json:"aggregate"`
+	PerQuery  []PerQuery `json:"per_query"`
 }
 
 // Run executes every query in fx against eng and returns a Result.
@@ -69,30 +65,7 @@ func Run(ctx context.Context, eng *query.Engine, fx *Fixture, opts Options) (*Re
 			continue
 		}
 		out.PerQuery = append(out.PerQuery, Score(q, resp, k, opts.SrcRoot))
-		if opts.Judge != nil {
-			out.Verdicts = append(out.Verdicts, opts.Judge.Grade(ctx, q.ID, q.Intent, resp.Hits))
-		}
 	}
 	out.Aggregate = Summarize(out.PerQuery)
-	if len(out.Verdicts) > 0 {
-		out.MeanJudge = meanVerdictScore(out.Verdicts)
-	}
 	return out, nil
-}
-
-// meanVerdictScore averages the Score field across verdicts, skipping
-// those that errored (Score == 0 + Error set).
-func meanVerdictScore(verdicts []judge.Verdict) float64 {
-	var sum, n float64
-	for _, v := range verdicts {
-		if v.Error != "" || v.Score == 0 {
-			continue
-		}
-		sum += float64(v.Score)
-		n++
-	}
-	if n == 0 {
-		return 0
-	}
-	return sum / n
 }

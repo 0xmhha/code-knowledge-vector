@@ -13,10 +13,11 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
-// RunOptions configure how RunFixture / RunEntry operate.
-// Defaults try to do the most useful thing with the least caller
-// input: Claude CLI for both agent and scorer, top-10 hints to the
-// agent, index built into a temp dir beside the worktree.
+// RunOptions configure how RunFixture / RunEntry operate. The caller
+// must supply an Embedder and a PlanAgent (plan generation is LLM work,
+// excised from the binary per 00 §2.2). Scorer defaults to the
+// deterministic metric scorer; top-K defaults to 10; the index is built
+// into a temp dir beside the worktree.
 type RunOptions struct {
 	// Embedder is used to build the per-PR index and answer hint
 	// queries. Required.
@@ -26,10 +27,13 @@ type RunOptions struct {
 	EmbedderName string
 
 	// Agent generates the implementation plan from PR Background +
-	// search hints. Defaults to NewClaudePlanAgent().
+	// search hints. REQUIRED — the binary ships no concrete PlanAgent
+	// (plan generation is inherently LLM work, injected by the agent
+	// layer). fill() errors when nil.
 	Agent PlanAgent
-	// Scorer grades the plan against the actual diff. Defaults to
-	// NewClaudeJudgeScorer().
+	// Scorer grades the plan against the PR. Defaults to
+	// DeterministicScorer{} (file/intent/symbol/plan-step metrics, no
+	// LLM). The agent layer may inject an LLM-judge scorer instead.
 	Scorer JudgeScorer
 
 	// TopK is how many ckv hits to hand the agent as "candidates worth
@@ -50,10 +54,12 @@ func (o *RunOptions) fill() error {
 		o.EmbedderName = o.Embedder.Name()
 	}
 	if o.Agent == nil {
-		o.Agent = NewClaudePlanAgent()
+		// No deterministic plan generator exists — plan generation is LLM
+		// work that moved to the agent/session layer (00 §2.2). Require it.
+		return fmt.Errorf("prregress: RunOptions.Agent must be injected (plan generation is LLM work, excised from the binary per 00 §2.2)")
 	}
 	if o.Scorer == nil {
-		o.Scorer = NewClaudeJudgeScorer()
+		o.Scorer = DeterministicScorer{}
 	}
 	if o.TopK <= 0 {
 		o.TopK = 10

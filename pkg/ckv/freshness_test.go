@@ -71,8 +71,10 @@ func TestFreshness_StructuredFreshThenStale(t *testing.T) {
 	}
 	defer func() { _ = engine.Close() }()
 
-	// 3. Fresh path: index HEAD == current HEAD.
-	var rep ckv.FreshnessReport = mustFreshness(t, engine)
+	// 3. Fresh path: index HEAD == current HEAD. mustFreshness returns
+	// ckv.FreshnessReport, so this also proves the aliased type's fields are
+	// reachable from an external package (plan Part D #3).
+	rep := mustFreshness(t, engine)
 	if !rep.Fresh || rep.Stale {
 		t.Errorf("fresh build: Fresh=%v Stale=%v, want Fresh=true Stale=false (warnings=%v)",
 			rep.Fresh, rep.Stale, rep.Warnings)

@@ -77,60 +77,6 @@ func RawEmbedText(c types.Chunk) string {
 	return c.Text
 }
 
-// PrefixMode selects which contextual prefix strategy to apply.
-type PrefixMode string
-
-const (
-	PrefixRule PrefixMode = "rule" // Rule-based only (current default)
-	PrefixLLM  PrefixMode = "llm"  // LLM-generated summary only (future)
-	PrefixDual PrefixMode = "dual" // Rule-based + LLM summary combined
-	PrefixNone PrefixMode = "none" // No prefix (raw text)
-)
-
-// EmbedTextFn is the function signature for embed text generation.
-type EmbedTextFn func(types.Chunk) string
-
-// LLMPrefixGenerator generates a contextual summary for a chunk.
-// Implementations call an LLM API. Nil means LLM prefix is disabled.
-type LLMPrefixGenerator interface {
-	Generate(c types.Chunk) (string, error)
-}
-
-// ResolveEmbedTextFn returns the appropriate embed text function for
-// the given mode and optional LLM generator.
-func ResolveEmbedTextFn(mode PrefixMode, llm LLMPrefixGenerator) EmbedTextFn {
-	switch mode {
-	case PrefixNone:
-		return RawEmbedText
-	case PrefixLLM:
-		if llm == nil {
-			return BuildEmbedText // fallback to rule-based
-		}
-		return func(c types.Chunk) string {
-			summary, err := llm.Generate(c)
-			if err != nil || summary == "" {
-				return BuildEmbedText(c) // fallback on error
-			}
-			return summary + "\n\n" + c.Text
-		}
-	case PrefixDual:
-		if llm == nil {
-			return BuildEmbedText
-		}
-		return func(c types.Chunk) string {
-			rulePrefix := BuildEmbedText(c)
-			summary, err := llm.Generate(c)
-			if err != nil || summary == "" {
-				return rulePrefix
-			}
-			// Rule prefix + LLM summary + raw text
-			return rulePrefix[:len(rulePrefix)-len(c.Text)] + summary + "\n\n" + c.Text
-		}
-	default:
-		return BuildEmbedText
-	}
-}
-
 // languageLabel humanizes the language tag for the prefix. The tags
 // CKV stores ("go", "typescript", "solidity", "markdown", "javascript")
 // are already lowercase; we keep them. A future tag like "ts" would

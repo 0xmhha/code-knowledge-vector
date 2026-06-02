@@ -81,11 +81,11 @@ func TestExtractJudgeVerdict_RejectsUnparseable(t *testing.T) {
 
 // TestScore_PopulatesMultiStageWhenGroundTruthPresent verifies multi-stage
 // scoring: when an Entry has IntentGroundTruth + ChangedSymbols and Meta
-// has CommitMessages, the scorer populates IntentScore / SymbolF1 fields /
-// PlanStepsScore alongside the legacy FileF1 — independent of the
-// LLM-judge subprocess.
+// has CommitMessages, the DeterministicScorer populates IntentScore /
+// SymbolF1 fields / PlanStepsScore alongside the legacy FileF1 — all
+// pure-Go, no LLM judge involved.
 func TestScore_PopulatesMultiStageWhenGroundTruthPresent(t *testing.T) {
-	scorer := &ClaudeJudgeScorer{Binary: "definitely-not-a-real-binary-9af3"}
+	scorer := DeterministicScorer{}
 	plan := Plan{
 		Markdown: "## Problem\nRefresh GasTip tracking on header change.\n\n" +
 			"## Approach\nModify AnzeonTipEnv.SetCurrentBlock to compare header GasTip.\n\n" +
@@ -138,7 +138,7 @@ func TestScore_PopulatesMultiStageWhenGroundTruthPresent(t *testing.T) {
 // any multi-stage fields (omitempty), preserving JSON output stability
 // for the four legacy fixture rows (pr69/pr70/pr72/pr74).
 func TestScore_MultiStageSilentOnLegacyEntries(t *testing.T) {
-	scorer := &ClaudeJudgeScorer{Binary: "definitely-not-a-real-binary-9af3"}
+	scorer := DeterministicScorer{}
 	plan := Plan{Markdown: "some plan", ExpectedFiles: []string{"a.go"}}
 	got, err := scorer.Score(nil, Entry{}, Meta{Files: []ChangedFile{{Path: "a.go"}}}, plan, "diff")
 	if err != nil {
@@ -154,16 +154,11 @@ func TestScore_MultiStageSilentOnLegacyEntries(t *testing.T) {
 	}
 }
 
-// Score_FileSetOnly verifies that when the judge subprocess can't be
-// invoked (claude not in PATH), we still produce a Score with the file
-// F1 portion populated and a non-empty JudgeError. The runner relies
-// on this to keep producing useful output in CI / degraded envs.
-func TestScore_FileSetSurvivesMissingClaude(t *testing.T) {
-	scorer := &ClaudeJudgeScorer{
-		Binary:       "definitely-not-a-real-binary-9af3",
-		Timeout:      0, // will be defaulted
-		MaxDiffBytes: 0, // will be defaulted
-	}
+// TestScore_DeterministicFileSet verifies the file-set F1 is computed by the
+// deterministic scorer and that NO LLM-judge fields are populated (the binary
+// does deterministic scoring only; LLM judging is the agent layer's job).
+func TestScore_DeterministicFileSet(t *testing.T) {
+	scorer := DeterministicScorer{}
 	plan := Plan{
 		ExpectedFiles: []string{"a.go", "b.go", "c.go"},
 	}
@@ -178,12 +173,13 @@ func TestScore_FileSetSurvivesMissingClaude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Score returned error: %v", err)
 	}
-	if got.JudgeError == "" {
-		t.Error("expected JudgeError to be set when binary missing")
-	}
-	// Score.FileF1 should still reflect the file-set comparison even
-	// though the LLM call failed: plan=[a,b,c], truth=[a,b] → P=2/3, R=1, F1=0.8.
+	// plan=[a,b,c], truth=[a,b] → P=2/3, R=1, F1=0.8.
 	if math.Abs(got.FileF1-0.8) > 1e-9 {
-		t.Errorf("FileF1 = %g, want 0.8 (file-set part must survive judge failure)", got.FileF1)
+		t.Errorf("FileF1 = %g, want 0.8", got.FileF1)
+	}
+	// Deterministic scorer leaves the LLM-judge fields untouched.
+	if got.JudgeScore != 0 || got.JudgeRaw != "" || got.JudgeError != "" {
+		t.Errorf("deterministic scorer should not set judge fields: score=%g raw=%q err=%q",
+			got.JudgeScore, got.JudgeRaw, got.JudgeError)
 	}
 }
