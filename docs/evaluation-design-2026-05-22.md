@@ -40,7 +40,7 @@
 | R1 빌드 참여 파일만 인덱싱 | `internal/discover.ResolveGoBuildRoots` (`build_roots` in `ckv.yaml`) | ✅ |
 | R2 MCP 임의 입력 → 결과 | `pkg/mcp.Server.handleSemanticSearch` (`cks.context.semantic_search`) | ✅ |
 | R3 citation 검증 | `internal/query.EnforceCitationsAt` — file existence + line sanity + commit_hash mismatch flag | ✅ 부분 (할루시네이션 자동 측정은 없음) |
-| R3 LLM-judge | `cmd/ckv eval --judge` + `internal/judge` | ✅ |
+| R3 LLM-judge | ~~`cmd/ckv eval --judge` + `internal/judge`~~ → **excised in R1′ (00 §2.2: binary = deterministic); LLM judging moved to the agent/session layer via injected `prregress.JudgeScorer`** | ⛔ removed from binary |
 | R5 footprint span | `internal/footprint.Span` + B8 `--profile` (per-event p50/p95/sum) | ✅ 골격은 있음 |
 | R8 fixture-based eval | `cmd/ckv eval` (recall@k / MRR / citation_accuracy) + PR-regression 모드 | ✅ |
 | Build throughput tuning | A5 fixture N=50 + Phase D.1 prefix 측정 | ✅ |
@@ -143,7 +143,7 @@ query.search                  -- 기존, top-level span
 |---|---|---|
 | **D5-A** | Citation file existence + line range (이미 있음) | 0 |
 | **D5-B** | Snippet text **byte-exact** match against `<srcRoot>/<file>` lines `[start_line:end_line]` | 낮음 (Open + Read) |
-| **D5-C** | LLM-judge: "intent + snippet 이 의미적으로 일치하는가" (이미 `--judge` impl) | 높음 (API cost) |
+| **D5-C** | LLM-judge: "intent + snippet 이 의미적으로 일치하는가" (R1′에서 binary에서 excise → agent/session layer가 `prregress.JudgeScorer` 주입으로 수행) | 높음 (API cost) |
 | **D5-D** | Negative fixture: *존재하지 않는* intent → 결과가 빈/낮은 score 여야 함 | 낮음 (fixture 작성만) |
 
 **권장 = D5-A + D5-B + D5-D** — A 는 이미 있음. B 는 snippet 가 실 파일 hash

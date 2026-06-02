@@ -1,4 +1,4 @@
-.PHONY: all build test test-race lint fmt tidy audit clean help model-fetch eval-pr eval-pr-1run eval-ab
+.PHONY: all build test test-race lint fmt tidy audit clean help model-fetch eval-ab rebuild-stablenet gsn-smoke
 
 GO ?= go
 BIN_DIR := bin
@@ -65,17 +65,11 @@ audit: ## govulncheck (call-graph reachable vulns)
 model-fetch: ## Download bge-large-en-v1.5 ONNX model (~1.34GB)
 	$(GO) run ./cmd/ckv model fetch bge-large-en-v1.5
 
-eval-pr: ## Run 12-PR regression eval with bgeonnx (32GB+ RAM, CoreML)
-	$(GO) run -tags bgeonnx ./cmd/ckv eval \
-		--pr-fixture ./testdata/prs.yaml \
-		--embedder=bgeonnx --pr-runs 3 \
-		--judge claude --json
-
-eval-pr-1run: ## Single-run PR eval (faster, no noise averaging)
-	$(GO) run -tags bgeonnx ./cmd/ckv eval \
-		--pr-fixture ./testdata/prs.yaml \
-		--embedder=bgeonnx --pr-runs 1 \
-		--judge claude --json
+# PR-regression eval (LLM plan-gen + LLM judge) was excised from the binary
+# (00 §2.2: binary = deterministic). It now runs from the agent/session layer,
+# which injects a PlanAgent + JudgeScorer into prregress.RunOptions. The former
+# `make eval-pr` / `eval-pr-1run` targets used the removed `--judge claude` flag
+# and are gone; `ckv eval --pr-fixture` errors fast without an injected agent.
 
 eval-ab: ## A/B measurement: bgeonnx BM25 OFF vs ON (testdata/sample)
 	@echo "=== BM25 OFF ===" && \
@@ -85,6 +79,19 @@ eval-ab: ## A/B measurement: bgeonnx BM25 OFF vs ON (testdata/sample)
 	echo "=== BM25 ON ===" && \
 	CKV_MEM_GUARD=off CKV_DISABLE_COREML=1 $(GO) run -tags bgeonnx ./cmd/ckv eval --fixture ./testdata/queries.yaml --out "$$TMP" --src ./testdata/sample --embedder=bgeonnx --bm25-rerank --json && \
 	rm -rf "$$TMP"
+
+# ---- bge-m3 go-stablenet index (operator-gated, requires Ollama) ----
+
+# GSN_SRC: go-stablenet source tree. GSN_OUT: index output dir.
+GSN_SRC ?= /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+GSN_OUT ?= ./ckv-stablenet
+
+rebuild-stablenet: ## Build the bge-m3 go-stablenet index (needs `ollama serve` + `ollama pull bge-m3`; ~10h for ~26k chunks)
+	@command -v ollama >/dev/null 2>&1 || { echo "ollama not found — install + 'ollama pull bge-m3' first"; exit 1; }
+	$(GO) run ./cmd/ckv build --embedder=ollama --model-name=bge-m3 --src "$(GSN_SRC)" --out "$(GSN_OUT)"
+
+gsn-smoke: ## Validate a built bge-m3 go-stablenet index (M2.b/c). Uses GSN_OUT; needs Ollama up.
+	CKV_GSN_INDEX="$(GSN_OUT)" $(GO) test ./pkg/ckv/ -run TestGoStablenetBgeM3Smoke -v -count=1
 
 # ---- cleanup ----
 
