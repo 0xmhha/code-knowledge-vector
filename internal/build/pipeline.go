@@ -86,7 +86,11 @@ func processFile(
 	})
 
 	if language == "go" && len(chunks) > 0 {
-		results, ierr := invariant.Extract(relPath, src, invariant.Options{SkipTier3InTests: true})
+		// Tier-3 heuristics are normally suppressed in *_test.go, but
+		// governance test suites (systemcontracts/test/) encode real
+		// invariants we want indexed — see includeTestInvariants (02 §4).
+		skipT3 := !includeTestInvariants(relPath)
+		results, ierr := invariant.Extract(relPath, src, invariant.Options{SkipTier3InTests: skipT3})
 		if ierr != nil {
 			fmt.Fprintf(os.Stderr, "ckv: invariant skipped %s: %v\n", relPath, ierr)
 		} else if len(results) > 0 {
