@@ -21,6 +21,7 @@ type buildOpts struct {
 	exclude   []string
 	configPth string
 	policy    string
+	docs      []string
 	jsonOut   bool
 
 	includePR bool
@@ -52,6 +53,7 @@ Re-running on a populated --out updates chunks in place (Upsert).`,
 	f.StringSliceVar(&opts.exclude, "exclude", nil, "extra ignore patterns (repeatable; e.g. --exclude='vendor/**' --exclude='**/*_gen.go')")
 	f.StringVar(&opts.configPth, "config", "", "path to ckv.yaml (optional)")
 	f.StringVar(&opts.policy, "policy", "", "path to policy yaml (categorizes chunks by path; e.g. policy/stablenet.yaml)")
+	f.StringSliceVar(&opts.docs, "docs", nil, "additional markdown corpus dirs to embed in the same index (repeatable; chunks tagged Category=domain; e.g. --docs=generated/domain-corpus/go-stablenet)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 	f.BoolVar(&opts.includePR, "include-pr-history", false, "fetch merged PRs via gh CLI and index descriptions + commit messages")
 	f.StringVar(&opts.prSince, "pr-since", "", "only PRs merged after this date (YYYY-MM-DD); requires --include-pr-history")
@@ -92,6 +94,7 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 		ProgressOut:             os.Stderr,
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
 		PolicyPath:              opts.policy,
+		DocsRoots:               opts.docs,
 	}
 	if opts.includePR {
 		prFetch := &build.PRFetchOptions{Repo: opts.prRepo}

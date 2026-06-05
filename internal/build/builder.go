@@ -60,6 +60,14 @@ type Options struct {
 	// Category + ModificationGuidance based on its path. Empty disables
 	// classification — chunks ship with Category="" and Guidance=nil.
 	PolicyPath string
+
+	// DocsRoots are extra directories walked for markdown AFTER SrcRoot.
+	// Files found here are tagged Category="domain" and cited by their
+	// path relative to the docs root. Used to embed an out-of-tree curated
+	// corpus (the cks domain-knowledge entries + authoritative docs) in
+	// the same index. These roots are not git repos, so chunks carry no
+	// commit hash.
+	DocsRoots []string
 }
 
 // Result is what Run returns to the CLI for the summary log.
@@ -313,6 +321,43 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		accumulateStats(&totalStats, convChunks)
 	}
 
+	// --docs: index additional markdown corpora living outside SrcRoot.
+	// Not a git repo (commit=""); tagged Category="domain" so callers can
+	// tell curated knowledge from code. processFile handles markdown the
+	// same as in-tree docs.
+	for _, docsRoot := range o.DocsRoots {
+		docFiles, docWalkErrs, werr := discover.Walk(docsRoot, discover.Options{})
+		if werr != nil {
+			return nil, fmt.Errorf("walk docs %q: %w", docsRoot, werr)
+		}
+		for _, e := range docWalkErrs {
+			fmt.Fprintf(os.Stderr, "ckv: docs walk warning: %v\n", e)
+		}
+		for _, f := range docFiles {
+			chunks, perr := processFile(f.AbsPath, f.RelPath, f.Language, "", parsers, cfg, chunker)
+			if perr != nil {
+				fmt.Fprintf(os.Stderr, "ckv: %v\n", perr)
+				continue
+			}
+			if len(chunks) == 0 {
+				continue
+			}
+			// Do not call pol.Apply here: docs chunks always carry the
+			// "domain" category regardless of PolicyPath (a source-tree
+			// policy must not reclassify the curated corpus).
+			for i := range chunks {
+				chunks[i].Category = "domain"
+			}
+			categoryCounts["domain"] += len(chunks)
+			if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, memSig, embedTextFn); err != nil {
+				return nil, fmt.Errorf("embed/upsert docs %s: %w", f.RelPath, err)
+			}
+			indexedFiles++
+			languageCounts[f.Language] += len(chunks)
+			accumulateStats(&totalStats, chunks)
+		}
+	}
+
 	builtAt := o.Now().UTC().Format(time.RFC3339)
 
 	// Persist identity into both the JSON sidecar and the DB manifest
@@ -340,6 +385,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		ChunkCount:         totalStats.Total,
 		Languages:          languageCounts,
 		CKVIgnore:          o.CKVIgnore,
+		DocsRoots:          absRoots(o.DocsRoots),
 	}
 	if err := manifest.Save(o.OutDir, man); err != nil {
 		return nil, fmt.Errorf("save manifest.json: %w", err)
@@ -426,4 +472,17 @@ func absOrEmpty(p string) string {
 		return p
 	}
 	return abs
+}
+
+// absRoots returns the absolute form of each root, preserving order.
+// nil in → nil out so the manifest field stays omitted when unused.
+func absRoots(roots []string) []string {
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]string, len(roots))
+	for i, r := range roots {
+		out[i] = absOrEmpty(r)
+	}
+	return out
 }

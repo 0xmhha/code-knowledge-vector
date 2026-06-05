@@ -238,6 +238,58 @@ func TestRunHonorsNilProgressOut(t *testing.T) {
 	}
 }
 
+func TestRunIndexesDocsRoots(t *testing.T) {
+	src := resolveTestdataSample(t)
+	docs := t.TempDir()
+	if err := os.WriteFile(filepath.Join(docs, "A4.addresses.md"),
+		[]byte("# System contract addresses\n\nNativeCoinAdapter is 0x1000.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		SrcRoot:   src,
+		OutDir:    out,
+		DocsRoots: []string{docs},
+		Embedder:  mock.Default(),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	store, err := sqlitevec.Open(filepath.Join(out, "vector.db"), mock.Default().Dimension())
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer store.Close()
+
+	q, _ := mock.Default().Embed(context.Background(), []string{"system contract address NativeCoinAdapter"})
+	hits, err := store.Search(context.Background(), q[0], 50, types.Filter{Language: "markdown"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	var found bool
+	for _, h := range hits {
+		if h.Chunk.File == "A4.addresses.md" {
+			found = true
+			if h.Chunk.Category != "domain" {
+				t.Errorf("docs chunk Category = %q, want domain", h.Chunk.Category)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("corpus doc A4.addresses.md not indexed (got %d markdown hits)", len(hits))
+	}
+
+	m, err := manifest.Load(out)
+	if err != nil {
+		t.Fatalf("Load manifest: %v", err)
+	}
+	if len(m.DocsRoots) != 1 {
+		t.Errorf("manifest DocsRoots = %v, want one entry", m.DocsRoots)
+	}
+}
+
 func TestRunIsIdempotent(t *testing.T) {
 	src := resolveTestdataSample(t)
 	out := t.TempDir()
