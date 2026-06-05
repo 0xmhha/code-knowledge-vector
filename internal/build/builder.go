@@ -342,9 +342,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if len(chunks) == 0 {
 				continue
 			}
+			// Do not call pol.Apply here: docs chunks always carry the
+			// "domain" category regardless of PolicyPath (a source-tree
+			// policy must not reclassify the curated corpus).
 			for i := range chunks {
 				chunks[i].Category = "domain"
 			}
+			categoryCounts["domain"] += len(chunks)
 			if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, memSig, embedTextFn); err != nil {
 				return nil, fmt.Errorf("embed/upsert docs %s: %w", f.RelPath, err)
 			}
