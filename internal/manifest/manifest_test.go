@@ -57,3 +57,23 @@ func TestSaveIsAtomic_NoTmpFilesLeftBehind(t *testing.T) {
 		t.Errorf("tmp files left behind: %v", matches)
 	}
 }
+
+func TestSaveLoad_DocsRootsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	in := &Manifest{
+		SchemaVersion:  SchemaVersionCurrent,
+		EmbeddingModel: "mock",
+		EmbeddingDim:   8,
+		DocsRoots:      []string{"/abs/corpus/go-stablenet"},
+	}
+	if err := Save(dir, in); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	out, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(out.DocsRoots) != 1 || out.DocsRoots[0] != "/abs/corpus/go-stablenet" {
+		t.Errorf("DocsRoots round-trip = %v, want [/abs/corpus/go-stablenet]", out.DocsRoots)
+	}
+}

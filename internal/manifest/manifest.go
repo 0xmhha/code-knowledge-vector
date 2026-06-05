@@ -45,6 +45,12 @@ type Manifest struct {
 
 	// Ignore patterns surfaced for transparency
 	CKVIgnore []string `json:"ckvignore,omitempty"`
+
+	// DocsRoots are additional markdown corpus directories indexed via
+	// `ckv build --docs` (outside SrcRoot, e.g. a cks-rendered
+	// domain-knowledge corpus). Recorded so callers can see every source
+	// the index covers. Additive — old readers see nil.
+	DocsRoots []string `json:"docs_roots,omitempty"`
 }
 
 // Load reads <dir>/manifest.json. Returns an ErrNotFound when the file is
