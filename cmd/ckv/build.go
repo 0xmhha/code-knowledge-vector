@@ -95,6 +95,7 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
 		PolicyPath:              opts.policy,
 		DocsRoots:               opts.docs,
+		CKGPath:                 opts.ckgPath,
 	}
 	if opts.includePR {
 		prFetch := &build.PRFetchOptions{Repo: opts.prRepo}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
+	"github.com/0xmhha/code-knowledge-vector/internal/ckgalign"
 	"github.com/0xmhha/code-knowledge-vector/internal/convention"
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
@@ -68,6 +69,16 @@ type Options struct {
 	// the same index. These roots are not git repos, so chunks carry no
 	// commit hash.
 	DocsRoots []string
+
+	// CKGPath is the path to a CKG data directory (containing graph.db).
+	// When set, the builder loads an in-memory (file_path, start_line)
+	// index from ckg and resolves each emitted source chunk's CKGNodeID
+	// via ckgalign.Lookup — the 1:1 alignment that cks composer uses to
+	// disambiguate same-named symbols across packages. Empty disables
+	// alignment (CKGNodeID stays ""). Docs-corpus chunks are NOT aligned
+	// (ckg has no node for curated markdown). Open failures abort the
+	// build with a clear error rather than silently skipping alignment.
+	CKGPath string
 }
 
 // Result is what Run returns to the CLI for the summary log.
@@ -220,6 +231,23 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// nil and get a silent no-op.
 	prog := newProgress(o.ProgressOut, len(files), o.Now)
 
+	// Load the ckg alignment index once, before the file loop. Open
+	// failure aborts: callers who don't want alignment must leave
+	// CKGPath empty rather than rely on silent skip.
+	var ckgIx *ckgalign.Index
+	if o.CKGPath != "" {
+		var alignErr error
+		ckgIx, alignErr = ckgalign.Load(o.CKGPath)
+		if alignErr != nil {
+			return nil, fmt.Errorf("ckg alignment: %w", alignErr)
+		}
+		fp.Emit("ckg_align.loaded",
+			"ckg_path", o.CKGPath,
+			"files_indexed", ckgIx.FileCount(),
+			"entries", ckgIx.EntryCount(),
+		)
+	}
+
 	// Memory watchdog runs while the file loop progresses and flips a
 	// shared flag when free RAM drops below CKV_MEM_GUARD_LOW_MB.
 	// embedAndUpsert reads the flag and halves its working batch on
@@ -240,6 +268,22 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			if len(chunks) == 0 {
 				return
+			}
+			// CKG alignment: stamp each chunk's CKGNodeID by matching
+			// (file_path, start_line) into the in-memory ckg index.
+			// Skipped when ckgIx is nil (no --ckg) or when a chunk has
+			// no source span (StartLine == 0, e.g. file-header chunks).
+			// Lookup is called only when CKGNodeID is still empty so a
+			// future producer that already populated it (none today) is
+			// respected.
+			if ckgIx != nil {
+				for i := range chunks {
+					if chunks[i].CKGNodeID == "" && chunks[i].StartLine > 0 {
+						chunks[i].CKGNodeID = ckgIx.Lookup(
+							chunks[i].File, chunks[i].StartLine, chunks[i].EndLine,
+						)
+					}
+				}
 			}
 			// Convention stats: feed Go source through the aggregator
 			// before chunks are upserted. Convention emission happens
