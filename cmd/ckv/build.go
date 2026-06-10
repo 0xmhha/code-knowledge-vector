@@ -19,6 +19,7 @@ type buildOpts struct {
 	ckgPath   string
 	languages []string
 	exclude   []string
+	filesFrom string
 	configPth string
 	policy    string
 	docs      []string
@@ -51,6 +52,7 @@ Re-running on a populated --out updates chunks in place (Upsert).`,
 	f.StringVar(&opts.ckgPath, "ckg", "", "CKG data directory for symbol alignment (optional)")
 	f.StringSliceVar(&opts.languages, "lang", nil, "languages to index (default: auto-detect; supported: go, typescript, javascript, solidity, markdown)")
 	f.StringSliceVar(&opts.exclude, "exclude", nil, "extra ignore patterns (repeatable; e.g. --exclude='vendor/**' --exclude='**/*_gen.go')")
+	f.StringVar(&opts.filesFrom, "files-from", "", "path to JSON file with {include, exclude} glob patterns; only files matching the include set (minus exclude) are embedded — applies to ALL languages")
 	f.StringVar(&opts.configPth, "config", "", "path to ckv.yaml (optional)")
 	f.StringVar(&opts.policy, "policy", "", "path to policy yaml (categorizes chunks by path; e.g. policy/stablenet.yaml)")
 	f.StringSliceVar(&opts.docs, "docs", nil, "additional markdown corpus dirs to embed in the same index (repeatable; chunks tagged Category=domain; e.g. --docs=generated/domain-corpus/go-stablenet)")
@@ -90,6 +92,7 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 		OutDir:                  opts.out,
 		Embedder:                emb,
 		CKVIgnore:               opts.exclude,
+		FilesFromPath:           opts.filesFrom,
 		Footprint:               fp,
 		ProgressOut:             os.Stderr,
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",

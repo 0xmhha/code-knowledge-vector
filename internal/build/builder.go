@@ -18,6 +18,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/ckgalign"
 	"github.com/0xmhha/code-knowledge-vector/internal/convention"
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
+	"github.com/0xmhha/code-knowledge-vector/internal/filterlist"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
@@ -79,6 +80,15 @@ type Options struct {
 	// (ckg has no node for curated markdown). Open failures abort the
 	// build with a clear error rather than silently skipping alignment.
 	CKGPath string
+
+	// FilesFromPath is the path to a JSON file with include/exclude glob
+	// patterns. When set, only files whose repo-relative path passes the
+	// filterlist.FilterList.Allow check are sent to the embedder — for
+	// ALL languages (Go, Solidity, TypeScript, JavaScript, Markdown).
+	// Empty string (the default) disables the allowlist: all discovered
+	// files are eligible as before. See internal/filterlist for the JSON
+	// schema: {"include": [...globs...], "exclude": [...globs...]}.
+	FilesFromPath string
 }
 
 // Result is what Run returns to the CLI for the summary log.
@@ -169,6 +179,21 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	mergedIgnore := append([]string{}, cfg.Ignore...)
 	mergedIgnore = append(mergedIgnore, o.CKVIgnore...)
 
+	// --files-from: load the JSON allowlist. nil when path is empty
+	// (Load returns nil, nil for empty path) — discover.Walk treats nil
+	// AllowList as "no allowlist" and applies current behavior.
+	allowList, err := filterlist.Load(o.FilesFromPath)
+	if err != nil {
+		return nil, fmt.Errorf("files-from: %w", err)
+	}
+	if allowList != nil {
+		fp.Emit("filterlist.loaded",
+			"path", o.FilesFromPath,
+			"include_count", len(allowList.Include),
+			"exclude_count", len(allowList.Exclude),
+		)
+	}
+
 	// Resolve `build_roots` (ckv.yaml): turn the listed Go entry
 	// packages into a file-set the walker uses as a filter. When
 	// build_roots is empty, the filter stays nil and the walk yields
@@ -188,6 +213,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	files, walkErrs, err := discover.Walk(o.SrcRoot, discover.Options{
 		Extra:        mergedIgnore,
 		GoBuildFiles: goBuildFiles,
+		AllowList:    allowList,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walk: %w", err)

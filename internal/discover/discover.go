@@ -21,6 +21,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/0xmhha/code-knowledge-vector/internal/filterlist"
 )
 
 // DefaultMaxBytes caps individual file size to avoid OOM on accidental
@@ -99,6 +101,16 @@ type Options struct {
 	// ResolveGoBuildRoots). Nil/empty map means "no filter, walk
 	// every Go file" — the original behavior.
 	GoBuildFiles map[string]struct{}
+
+	// AllowList, when non-nil, is applied to EVERY candidate file
+	// regardless of language, BEFORE the GoBuildFiles filter and
+	// before language-specific handling. A file must pass
+	// AllowList.Allow(relPath) to be included in the results.
+	// nil means "no allowlist — all files are eligible" (the existing
+	// default). This implements the --files-from feature: the caller
+	// loads a JSON include/exclude spec and passes the resulting
+	// *filterlist.FilterList here.
+	AllowList *filterlist.FilterList
 }
 
 // File is the result record. RelPath is forward-slash, repo-relative.
@@ -168,6 +180,13 @@ func Walk(srcRoot string, opts Options) (files []File, errs []error, err error) 
 		lang := classifyLanguage(rel)
 		if lang == "" {
 			return nil // unknown language → not indexable today
+		}
+		// Allowlist filter: when AllowList is set, every file (any
+		// language) must pass include/exclude rules before any further
+		// processing. Applied before GoBuildFiles so a narrowly scoped
+		// --files-from JSON is respected across all languages.
+		if !opts.AllowList.Allow(rel) {
+			return nil
 		}
 		// build_roots filter: when GoBuildFiles is set, Go files must
 		// be in the resolved dependency closure. Non-Go files pass
