@@ -1,240 +1,283 @@
+# go-stablenet modification guidance policy.
+#
+# Each category maps a set of path globs to advice the agent should
+# surface when proposing or reviewing changes. Categories are matched
+# in order — put the most specific rules first.
+#
+# Glob syntax: `*` matches one path segment, `**` matches zero or more.
+# Paths are anchored to the chunk's repo-relative File field.
+#
+# Maintainers: this is a project-policy file. Updates require sign-off
+# from the area owner listed in CODEOWNERS for the matched directory.
+
 version: 1
 categories:
-    - name: A1
-      paths:
-        - consensus/wbft/**
-        - consensus/wbft/backend/**
-        - consensus/wbft/core/**
-        - consensus/wbft/engine/**
-        - consensus/wbft/messages/**
-        - consensus/wbft/validator/**
-      watch_out:
-        - A ROUND-CHANGE carries the highest prepared block this node has seen, so a quorum of view changes resumes from that prepared state and never from a lower round.
-        - Acquiring priorState's lock instead of currentMutex — wrong lock, same struct family.
-        - 'Bumping rounds without attaching the prepared-block justification when one exists: the cluster can fork by accepting two different blocks at different rounds for the same height.'
-        - Each handler is idempotent for duplicate messages from the same sender at the same view (sequence, round).
-        - Every read of c.current (and sub-fields Sequence/Round/pendingRequest) is inside currentMutex.RLock().
-        - Every write of c.current is inside currentMutex.Lock(); the write region covers the full mutation, not just the pointer swap.
-        - Forgetting that QuorumSize covers both Prepare and Commit independently — each phase needs its own quorum.
-        - Partial write under Lock (e.g. allocating a new state outside Lock, then swapping the pointer inside) — readers may observe a half-initialized state.
-        - Per-round state progresses strictly StatePreprepared -> StatePrepared -> StateCommitted; out-of-order messages are buffered or rejected.
-        - Prepare/Commit state transitions compare with >= QuorumSize, not >.
-        - QuorumSize is always >= 1, including N = 1 (ceil(1 - 0) = 1).
-        - QuorumSize is exactly ceil(N - F) with F = (N-1)/3; the live code computes it in float64 via math.Ceil (default.go:226). Any alternative formula must yield the identical value for every N.
-        - ROUND-CHANGE quorum threshold matches the PREPARE/COMMIT quorum (see A1.wbft_core.quorum_calc).
-        - Reading c.current.Sequence() for telemetry without acquiring currentMutex.RLock — data race.
-        - 'Reimplementing the quorum with a DIFFERENT formula. PBFT-textbook 2f+1 and simple-majority N/2+1 diverge from ceil(N-F) for N != 3f+1, producing a LOWER quorum that finalizes with too few honest nodes (safety violation). N=5: ceil=4, 2f+1=3; N=6: ceil=5, 2f+1=3; N=8: ceil=6, 2f+1=5.'
-        - 'Treating a PREPARE quorum as committable proof: PREPARE quorum only justifies the prepared block inside ROUND-CHANGE messages. Block finalisation requires a COMMIT quorum.'
-        - priorState.RWMutex is a separate lock for prior-state snapshots, not a substitute for currentMutex.
-    - name: A10
-      paths:
-        - accounts/usbwallet/trezor/**
-        - core/types/**
-        - systemcontracts/**
-        - systemcontracts/artifacts/v1/**
-        - systemcontracts/compile/**
-        - systemcontracts/compile/compiler/**
-      watch_out:
-        - Adding a Solidity contract without appending to both srcFiles and contractBins in compile/main.go — compile succeeds but go:embed fails at build time because the artifact file is missing.
-        - Editing a gen_*.go file directly instead of updating the source type and rerunning gencodec — the next regen overwrites the edit.
-        - Files in systemcontracts/artifacts/v{N}/ mirror the corresponding Solidity sources in systemcontracts/solidity/v{N}/. Any divergence is a regenerate-or-revert situation.
-        - Hand-editing systemcontracts/artifacts/v{N}/<Contract> to apply a quick fix — the next compile run overwrites the change, and CI catches the resulting diff on every PR.
-        - Lint is configured to exclude core/genesis_alloc.go (large generated file) and crypto/bn256/ (third-party); other generated files are not excluded — they pass lint as-is because the generator emits compliant code.
-        - compile/main.go's srcFiles[i] must align with contractBins[i] index-for-index. A misaligned pair compiles successfully but registers bytecode under the wrong contract name.
-        - gen_*.go and gen_*_rlp.go files start with a code-generated header. Editing past the header is allowed only when also updating the source type and re-running the generator.
-    - name: A11
-      paths:
-        - core/**
-        - core/vm/**
-      watch_out:
-        - Adding a new transaction type that introduces an alternative balance-debit path without re-running checks ①~③ — funds can move from a blacklisted account.
-        - Adding a new transfer opcode handler that bypasses EVM.Call (or that calls a lower-level routine) — check ④ is missed and zero-address / precompile transfers leak through.
-        - Every blacklist check is gated by rules.IsAnzeon — pre-Anzeon nodes do not apply these guards.
-        - FeePayer (③) check fires only when st.msg.FeePayer is non-nil, i.e. for fee delegation transactions; it must run before any balance debit from the FeePayer.
-        - Reading 'contract creation exempt from check ②' as 'contract creation exempt from all blacklist checks' — Sender (①) still applies to the contract creator.
-        - Wiring FeePayer (③) check after the FeePayer balance debit instead of before — the debit happens even when the FeePayer is blacklisted, leaving inconsistent state on a rejected tx.
-        - Zero-address (④) and precompile-transfer guards run inside EVM.Call, so they catch CALL/CALLCODE/DELEGATECALL transfers that did not go through TransitionDb.
-        - msg.To == nil indicates contract creation; the Recipient (②) check intentionally skips this case.
-    - name: A12
-      paths:
-        - core/types/**
-      watch_out:
-        - Calling ecrecover on a BLS signature — wrong primitive, returns garbage.
-        - Embedding ECDSA-sized buffers ([65]byte) when serializing extra-data.
-        - FeePayer is the trailing field; its position is part of the consensus hash.
-        - Feepayer sigHash payload = [[inner-tx-fields including sender V/R/S], FeePayer].
-        - Filtered-header hash excludes seal fields, so seals can be added post-hash without changing the block hash.
-        - Hashing only the inner tx (omitting sender V/R/S) — feepayer substitution becomes possible.
-        - Hashing the seal payload with Keccak before BLS verify — primitives have their own hash-to-curve.
-        - Omitting FeePayer from the payload — wrapper signature collides with inner-only tx hash.
-        - Reordering SealerSet bits — same signature now claims a different validator subset.
-        - Reordering payload fields to 'match' DynamicFeeTx — breaks signature compatibility.
-        - SealerSet bitpack identifies the validator subset whose votes are aggregated; the bit layout is part of consensus.
-        - The sender's signature is part of the feepayer's signed payload — feepayer cannot be substituted without invalidating the chain.
-        - WBFT seals are BLS aggregate (96 bytes), not ECDSA (65 bytes).
-    - name: A13
-      paths:
-        - core/txpool/legacypool/**
-      watch_out:
-        - Adding a sealer fast-path that filters pool.all without going through the loop's snapshot mechanism.
-        - Assuming a per-map sync.Mutex exists — the design uses the loop as the lock, not per-map mutexes.
-        - External producers (RPC, sealer, p2p) enqueue events; they do NOT touch the maps directly.
-        - Mutating pool.pending / pool.queue from a non-loop goroutine — data race on map iteration.
-        - The reorg loop is the serialization boundary — there is no per-map lock to fall back on.
-        - Txpool maps (pending/queue/all) are mutated ONLY by `pool.loop()`.
-    - name: A14
-      paths:
-        - '**'
-        - .claude/docs/**
-        - consensus/wbft/backend/**
-        - consensus/wbft/core/**
-        - consensus/wbft/validator/**
-        - core/**
-        - params/**
-      watch_out:
-        - A validator that has Prepared on value v in round r stays 'locked' on v until a higher round produces a quorum-justified different value.
-        - Adding logic that depends on honest reorg ever happening (e.g. retrying tx inclusion on a different fork).
-        - Adding stake-weighted voting or weighted proposer selection — there is no stake to weight.
-        - Aggregating validator signatures off-chain (e.g. bridge proofs) without per-sender dedup — same vulnerability re-introduced.
-        - Any quorum claimed by protocol code must equal valSet.QuorumSize() — never hardcoded 2f+1 or N/2+1.
-        - Applying EIP-1559 burn semantics ('basefee → 0x0...0') in fee accounting.
-        - Assuming a slashing mechanism exists — there is none under StableNet's PoA equal-power model.
-        - Base fee is redistributed to validators on Finalize; it is NOT burned.
-        - Changing JustificationPrepares aggregation rule without re-proving safety — same surface, different semantics, silent fork.
-        - Conflating 'asynchronous' (no timing assumption) with 'partial synchrony' (eventual bounded delays) when reading or writing protocol logic.
-        - Counting messages instead of distinct signers — single byzantine equivocator can stuff quorum.
-        - Equivocation is tolerated within the byzantine bound F; there is no slashing under WBFT (PoA with equal power = 1).
-        - Ethereum 'Ether'/'wei' identifiers in the geth tree are residue; the unit is WKRC-wei.
-        - Every active validator has voting power = 1.
-        - Extending core/forkchoice.go to influence StableNet block selection.
-        - Extrapolating from Ethereum PoS / WEMIX governance assumptions.
-        - F = floor((N−1)/3); Q = ceil(N − F). The two quantities together encode the safety bound.
-        - ForkChoice / TotalDifficulty code paths are inert geth residue, not StableNet truth.
-        - Hardcoding ETH-style fee floors / tip defaults instead of consulting WKRC params.
-        - Implementing slashing — there is no slashable stake; misbehavior is handled by governance removal.
-        - Inlining StableNet-specific branches into a geth-origin file 'because it's simpler' — creates merge conflicts on the next upstream pick.
-        - Justification payload format (RoundChange + Prepare signatures) is part of the consensus contract — changes affect cross-version interop.
-        - Loosening signature checks on piggybacked justification payloads (handler.go:265) — accepts unjustified pre-prepares.
-        - Lowering RequestTimeout below network round-trip + processing latency causes perpetual round-changes (no liveness).
-        - Native asset is WKRC (symbol/name='WKRC', currency='KRW', decimals=18).
-        - Native supply changes are bank-backed mint/burn through GovMinter + NativeCoinManager, not protocol issuance.
-        - No validator struct, set struct, or selection routine reads a Power/Weight/Stake field.
-        - Once a WBFT-Committed block is written, it is final; there is no honest reorg path.
-        - PRE-PREPARE for round r > 0 carries a JUSTIFICATION; receivers verify it before accepting the proposal.
-        - Putting new feature logic in `core/blockchain.go` / `eth/handler.go` instead of in a sibling _istanbul.go file.
-        - Quorum is computed as ceil(N − F) over counts, not over stake sums.
-        - Reading TotalDifficulty as a meaningful chain-quality metric.
-        - Removing or gating the round-change timer in a 'happy path' optimization — safety still holds but liveness can stall indefinitely.
-        - Renaming or restructuring a geth file because the StableNet diff has grown — same effect.
-        - Reorg-related changes that affect consensus belong in consensus/wbft/, not in core/forkchoice.go.
-        - Round-change timeout is the implementation of the partial-synchrony assumption — its scheduling discipline is consensus-critical.
-        - Safety holds under asynchrony; liveness holds only after Global Stabilization Time + bounded Δ.
-        - Signature verification gates message acceptance; unsigned/forged messages are dropped before dedup.
-        - Skipping `isJustified` for a 'happy path' on round 0 only — and then enabling the skip path for round > 0 by accident.
-        - Skipping the base-fee credit path during Finalize refactors.
-        - Total WKRC supply moved by Finalize sums to zero across {fee debit, validator credit} (no burn sink).
-        - Treating F as int — loses the (N−1)/3 fractional part that ceil compensates for.
-        - Treating base fee as protocol revenue rather than validator payout.
-        - Treating native supply as protocol-issued (e.g. block reward minting).
-        - Tuning RequestTimeout for benchmark throughput without modeling wide-area network latency.
-        - Using PBFT-textbook 2f+1 — diverges from ceil(N−F) for N not of form 3f+1; under-counts the safe quorum.
-        - Using simple majority N/2+1 — far too low; trivially unsafe.
-        - Validator-signature aggregations added outside the consensus state machine MUST honor the same Q.
-        - Vote counts toward quorum are per SENDER, not per MESSAGE — duplicates from the same sender count once.
-        - Writing fee/reward code that says 'ETH' in comments or identifiers — incorrect for accounting and audit.
-    - name: A2
-      paths:
-        - core/types/**
-      watch_out:
-        - Block hashes are computed over WBFTFilteredHeader, not the raw header.
-        - Confusing PrevRound (kept) with Round (stripped); both live in WBFTExtra but play different roles in hashing.
-        - Forgetting to strip Round means the proposer's hash differs from each follower's once they observe their own round value.
-        - Hashing the raw header produces a hash that disagrees with every other node and breaks signature verification.
-        - IstanbulExtraVanity (32) and IstanbulExtraSeal (96) are fixed — changing them invalidates every existing block.
-        - WBFTFilteredHeader zeros Round and removes PreparedSeal / CommittedSeal, but leaves PrevRound / PrevPreparedSeal / PrevCommittedSeal untouched (those are part of the canonical block).
-    - name: A3
-      paths:
-        - consensus/wbft/**
-        - consensus/wbft/backend/**
-        - core/types/**
-        - params/**
-        - systemcontracts/**
-      watch_out:
-        - BLSPublicKeys has the same length as Validators.
-        - Conflating the engine DefaultConfig.RequestTimeout=1000ms with the Anzeon RequestTimeoutSeconds=2 (=2000ms after bridge); they are two different defaults in two files.
-        - EpochInfo is non-nil only on the last block of an epoch. Any other block carrying EpochInfo is a protocol violation.
-        - EpochInfo.Validators contains indices into EpochInfo.Candidates — never addresses. Direct address access requires looking up Candidates[Validators[i]].Addr.
-        - Forgetting to query GetValidatorsForVerifying on a boundary block (using only GetValidators) misses the previous-epoch set needed to verify the seals on that boundary block itself.
-        - Reading RequestTimeoutSeconds as milliseconds (its struct comment says so, but GetConfig multiplies by 1000) -> 1000x wrong timeout.
-        - RequestTimeoutSeconds and BlockPeriodSeconds are strictly positive; EpochLength is at least 2.
-        - The validator set for block N is determined by the most recent block <= N that carried an EpochInfo; the genesis block seeds the first epoch via WBFTInit.
-        - Treating EpochInfo.Validators as addresses instead of indices retrieves wrong validators and breaks signature verification.
-        - Validator set transitions occur at block heights that are multiples of EpochLength.
-        - Writing EpochInfo on a non-epoch-boundary block breaks header validation on every other node — symptoms are widespread block rejections from peers.
-        - chain-config RequestTimeoutSeconds is SECONDS (not ms, despite the field comment); the engine value is ms after a x1000 bridge in GetConfig.
-    - name: A4
-      paths:
-        - core/vm/**
-        - params/**
-        - systemcontracts/**
-        - systemcontracts/solidity/v1/**
-        - systemcontracts/solidity/v2/**
-    - name: A5
-      paths:
-        - core/types/**
-        - core/vm/**
-      watch_out:
-        - A bit outside AccountExtraValidMask in a stored StateAccount means corruption or an unrecognised flag from a different fork.
-        - 'Assuming mint and burn can be invoked by any contract: they are gated to NativeCoinAdapter, so direct ERC-20-style external calls do not move native supply.'
-        - Bit 63 = Blacklisted, bit 62 = Authorized — these are consensus-reachable and must not be reused.
-        - Calling SetBlacklisted(extra) without reassigning the return value is a silent no-op.
-        - DELEGATECALL and STATICCALL into the precompile are rejected; only CALL is allowed.
-        - Forgetting to add the new flag to AccountExtraValidMask means subsequent validity checks reject accounts that carry it.
-        - Mutation functions (Set*/Clear*) return a new uint64; they do not mutate the receiver. Reassign the result or the change is lost.
-        - New flags must be guarded by a hardfork rule if they affect block validity, because nodes on the older fork will not honour the bit.
-        - Reusing bit 61 or below without checking AccountExtraValidMask membership leads to flags that other code paths ignore.
-        - coinManagerMint and coinManagerBurn require the EVM caller to be NativeCoinAdapter (0x1000); any other caller fails canRunCoinManger.
-    - name: A6
-      paths:
-        - core/**
-        - core/types/**
-        - eth/gasprice/**
-      watch_out:
-        - Adding logic to setSignatureValues thinking it covers the Sender signature — Sender's V/R/S lives on the embedded SenderTx and is set by the embedded DynamicFeeTx's setSignatureValues, not the wrapper.
-        - AnzeonTipEnv is only consulted on chains where IsAnzeon returns true at the current block; pre-Anzeon blocks use the standard tip path.
-        - Computing gas pricing from FeePayer's GasFeeCap/GasTipCap — there is no such field. The FeePayer only signs; gas price comes from SenderTx (the inner DynamicFeeTx).
-        - Forgetting to verify both Sender and FeePayer signatures during transaction validation — verifying only Sender allows a forged FeePayer to be inserted.
-        - Missing the FeePayer blacklist check in TransitionDb (verification ③ in stablenet-features.md §10) — a blacklisted FeePayer can otherwise still pay for a non-blacklisted Sender's transaction.
-        - 'Reusing a stale AnzeonTipEnv across a reorg can yield wrong authorisation answers: the consumer must call SetCurrentBlock on each new block before reading GetAnzeonTipCap.'
-        - The cached state is invalidated when SetCurrentBlock observes a new block whose state root or header GasTip differs from the cache.
-    - name: A7
-      paths:
-        - core/vm/**
-        - eth/ethconfig/**
-        - params/**
-      watch_out:
-        - Adding the new ChainConfig field but forgetting Rules + Rules() update — runtime branches never fire because rules.IsMyNewFork is always false.
-        - Adding the new switch case at the bottom of ActiveNativeManagers — an older fork above matches first and the new addresses are ignored.
-        - CollectUpgrades must return entries in ascending block order; the WBFT runtime breaks on the first block > target, so out-of-order entries silently lose later upgrades.
-        - Each new fork's block number must be >= the previous fork's block number (enforced by CheckConfigForkOrder).
-        - In ActiveNativeManagers, the newest fork case must appear first because Go switch-case picks the first matching branch.
-        - Skipping CollectUpgrades registration — the fork's system contracts never deploy at the activation block.
-        - Skipping SetConfigFromChainConfig update — WBFT parameter changes never reach the consensus engine.
-    - name: A8
-      paths:
-        - cmd/genesis_generator/**
-        - core/**
-        - params/**
-        - systemcontracts/**
-      watch_out:
-        - Adding a block-0 hardfork that supplies a Params map intended to re-initialize storage — the overlay path will not run the initializer, producing a contract whose storage layout disagrees with its code.
-        - 'Assuming Mainnet behaviour generalises to Testnet: Mainnet BohoBlock = 0 so Boho''s GovMinter v2 is applied via overlay; Testnet BohoBlock = 100 so the overlay is skipped and v2 only appears later via processFinalize.'
-        - CollectUpgrades returns entries in ascending block order; the runtime path relies on this and breaks on the first block > target, so out-of-order genesis entries silently drop later upgrades.
-        - Phase 1 runs before Phase 2; Phase 2 entries with Block != 0 are skipped here and handled by processFinalize at runtime.
-        - Skipping CollectUpgrades wiring for a new hardfork — the overlay never runs and the upgraded contract code is never deployed.
-        - applyUpgradeOverlay replaces Code only; Balance and Storage written by Phase 1 are preserved unless the upgrade explicitly supplies State entries.
-        - initializeXxx() functions are called only on Version == "v1" during Phase 1 — running them again during an overlay would corrupt storage.
-    - name: A9
-      paths:
-        - consensus/wbft/backend/**
-        - eth/**
+
+  # Test files first so test-only edits do not pick up production
+  # guidance from a broader rule below.
+  - name: test
+    paths:
+      - "**/*_test.go"
+      - "tests/**"
+      - "**/testdata/**"
+    watch_out:
+      - "test-only change: production guidance does not apply"
+
+  - name: consensus
+    paths:
+      - "consensus/**"
+      - "miner/**"
+    also_review:
+      - "state"
+      - "params"
+      - "core/forkchoice"
+    required_tests:
+      - "consensus integration"
+      - "fork choice (core/forkchoice_test.go)"
+      - "byzantine fault simulation"
+    watch_out:
+      - "validator set / quorum math changes require hard-fork coordination"
+      - "wbft and clique have different finality semantics; do not mix assumptions"
+      - "BLS signature verification is consensus-critical; never bypass it"
+
+  - name: beacon
+    paths:
+      - "beacon/**"
+    also_review:
+      - "consensus"
+      - "crypto/bls"
+    required_tests:
+      - "beacon chain integration"
+      - "sync committee"
+    watch_out:
+      - "BLS aggregation correctness is critical for beacon finality"
+      - "sync committee rotation depends on accurate slot/epoch arithmetic"
+
+  - name: state
+    paths:
+      - "core/state/**"
+      - "trie/**"
+      - "triedb/**"
+    also_review:
+      - "consensus"
+      - "ethdb"
+    required_tests:
+      - "state root consistency"
+      - "journal replay"
+      - "snapshot generation"
+    watch_out:
+      - "state-root divergence breaks consensus silently — verify root after every change"
+      - "DB migration compatibility (older nodes must keep replaying)"
+      - "pruning + snapshot interaction is subtle; do not change one in isolation"
+
+  - name: crypto
+    paths:
+      - "crypto/**"
+      - "signer/**"
+    required_tests:
+      - "known-answer vectors"
+      - "signature round-trip"
+      - "benchmark regression"
+    watch_out:
+      - "timing-side channels in comparison / aggregation"
+      - "BLS subgroup checks must not be skipped"
+      - "deprecated APIs (FastAggregateVerify older variants) exist for spec tests only"
+
+  - name: p2p
+    paths:
+      - "p2p/**"
+      - "eth/protocols/**"
+      - "eth/downloader/**"
+      - "eth/fetcher/**"
+      - "eth/handler*.go"
+    also_review:
+      - "consensus"
+      - "txpool"
+    required_tests:
+      - "wire protocol compatibility"
+      - "peer score / ban path"
+    watch_out:
+      - "protocol version bumps must coordinate with peers (rolling deploy)"
+      - "peer-scoring loops can cause split-brain isolation under stress"
+
+  - name: txpool
+    paths:
+      - "core/txpool/**"
+      - "core/tx_*.go"
+      - "core/tx*.go"
+    also_review:
+      - "miner"
+      - "consensus"
+      - "params"
+    required_tests:
+      - "concurrent insert / eviction"
+      - "gas pricing accuracy"
+      - "reorg replay"
+    watch_out:
+      - "mempool poisoning vectors (replacement DoS, address-grinding)"
+      - "memory pressure under burst load — eviction policy is load-bearing"
+
+  - name: rpc
+    paths:
+      - "rpc/**"
+      - "ethclient/**"
+      - "graphql/**"
+      - "internal/ethapi/**"
+      - "eth/api*.go"
+      - "eth/filters/**"
+    also_review:
+      - "consensus"
+      - "state"
+    required_tests:
+      - "web3 API golden output"
+      - "long-lived subscription stability"
+    watch_out:
+      - "JSON-RPC field renames break wallets and indexers"
+      - "subscription back-pressure; slow consumers must not block the node"
+      - "PII / token-balance disclosure on public endpoints"
+
+  - name: systemcontracts
+    paths:
+      - "systemcontracts/**"
+    also_review:
+      - "params"
+      - "state"
+      - "core"
+    required_tests:
+      - "governance integration (systemcontracts/test/)"
+      - "gov_minter reservation cleanup"
+      - "burn balance rollback"
+    watch_out:
+      - "governance flows are CONSENSUS-critical: bug in council tally affects chain-wide policy"
+      - "_safeBurn vulnerability class — see CRITICAL-tagged tests"
+      - "contract initial version must always be v1 (per systemcontracts.go IMPORTANT)"
+
+  - name: params
+    paths:
+      - "params/**"
+    also_review:
+      - "consensus"
+      - "state"
+      - "systemcontracts"
+    required_tests:
+      - "chainconfig load / validate"
+      - "fork-height transition"
+    watch_out:
+      - "fork-height changes are network-wide policy (every node must agree)"
+      - "config ordering contract (per params/config.go IMPORTANT) must be preserved"
+
+  - name: miner
+    paths:
+      - "miner/**"
+    also_review:
+      - "consensus"
+      - "txpool"
+      - "params"
+    required_tests:
+      - "block production happy path"
+      - "gas limit + parent comparison"
+    watch_out:
+      - "block-building fairness (MEV / private-mempool concerns)"
+      - "do not skip consensus.Prepare / Seal callbacks"
+
+  - name: evm
+    paths:
+      - "core/vm/**"
+    also_review:
+      - "state"
+      - "params"
+      - "consensus"
+    required_tests:
+      - "EVM opcode semantics"
+      - "gas accounting"
+      - "precompile correctness"
+    watch_out:
+      - "opcode behaviour is consensus-critical; every node must agree byte-for-byte"
+      - "gas table changes require hard-fork coordination"
+      - "precompile address allocation is permanent (no removal)"
+
+  - name: rawdb
+    paths:
+      - "core/rawdb/**"
+      - "ethdb/**"
+    also_review:
+      - "state"
+    required_tests:
+      - "schema round-trip"
+      - "DB iterator correctness"
+    watch_out:
+      - "key prefix changes break upgrade-in-place; need migration logic"
+      - "ancient store (frozen) format is append-only"
+
+  - name: types
+    paths:
+      - "core/types/**"
+      - "common/**"
+    also_review:
+      - "consensus"
+      - "state"
+      - "rpc"
+    required_tests:
+      - "RLP encode / decode round-trip"
+      - "JSON marshal stability"
+    watch_out:
+      - "field renames break wire compatibility (RLP order is positional)"
+      - "wallet / indexer software depends on JSON field names"
+
+  - name: rlp
+    paths:
+      - "rlp/**"
+    also_review:
+      - "types"
+      - "p2p"
+    required_tests:
+      - "round-trip on known fixtures"
+      - "fuzz / malformed input handling"
+    watch_out:
+      - "decoder changes can break consensus if hash differs from upstream"
+      - "buffer reuse vs allocation tradeoffs affect throughput"
+
+  - name: accounts
+    paths:
+      - "accounts/**"
+    also_review:
+      - "crypto"
+      - "rpc"
+    required_tests:
+      - "key import / export"
+      - "hardware wallet protocol fixtures"
+    watch_out:
+      - "private key handling — never log, never write outside keystore"
+      - "hardware wallet protocol bytes are vendor-specific (generated *.pb.go)"
+
+  - name: tracers
+    paths:
+      - "eth/tracers/**"
+    also_review:
+      - "evm"
+      - "state"
+    required_tests:
+      - "tracer fixture replay"
+    watch_out:
+      - "tracer hooks fire on the hot path; performance regressions affect every block"
+      - "JS tracer (goja) embeds an interpreter — keep the host bindings narrow"
+
+  - name: cli
+    paths:
+      - "cmd/**"
+      - "console/**"
+      - "internal/cmdtest/**"
+      - "internal/debug/**"
+    required_tests:
+      - "smoke test for changed subcommand"
+    watch_out:
+      - "flag renames are user-facing — add deprecation alias for one release"
+      - "exit codes are consumed by ops scripts; keep them stable"
+
+  - name: docs
+    paths:
+      - "docs/**"
+      - "**/*.md"
+      - "**/README*"
+    watch_out:
+      - "public-facing wording — avoid leaking pre-release feature names"
