@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestOpen_RequiresModelName(t *testing.T) {
@@ -75,6 +76,49 @@ func TestEmbed_ServerError(t *testing.T) {
 	_, err := a.Embed(context.Background(), []string{"test"})
 	if err == nil {
 		t.Fatal("expected error on server 500")
+	}
+}
+
+func TestEmbed_CountMismatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// One embedding for a two-input batch — must be rejected at the boundary.
+		json.NewEncoder(w).Encode(embedResponse{Embeddings: [][]float32{{0.1, 0.2}}})
+	}))
+	defer server.Close()
+
+	a := &Adapter{endpoint: server.URL, modelName: "m", dim: 2}
+	if _, err := a.Embed(context.Background(), []string{"a", "b"}); err == nil {
+		t.Fatal("expected error when response count != input count")
+	}
+}
+
+func TestEmbed_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		json.NewEncoder(w).Encode(embedResponse{Embeddings: [][]float32{{0.1}}})
+	}))
+	defer server.Close()
+
+	a := &Adapter{endpoint: server.URL, modelName: "m", dim: 1, client: &http.Client{Timeout: 30 * time.Millisecond}}
+	if _, err := a.Embed(context.Background(), []string{"x"}); err == nil {
+		t.Fatal("expected timeout error from the bounded client")
+	}
+}
+
+func TestOpen_TimeoutBounded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		json.NewEncoder(w).Encode(embedResponse{Embeddings: [][]float32{{0.1}}})
+	}))
+	defer server.Close()
+
+	start := time.Now()
+	_, err := Open(Options{Endpoint: server.URL, ModelName: "m", Timeout: 30 * time.Millisecond})
+	if err == nil {
+		t.Fatal("expected Open to fail when the probe exceeds the timeout")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("Open did not honor the timeout (took %v)", elapsed)
 	}
 }
 
