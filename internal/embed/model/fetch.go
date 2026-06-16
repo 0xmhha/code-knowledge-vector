@@ -5,12 +5,29 @@ package model
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/registry"
 )
+
+// downloadClient bounds the network phases of a model download without
+// capping the transfer itself. Model files are large (hundreds of MB), so a
+// tight overall Timeout would abort a legitimate slow-but-progressing
+// download; instead the transport bounds connect/TLS/first-byte so an
+// unresponsive server fails fast, with a generous overall backstop against a
+// mid-stream stall.
+var downloadClient = &http.Client{
+	Timeout: time.Hour,
+	Transport: &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+	},
+}
 
 // FetchModel downloads the ONNX model and tokenizer for the named
 // model into destDir. Existing files are skipped. progress receives
@@ -66,7 +83,7 @@ func downloadFile(url, dest string) error {
 		return err
 	}
 
-	resp, err := http.Get(url) //nolint:gosec
+	resp, err := downloadClient.Get(url) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("HTTP GET: %w", err)
 	}
