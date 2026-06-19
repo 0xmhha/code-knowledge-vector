@@ -91,16 +91,21 @@ repo: `code-knowledge-system`. 스코프 확정됨. (CKV-side는 §1로 완료.)
 **4곳 수정:**
 1. `internal/ckvclient/interface.go`: `Client`에 `FindInvariants(ctx, file, category string, tierMin int)` /
    `GetConventions(ctx, packagePrefix string)` 추가 + 신규 contract 타입
-   `contract.InvariantHit` / `contract.ConventionHit` 정의 (ckv 타입을 cks 경계에서 번역 —
-   기존 `contract.Hit` 패턴 동일).
+   `contract.InvariantHit` / `contract.ConventionHit` 정의. **번역 템플릿: `pkg/contract/hit.go`의
+   `contract.Hit`** (ckv 타입을 cks 경계에서 값 복사 — 기존 패턴 동일).
 2. `internal/ckvclient/real.go`: `r.eng.FindInvariants(...)` / `GetConventions(...)` 호출 +
    ckv 타입 → contract 타입 번역. **미러 대상: `real.go:98` `SemanticSearch`** — `:119` 결과
    루프 → `:127` `contract.Hit{...}` 채움 → `:136` `Source: contract.HitSourceCKV`. 동일 구조로
-   InvariantHit/ConventionHit 번역 작성.
+   InvariantHit/ConventionHit 번역 작성. (`r.eng`는 `*ckv.Engine` — §1에서 추가한 facade 호출.)
 3. `internal/ckvclient/dummy.go` + `fake.go`: degraded(빈 슬라이스 + nil err) + 테스트 fake 구현.
+   (`Client` 인터페이스를 구현하는 모든 타입에 메서드 추가 — 안 하면 컴파일 실패로 즉시 드러남.)
 4. `internal/mcp/`: `cks.context.find_invariants` / `cks.context.get_conventions` 핸들러 등록.
    **미러 대상: `internal/mcp/analysis.go:36` `registerImpactAnalysis`** (tool 정의 → `s.AddTool`
-   핸들러; `Deps` 구조체로 ckvclient 접근). `concurrency.go:23`도 동형.
+   핸들러; 핸들러는 `d.CKV`로 ckv 접근 — `Deps`는 `server.go:46`, `CKV ckvclient.Client` 필드).
+   `concurrency.go:23`도 동형.
+   - **🔴 필수 잊지 말 것:** 새 `registerFindInvariants`/`registerGetConventions`를
+     **`internal/mcp/server.go:97~109`의 등록 목록에 추가**해야 도구가 뜬다 (현재
+     `registerSemanticSearch(s, d)`가 :106). 정의만 하고 목록에 안 넣으면 **조용히 미노출**.
 
 **번역 대상 — ckv 원본 타입 (필드 그대로 contract로):**
 - `InvariantHit` (`ckv/internal/query/engine.go:395`, `pkg/ckv`에서 alias 노출):
