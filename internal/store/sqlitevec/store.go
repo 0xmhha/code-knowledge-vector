@@ -144,6 +144,7 @@ func (s *Store) initSchema(dim int) error {
 		commit_hash     TEXT NOT NULL,
 		content_sha256  TEXT NOT NULL,
 		ckg_node_id     TEXT,
+		canonical_id    TEXT,
 		text            TEXT NOT NULL
 	)`); err != nil {
 		return fmt.Errorf("create chunks: %w", err)
@@ -158,6 +159,12 @@ func (s *Store) initSchema(dim int) error {
 	}
 	if err := s.ensureColumn("chunks", "recent_prs", `ALTER TABLE chunks ADD COLUMN recent_prs TEXT DEFAULT ''`); err != nil {
 		return fmt.Errorf("migrate chunks.recent_prs: %w", err)
+	}
+	// canonical_id (ADR-0001): copied from the aligned ckg node so cks can
+	// FindByCanonicalID against ckg. Additive — pre-existing indexes get it
+	// empty via ALTER and re-populate on the next --ckg-aligned build.
+	if err := s.ensureColumn("chunks", "canonical_id", `ALTER TABLE chunks ADD COLUMN canonical_id TEXT DEFAULT ''`); err != nil {
+		return fmt.Errorf("migrate chunks.canonical_id: %w", err)
 	}
 
 	for _, idx := range []string{
@@ -283,9 +290,9 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 	insChunk, err := tx.PrepareContext(ctx, `INSERT INTO chunks (
 		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
-		commit_hash, content_sha256, ckg_node_id, recent_prs,
+		commit_hash, content_sha256, ckg_node_id, canonical_id, recent_prs,
 		category, guidance, invariants, convention_stats, text
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
@@ -298,6 +305,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		commit_hash = excluded.commit_hash,
 		content_sha256 = excluded.content_sha256,
 		ckg_node_id = excluded.ckg_node_id,
+		canonical_id = excluded.canonical_id,
 		recent_prs = excluded.recent_prs,
 		category = excluded.category,
 		guidance = excluded.guidance,
@@ -335,7 +343,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		if _, err := insChunk.ExecContext(ctx,
 			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
-			c.CommitHash, c.ContentSHA256, c.CKGNodeID, prJSON,
+			c.CommitHash, c.ContentSHA256, c.CKGNodeID, c.CanonicalID, prJSON,
 			c.Category, guideJSON, invJSON, convJSON, c.Text,
 		); err != nil {
 			return fmt.Errorf("insert chunk %s: %w", c.ID, err)
@@ -413,7 +421,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	stmt := `SELECT
 			c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
-			c.commit_hash, c.content_sha256, c.ckg_node_id, c.recent_prs,
+			c.commit_hash, c.content_sha256, c.ckg_node_id, c.canonical_id, c.recent_prs,
 			c.category, c.guidance, c.invariants, c.convention_stats, c.text,
 			v.distance
 		FROM chunk_vec v
@@ -435,6 +443,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			symKind   sql.NullString
 			chKind    string
 			ckgID     sql.NullString
+			canonID   sql.NullString
 			prJSON    sql.NullString
 			catCol    sql.NullString
 			guideJSON sql.NullString
@@ -445,7 +454,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		if err := rows.Scan(
 			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 			&c.SymbolName, &symKind, &chKind,
-			&c.CommitHash, &c.ContentSHA256, &ckgID, &prJSON,
+			&c.CommitHash, &c.ContentSHA256, &ckgID, &canonID, &prJSON,
 			&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
 			&distance,
 		); err != nil {
@@ -455,6 +464,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
 		c.ChunkKind = types.ChunkKind(chKind)
 		c.CKGNodeID = ckgID.String
+		c.CanonicalID = canonID.String
 		c.RecentPRs = unmarshalPRRefs(prJSON.String)
 		c.Category = catCol.String
 		guide, err := policy.GuidanceFromJSON(guideJSON.String)
@@ -491,7 +501,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 // new columns added in migrations only need one SELECT update.
 const chunkSelectCols = `c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 	c.symbol_name, c.symbol_kind, c.chunk_kind,
-	c.commit_hash, c.content_sha256, c.ckg_node_id, c.recent_prs,
+	c.commit_hash, c.content_sha256, c.ckg_node_id, c.canonical_id, c.recent_prs,
 	c.category, c.guidance, c.invariants, c.convention_stats, c.text`
 
 // scanChunk reads one chunks row using the chunkSelectCols column
@@ -506,6 +516,7 @@ func scanChunk(rs interface {
 		symKind   sql.NullString
 		chKind    string
 		ckgID     sql.NullString
+		canonID   sql.NullString
 		prJSON    sql.NullString
 		catCol    sql.NullString
 		guideJSON sql.NullString
@@ -515,7 +526,7 @@ func scanChunk(rs interface {
 	if err := rs.Scan(
 		&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 		&c.SymbolName, &symKind, &chKind,
-		&c.CommitHash, &c.ContentSHA256, &ckgID, &prJSON,
+		&c.CommitHash, &c.ContentSHA256, &ckgID, &canonID, &prJSON,
 		&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
 	); err != nil {
 		return types.Chunk{}, err
@@ -524,6 +535,7 @@ func scanChunk(rs interface {
 	c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
 	c.ChunkKind = types.ChunkKind(chKind)
 	c.CKGNodeID = ckgID.String
+	c.CanonicalID = canonID.String
 	c.RecentPRs = unmarshalPRRefs(prJSON.String)
 	c.Category = catCol.String
 	guide, gerr := policy.GuidanceFromJSON(guideJSON.String)

@@ -225,3 +225,52 @@ func TestLookup_EndLineBelowStartLine_TreatedAsZeroSpan(t *testing.T) {
 		t.Errorf("Lookup(a/file.go, 25, 0) = %q, want n_method (zero endLine normalised)", got)
 	}
 }
+
+// TestLookupEntry_CanonicalIDCopied verifies that when the ckg graph carries a
+// canonical_id column (schema >= 1.16), LookupEntry copies it verbatim — the key
+// cks uses to FindByCanonicalID. Also checks Load tolerates the column's
+// presence (the older fixtures above prove tolerance of its absence).
+func TestLookupEntry_CanonicalIDCopied(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "graph.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.Exec(`
+CREATE TABLE nodes (
+  id TEXT PRIMARY KEY,
+  qualified_name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  start_line INTEGER NOT NULL,
+  end_line INTEGER NOT NULL,
+  canonical_id TEXT
+);
+INSERT INTO nodes VALUES
+  ('n_m', 'pkg.T.Do', 'a/f.go', 20, 30, 'example.com/pkg.(*T).Do'),
+  ('n_nocid', 'pkg.Bare', 'a/f.go', 40, 50, '');
+`); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed: %v", err)
+	}
+	_ = db.Close()
+
+	ix, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	e := ix.LookupEntry("a/f.go", 20, 30)
+	if e == nil {
+		t.Fatal("LookupEntry returned nil for a/f.go:20-30")
+	}
+	if e.ID != "n_m" {
+		t.Errorf("ID = %q, want n_m", e.ID)
+	}
+	if e.CanonicalID != "example.com/pkg.(*T).Do" {
+		t.Errorf("CanonicalID = %q, want example.com/pkg.(*T).Do", e.CanonicalID)
+	}
+	// a node with empty canonical_id resolves but carries no id — no crash.
+	if e2 := ix.LookupEntry("a/f.go", 40, 50); e2 == nil || e2.CanonicalID != "" {
+		t.Errorf("empty-canonical node: got %+v, want non-nil with empty CanonicalID", e2)
+	}
+}

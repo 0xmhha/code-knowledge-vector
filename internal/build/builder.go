@@ -305,9 +305,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if ckgIx != nil {
 				for i := range chunks {
 					if chunks[i].CKGNodeID == "" && chunks[i].StartLine > 0 {
-						chunks[i].CKGNodeID = ckgIx.Lookup(
+						if e := ckgIx.LookupEntry(
 							chunks[i].File, chunks[i].StartLine, chunks[i].EndLine,
-						)
+						); e != nil {
+							// copy ckg's id + canonical_id verbatim so a CKV chunk
+							// inherits the exact keys ckg resolves on.
+							chunks[i].CKGNodeID = e.ID
+							chunks[i].CanonicalID = e.CanonicalID
+						}
 					}
 				}
 			}

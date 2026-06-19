@@ -27,6 +27,11 @@ type Entry struct {
 	ID        string
 	StartLine int
 	EndLine   int
+	// CanonicalID is ckg's globally-unique, import-path-qualified symbol id
+	// (ADR-0001), copied verbatim so a CKV chunk inherits the exact key ckg's
+	// FindByCanonicalID resolves on. Empty when the ckg graph predates
+	// canonical_id (schema < 1.16) or for symbols ckg leaves unqualified.
+	CanonicalID string
 }
 
 // Index holds every alignment-candidate ckg node grouped by file_path,
@@ -52,8 +57,18 @@ func Load(ckgPath string) (*Index, error) {
 	}
 	defer db.Close()
 
-	const q = `
-SELECT id, file_path, start_line, end_line
+	// canonical_id exists only on ckg schema >= 1.16. Probe for it so this
+	// loader still works against older graphs (the column is selected only
+	// when present; otherwise Entry.CanonicalID stays ""). COALESCE handles a
+	// NULL value, but referencing a missing column is a hard SQL error, hence
+	// the probe rather than a blind SELECT.
+	hasCanonical := columnExists(db, "nodes", "canonical_id")
+	canonicalSel := "''"
+	if hasCanonical {
+		canonicalSel = "COALESCE(canonical_id,'')"
+	}
+	q := `
+SELECT id, file_path, start_line, end_line, ` + canonicalSel + `
 FROM nodes
 WHERE file_path != ''
   AND start_line > 0
@@ -67,13 +82,13 @@ WHERE file_path != ''
 	defer rows.Close()
 
 	ix := &Index{byFile: make(map[string][]Entry)}
-	var id, file string
+	var id, file, canonicalID string
 	var start, end int
 	for rows.Next() {
-		if err := rows.Scan(&id, &file, &start, &end); err != nil {
+		if err := rows.Scan(&id, &file, &start, &end, &canonicalID); err != nil {
 			return nil, fmt.Errorf("ckgalign: scan: %w", err)
 		}
-		ix.byFile[file] = append(ix.byFile[file], Entry{ID: id, StartLine: start, EndLine: end})
+		ix.byFile[file] = append(ix.byFile[file], Entry{ID: id, StartLine: start, EndLine: end, CanonicalID: canonicalID})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("ckgalign: rows: %w", err)
@@ -83,6 +98,19 @@ WHERE file_path != ''
 		sort.Slice(es, func(i, j int) bool { return es[i].StartLine < es[j].StartLine })
 	}
 	return ix, nil
+}
+
+// columnExists reports whether table has a column named col, via
+// PRAGMA table_info. Used to stay compatible with older ckg graphs that
+// predate a column (e.g. canonical_id, schema < 1.16). Any probe error is
+// treated as "absent" so the caller falls back to the safe query.
+func columnExists(db *sql.DB, table, col string) bool {
+	rows, err := db.Query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`, table, col)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	return rows.Next()
 }
 
 // NearestTolerance is the maximum line gap between a chunk and a ckg node
@@ -138,13 +166,25 @@ func maxInt(a, b int) int {
 // The smallest-range tiebreak picks the inner Method/Field node over
 // the enclosing Type node when both fire, so chunks emitted at a method
 // body line map to the method, not its enclosing type.
+// Lookup returns the matched ckg node ID (or "" when nothing matches). It is a
+// thin wrapper over LookupEntry, kept for callers that only need the id.
 func (ix *Index) Lookup(filePath string, startLine, endLine int) string {
+	if e := ix.LookupEntry(filePath, startLine, endLine); e != nil {
+		return e.ID
+	}
+	return ""
+}
+
+// LookupEntry returns the full matched ckg node (id + canonical_id) or nil. The
+// matching ladder is unchanged from the original Lookup; exposing the Entry lets
+// callers copy both the node ID and the canonical_id in one pass.
+func (ix *Index) LookupEntry(filePath string, startLine, endLine int) *Entry {
 	if ix == nil {
-		return ""
+		return nil
 	}
 	entries := ix.byFile[filePath]
 	if len(entries) == 0 {
-		return ""
+		return nil
 	}
 	if endLine < startLine {
 		endLine = startLine
@@ -163,7 +203,7 @@ func (ix *Index) Lookup(filePath string, startLine, endLine int) string {
 		}
 	}
 	if bestExact != -1 {
-		return entries[bestExact].ID
+		return &entries[bestExact]
 	}
 
 	// 2. Range containment — node range contains chunk startLine.
@@ -179,7 +219,7 @@ func (ix *Index) Lookup(filePath string, startLine, endLine int) string {
 		}
 	}
 	if bestContain != -1 {
-		return entries[bestContain].ID
+		return &entries[bestContain]
 	}
 
 	// 3. Range overlap — chunk [startLine, endLine] and node [s, e]
@@ -204,7 +244,7 @@ func (ix *Index) Lookup(filePath string, startLine, endLine int) string {
 		}
 	}
 	if bestOverlap != -1 {
-		return entries[bestOverlap].ID
+		return &entries[bestOverlap]
 	}
 
 	// 4. Nearest non-overlapping within NearestTolerance — picks up
@@ -230,9 +270,9 @@ func (ix *Index) Lookup(filePath string, startLine, endLine int) string {
 		}
 	}
 	if bestNear != -1 {
-		return entries[bestNear].ID
+		return &entries[bestNear]
 	}
-	return ""
+	return nil
 }
 
 // FileCount returns the number of unique files indexed (diagnostic /
