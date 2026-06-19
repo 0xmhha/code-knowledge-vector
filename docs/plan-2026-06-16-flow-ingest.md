@@ -174,6 +174,41 @@ step → 실제 구현 코드"로 이동 가능.
 
 ---
 
+## 4-bis. Phase D′ — CKS-side 노출 (parity, **필수**)
+
+> **추가 근거 (2026-06-17 parity 조사):** cks의 `ckvclient.Client` 인터페이스는 4개
+> 메서드(SemanticSearch/Health/Freshness/Close)뿐이라, **CKV의 15개 MCP 도구 중 cks
+> 경유로 닿는 건 `semantic_search` 하나뿐**이다. Phase D의 flow 도구 4종을 CKV에만
+> 만들면 coding-agent의 Planner/analyzer가 **cks를 통해 호출 못 한다.** 따라서 CKV-side
+> (Phase A~D)만으로는 미완이며, 본 Phase가 **사용 가능성의 선결조건**이다.
+> 상세: `coding-agent/docs/knowledge-system-analysis-2026-06-17.md §4`.
+
+**Task:** Phase D의 flow 도구(+ 진단용 기존 도구 find_invariants/get_conventions)를 cks를
+통해 노출. **이것이 별도 작업 스트림(Stream A: parity)과 합류하는 지점**이다 — flow 도구는
+parity 배선의 두 번째 배치로 들어간다.
+
+**영향 파일 (CKS repo):**
+- 수정 `code-knowledge-system/internal/ckvclient/interface.go`: 메서드 추가
+  (`GetFlow`, `ExpandFlow`, `FindBranches`, `GetInvariantEnforcement` — 그리고 진단용
+  `FindInvariants`, `GetConventions`)
+- 수정 `internal/ckvclient/real.go` + dummy/degraded 백엔드: CKV `pkg/ckv` 신규 API 호출
+- 수정 `internal/mcp/`: `cks.context.get_flow` 등 핸들러 등록
+- 전제: CKV 측이 `pkg/ckv`(public Go API)로 해당 기능을 in-process 노출해야 함
+  (cks는 ckv를 서브프로세스가 아니라 패키지로 import — `cmd/cks-mcp/main.go`).
+
+**DoD:**
+- cks MCP에서 flow 도구 4종 + find_invariants/get_conventions 호출 가능
+- coding-agent Planner(mode=diagnose)가 cks 경유로 flow 도구 호출 e2e 1건
+- 기존 cks 도구 회귀 0
+
+**리스크:** MEDIUM
+- 위험: CKV `pkg/ckv` public API가 flow 기능을 노출하지 않으면 cks가 in-process 호출 불가
+- 완화: Phase D에서 `pkg/ckv` 재노출(facade)을 함께 작업 (기존 `SearchOptions`/`FreshnessReport` alias 패턴 재사용)
+
+**의존성:** Phase A~D (CKV-side) 후. Stream A(parity)와 동일 배선 패턴.
+
+---
+
 ## 5. Phase E — 빌드 오케스트레이션 (A~D와 병렬)
 
 ### E1. build-profile 설정 + 스크립트

@@ -111,6 +111,18 @@ type Manifest = manifest.Manifest
 // same re-export pattern SearchOptions/Response already use.
 type FreshnessReport = freshness.Report
 
+// InvariantHit is one policy/invariant statement matched by
+// Engine.FindInvariants: citation, marker name, confidence tier, text,
+// and any category guidance. Aliased from internal/query so in-process
+// consumers (the cks find_invariants tool) read it through pkg/ckv
+// without importing internal/query — same pattern as Response/Hit.
+type InvariantHit = query.InvariantHit
+
+// ConventionHit is one per-package AST-convention summary returned by
+// Engine.GetConventions: a deterministic prose summary plus the raw
+// stats map. Aliased from internal/query.
+type ConventionHit = query.ConventionHit
+
 // OpenOptions configures Open. Embedder is required; the field exists
 // as a struct rather than a positional argument so future options
 // (footprint logger, read-only flag, etc.) can land without breaking
@@ -199,6 +211,30 @@ func (e *Engine) Freshness() (FreshnessReport, error) {
 		return FreshnessReport{}, errors.New("ckv: engine is closed")
 	}
 	return e.inner.FreshnessReport()
+}
+
+// FindInvariants returns policy/invariant statements matching the filter.
+// file (exact path; "" = any) and category (policy category; "" = any)
+// narrow the set; tierMin (1/2/3; 0 → 1) drops anything below that
+// confidence tier. Surfaces CKV's invariant index to in-process consumers
+// (the cks find_invariants tool) without spawning the mcp binary. The
+// returned tier lets the caller weight curated markers above heuristics.
+func (e *Engine) FindInvariants(ctx context.Context, file, category string, tierMin int) ([]InvariantHit, error) {
+	if e == nil || e.inner == nil {
+		return nil, errors.New("ckv: engine is closed")
+	}
+	return e.inner.FindInvariants(ctx, file, category, tierMin)
+}
+
+// GetConventions returns per-package AST-convention summaries under the
+// package prefix ("" = all packages). Each carries a deterministic prose
+// summary plus the raw stats map so the caller can use whichever shape
+// its prompt expects.
+func (e *Engine) GetConventions(ctx context.Context, packagePrefix string) ([]ConventionHit, error) {
+	if e == nil || e.inner == nil {
+		return nil, errors.New("ckv: engine is closed")
+	}
+	return e.inner.GetConventions(ctx, packagePrefix)
 }
 
 // Close releases the underlying store. Idempotent — calling twice is
