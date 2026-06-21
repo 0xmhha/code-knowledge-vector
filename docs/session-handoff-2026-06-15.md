@@ -1,7 +1,7 @@
 # Session Handoff — 2026-06-15
 
 이 문서는 다른 머신·다른 세션에서 작업을 이어받기 위한 **현행 단일 진입점(SoT)**이다.
-이전 핸드오프 [`session-handoff-2026-05-29.md`](./session-handoff-2026-05-29.md)는
+이전 핸드오프 [`archive/session-handoff-2026-05-29.md`](./archive/session-handoff-2026-05-29.md)는
 2026-06-01에 멈춰 있어, 그 이후 6월에 머지된 6개 PR(R1′ 리팩토링 사이클)과
 머신 경로 변경을 반영하지 못한다 → **archive로 간주**. 새 세션은 이 문서부터 읽는다.
 
@@ -149,11 +149,11 @@ revert됨. **도메인 분류(first-match)를 보존하면서** invariant 지식
 
 | 문서 | 문제 | 조치 |
 |------|------|------|
-| `session-handoff-2026-05-29.md` | 6월 작업 미반영, 머신 경로 무효 | archive (이 문서로 대체) |
+| `session-handoff-2026-05-29.md` | 6월 작업 미반영, 머신 경로 무효 | ✅ `archive/`로 이동 완료 (이 문서로 대체) |
 | `plan-2026-05-29-ckv-refactor.md` | Schema-First 계획 — 완료됨(§1.2 이전 핸드오프) | 완료 마킹 |
 | `backlog.md` / `pending-work-2026-05-21.md` | B7/#7 상태가 6월 작업으로 변동 | §3 기준으로 갱신 |
 | `mcp-tools.md` | 15도구 정확하나 6월 빌드 플래그(`--docs/--files-from/--ckg`) 누락 | 보강 |
-| `cks-design-2026-05-29.md` | hypothetical 초안 (이전 핸드오프 §2.4) | 정정/삭제 |
+| `cks-design-2026-05-29.md` | hypothetical 초안 (이전 핸드오프 §2.4) | ✅ `archive/`로 이동 완료 |
 | **누락** | R1′ 참조 `00/02/03` 플랜, `M2/S-11/G1` 마일스톤 | CKS repo 등 출처 확인 후 링크 |
 
 ---

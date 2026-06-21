@@ -77,6 +77,11 @@ Source: `pkg/types/chunk.go::ChunkKind` constants.
 | `function_split` | sub-chunk of a long function (Phase A, planned) |
 | `file_header` | leading-N-lines slice (default 50) |
 | `doc` | markdown heading section (covers `DocSection` and `ADRSection`) |
+| `pr_background` | PR-corpus chunk; additive, only in indexes built with `--include-pr-history` |
+| `pr_solution` | PR-corpus chunk; additive, only with `--include-pr-history` |
+| `commit_message` | PR-corpus chunk; additive, only with `--include-pr-history` |
+| `invariant` | invariant statement paired with the source chunk it constrains (see `InvariantRef`) |
+| `convention` | per-package summary of AST-derived idioms (error handling, logging, naming, concurrency) |
 
 ### `ChunkID` (deterministic)
 
@@ -90,6 +95,29 @@ renames by mapping them to delete-old + add-new.
 
 `content_sha256` is the SHA-256 of the raw `Text` bytes, no whitespace
 normalization. Computed once via `types.ContentSHA256`.
+
+### `InvariantRef` / `InvariantTier`
+
+Source: [`pkg/types/chunk.go::InvariantRef`, `::InvariantTier`](../pkg/types/chunk.go).
+
+A source `Chunk` carries a list of `InvariantRef` back-pointers to the
+`ChunkInvariant` chunk(s) extracted from inside or near it. Kept small so
+attaching it to every chunk does not balloon storage.
+
+| Field | JSON key | Type | Notes |
+|-------|----------|------|-------|
+| `ChunkID` | `chunk_id` | string | ID of the `ChunkInvariant` chunk |
+| `Tier` | `tier` | `InvariantTier` | 1, 2, or 3 (see below) |
+| `Marker` | `marker` | string | optional; e.g. `"CRITICAL"`, `"panic"` |
+
+`InvariantTier` classifies how an invariant was detected (lower tier =
+higher confidence; callers can filter by tier when noise tolerance is low):
+
+| Value | Tier | Detection |
+|-------|------|-----------|
+| `InvariantTierExistingMarker` | 1 | existing marker (`// CRITICAL`, `// IMPORTANT`, `// WARNING`, `// Deprecated:`) |
+| `InvariantTierNewMarker` | 2 | new convention marker (`// INVARIANT:`, `// CONSENSUS:`, `// SECURITY:`) |
+| `InvariantTierHeuristic` | 3 | heuristic (`panic(...)` / `fmt.Errorf(...)` with policy keywords) |
 
 ---
 

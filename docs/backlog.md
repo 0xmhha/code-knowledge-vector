@@ -55,8 +55,8 @@
 >
 > 2026-05-22~23 세션 진행 상태 + 잔여 Wave B/C/D + 다음 세션 진입
 > 워크플로우는
-> [`docs/session-handoff-2026-05-23.md`](./session-handoff-2026-05-23.md)
-> 참조 — **신규 세션 시작 시 이 문서부터**.
+> [`docs/archive/session-handoff-2026-05-23.md`](./archive/session-handoff-2026-05-23.md)
+> 참조 (현행 진입점은 `session-handoff-2026-06-15.md`).
 
 ---
 
