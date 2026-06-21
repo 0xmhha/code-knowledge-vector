@@ -89,6 +89,43 @@ func TestEnforceCitationsAt_EmptyCurrentHeadSkipsStaleCheck(t *testing.T) {
 	}
 }
 
+// TestEnforceCitationsAt_DocsRootResolution verifies that doc/markdown
+// chunks whose File is relative to a `--docs` corpus root (outside srcRoot)
+// survive citation enforcement when that corpus root is supplied. Without
+// it they are dropped — the file does not exist under the code srcRoot —
+// which is why domain-corpus chunks never surfaced before this fix.
+func TestEnforceCitationsAt_DocsRootResolution(t *testing.T) {
+	src := t.TempDir()
+	docs := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "code.go"), []byte("package x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(docs, "flows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "flows", "ep.md"), []byte("# flow"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mkHits := func() []types.Hit {
+		return []types.Hit{
+			{Chunk: types.Chunk{File: "code.go", StartLine: 1, EndLine: 1, Language: "go"}},
+			{Chunk: types.Chunk{File: "flows/ep.md", StartLine: 1, EndLine: 1, Language: "markdown", ChunkKind: types.ChunkDoc}},
+		}
+	}
+
+	// Without a docs root the markdown chunk is dropped (file absent under src).
+	keepNoDocs, droppedNoDocs, _ := EnforceCitationsAt(mkHits(), src, "")
+	if droppedNoDocs != 1 || len(keepNoDocs) != 1 || keepNoDocs[0].Chunk.File != "code.go" {
+		t.Fatalf("without docsRoots: want 1 dropped(md)+1 kept(go), got dropped=%d keep=%+v", droppedNoDocs, keepNoDocs)
+	}
+
+	// With the docs root supplied, both the code and the doc chunk survive.
+	keep, dropped, _ := EnforceCitationsAt(mkHits(), src, "", docs)
+	if dropped != 0 || len(keep) != 2 {
+		t.Fatalf("with docsRoots: want 0 dropped+2 kept, got dropped=%d keep=%d", dropped, len(keep))
+	}
+}
+
 func TestEnforceCitationsRejectsInvalidLineRange(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x"), 0o644); err != nil {

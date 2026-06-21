@@ -58,7 +58,13 @@ func EnforceCitations(hits []types.Hit, srcRoot string) (keep []types.Hit, dropp
 // The surviving slice's order matches the input; only the metadata on
 // each hit is touched. Dropped hits are removed as before — line
 // validity and file existence remain hard requirements.
-func EnforceCitationsAt(hits []types.Hit, srcRoot, currentHead string) (keep []types.Hit, dropped int, stale int) {
+// docsRoots are additional roots (manifest.DocsRoots — the `ckv build
+// --docs` corpus dirs) used to resolve doc/markdown chunk citations whose
+// File is relative to a corpus dir rather than the code srcRoot. A citation
+// is valid if its file exists under srcRoot OR any docsRoot; without this,
+// every domain-corpus chunk is dropped because it never resolves under the
+// code tree.
+func EnforceCitationsAt(hits []types.Hit, srcRoot, currentHead string, docsRoots ...string) (keep []types.Hit, dropped int, stale int) {
 	if srcRoot == "" {
 		// No source tree to verify against — pass through. Stale check
 		// also requires srcRoot context, so it's a single no-op.
@@ -66,7 +72,7 @@ func EnforceCitationsAt(hits []types.Hit, srcRoot, currentHead string) (keep []t
 	}
 	keep = hits[:0] // reuse underlying array (caller doesn't reuse hits)
 	for _, h := range hits {
-		if !verifyCitation(srcRoot, h.Chunk) {
+		if !verifyCitation(srcRoot, h.Chunk, docsRoots) {
 			dropped++
 			continue
 		}
@@ -80,20 +86,32 @@ func EnforceCitationsAt(hits []types.Hit, srcRoot, currentHead string) (keep []t
 }
 
 // verifyCitation runs the cheap existence + line-sanity check. Returns
-// true if the citation is plausible; false if anything is missing.
-func verifyCitation(srcRoot string, c types.Chunk) bool {
+// true if the citation is plausible; false if anything is missing. The
+// file must exist under srcRoot or under one of docsRoots (the latter
+// resolves doc/markdown corpus chunks indexed via `ckv build --docs`,
+// whose File is relative to the corpus dir, not the code srcRoot).
+func verifyCitation(srcRoot string, c types.Chunk, docsRoots []string) bool {
 	if c.File == "" {
 		return false
 	}
 	if c.StartLine < 1 || c.EndLine < c.StartLine {
 		return false
 	}
-	full := filepath.Join(srcRoot, c.File)
-	info, err := os.Stat(full)
-	if err != nil {
-		return false
+	if fileExistsUnder(srcRoot, c.File) {
+		return true
 	}
-	if info.IsDir() {
+	for _, dr := range docsRoots {
+		if dr != "" && fileExistsUnder(dr, c.File) {
+			return true
+		}
+	}
+	return false
+}
+
+// fileExistsUnder reports whether root/rel exists and is a regular file.
+func fileExistsUnder(root, rel string) bool {
+	info, err := os.Stat(filepath.Join(root, rel))
+	if err != nil || info.IsDir() {
 		return false
 	}
 	return true
