@@ -1,7 +1,7 @@
 # ADR-001: sqlite-vec for embedded vector storage
 
 **Status**: Accepted
-**Date**: 2026-04
+**Date**: 2026-04-30
 
 ## Context
 

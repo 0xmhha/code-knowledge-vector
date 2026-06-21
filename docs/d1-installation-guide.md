@@ -164,7 +164,8 @@ CGO_LDFLAGS="-L$HOME/lib" \
 - `recall@3`: 0.900, `recall@1`: 0.600
 - `MRR`: 0.770 (가설 0.85 살짝 미달 — q5에서 rank 5)
 - p95 쿼리 latency: ~43ms warm ✅ (가설 200ms의 1/4)
-- 인덱스 빌드: 1.6 chunks/s (가설 17 chunks/s 미달 — 배치 최적화 필요)
+- 인덱스 빌드: 1.6 chunks/s (2026-05-18 측정, 가설 17 chunks/s 미달 — 배치 최적화 필요)
+  - ⚠️ 정본 CPU baseline은 `embedder-integration.md §5`(2026-05-20) 참조: `testdata/sample`(37 chunks) 기준 **0.74 chunks/s**. 측정일·thread 설정 차이로 본 수치와 다름.
 
 수치가 크게 차이 나면 wiring 버그 의심 (pooling, normalize, token_type_ids, tokenizer 설정).
 

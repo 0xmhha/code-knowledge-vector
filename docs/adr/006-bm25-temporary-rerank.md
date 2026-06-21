@@ -142,7 +142,7 @@ The corresponding code lives in:
   Until then 003 stays Accepted.
 - evaluation-design-2026-05-22.md §3 D1 — captures the user's
   "3-leg BM25 임시" framing this ADR implements.
-- session-handoff-2026-05-23.md §5 Wave C — entry-condition notes
+- archive/session-handoff-2026-05-23.md §5 Wave C — entry-condition notes
   including the off-default-rollout rationale (preserve baseline,
   avoid silent regression).
 - NEW-4 commit `53964b1` — multi-stage E1/E2/E3 metrics that this
