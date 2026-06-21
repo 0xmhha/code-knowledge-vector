@@ -769,7 +769,9 @@ func (e *Engine) Search(ctx context.Context, intent string, opts Options) (*Resp
 	}
 	doneCitation := e.fp.Span("query.citation.enforce", "trace_id", traceID)
 	currentHead := currentGitHead(srcRoot)
-	enforced, dropped, stale := EnforceCitationsAt(sc.FilteredHits, srcRoot, currentHead)
+	// DocsRoots lets doc/markdown corpus chunks (ckv build --docs) resolve
+	// their citations against the corpus dir instead of the code srcRoot.
+	enforced, dropped, stale := EnforceCitationsAt(sc.FilteredHits, srcRoot, currentHead, e.man.DocsRoots...)
 	sc.DroppedCitations = dropped
 	sc.StaleCitations = stale
 	if dropped > 0 {
