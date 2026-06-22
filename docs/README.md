@@ -35,6 +35,7 @@
 | [`plan-2026-05-29-ckv-refactor.md`](./plan-2026-05-29-ckv-refactor.md) | Schema-First 리팩토링 계획 (완료) |
 | [`flow-knowledge-design-2026-06-16.md`](./flow-knowledge-design-2026-06-16.md) | 플로우 지식 설계 방향 |
 | [`plan-2026-06-16-flow-ingest.md`](./plan-2026-06-16-flow-ingest.md) | 플로우 인제스트 구현 계획 |
+| [`embedding-model-recommendation-2026-06-22.md`](./embedding-model-recommendation-2026-06-22.md) | 임베딩 모델 업그레이드 추천 (bge-m3 → Qwen3-Embedding) |
 
 ## ADR (아키텍처 결정 기록)
 
