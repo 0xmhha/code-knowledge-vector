@@ -20,6 +20,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
 // ErrNotImplemented is returned by stub Tokenizer / Session when
@@ -145,6 +147,19 @@ func (a *Adapter) Close() error {
 func (a *Adapter) Name() string        { return a.modelCfg.Name }
 func (a *Adapter) Dimension() int      { return a.modelCfg.Dim }
 func (a *Adapter) MaxInputTokens() int { return a.modelCfg.MaxInput }
+
+// Identity reports the embedding space this adapter produces, sourced
+// entirely from the model registry (model_config.go) so it stays correct
+// as models are added or swapped — no per-model value is hardcoded here.
+func (a *Adapter) Identity() types.EmbeddingIdentity {
+	return types.EmbeddingIdentity{
+		Provider:  "bgeonnx",
+		Model:     a.modelCfg.Name,
+		Dim:       a.modelCfg.Dim,
+		Pooling:   a.modelCfg.Pooling.String(),
+		Normalize: a.modelCfg.Normalize,
+	}
+}
 
 // EstimatedRAMMB exposes ModelConfig.EstimatedRAMMB to callers via duck
 // typing. The build pipeline's memory guard reads this through an

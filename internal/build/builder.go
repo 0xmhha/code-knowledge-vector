@@ -435,12 +435,20 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	builtAt := o.Now().UTC().Format(time.RFC3339)
 
+	// Embedding-space identity is derived from the embedder (which sources
+	// it from the model registry) rather than hardcoded, so swapping the
+	// model changes the recorded normalize/checksum automatically and a
+	// later Open with a different embedding space is rejected.
+	embID := o.Embedder.Identity()
+	embChecksum := embID.Checksum()
+
 	// Persist identity into both the JSON sidecar and the DB manifest
 	// table so /freshness can read either without coordinating opens.
 	if err := store.SetManifest(ctx, map[string]string{
 		"embedding_model":     o.Embedder.Name(),
 		"embedding_dim":       fmt.Sprintf("%d", o.Embedder.Dimension()),
-		"embedding_normalize": "l2",
+		"embedding_normalize": embID.Normalize,
+		"embedding_checksum":  embChecksum,
 		"indexed_head":        commit,
 		"built_at":            builtAt,
 	}); err != nil {
@@ -456,7 +464,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		IndexedHead:        commit,
 		EmbeddingModel:     o.Embedder.Name(),
 		EmbeddingDim:       o.Embedder.Dimension(),
-		EmbeddingNormalize: "l2",
+		EmbeddingNormalize: embID.Normalize,
+		EmbeddingChecksum:  embChecksum,
 		ChunkCount:         totalStats.Total,
 		Languages:          languageCounts,
 		CKVIgnore:          o.CKVIgnore,

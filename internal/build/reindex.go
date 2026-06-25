@@ -150,6 +150,18 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		return nil, fmt.Errorf("%w: index_dim=%d embedder_dim=%d",
 			ErrEmbedderMismatch, man.EmbeddingDim, o.Embedder.Dimension())
 	}
+	// Reject a reindex whose embedder produces a different embedding space
+	// than the one that built the index, even when name+dim coincide (e.g.
+	// Ollama bge-m3 vs ONNX bge-m3). Otherwise the new chunks would be
+	// embedded in an incompatible space and silently corrupt similarity.
+	// Empty checksum = index predates identity recording → name+dim guards
+	// above are the best we can do (no regression).
+	if man.EmbeddingChecksum != "" {
+		if got := o.Embedder.Identity().Checksum(); got != man.EmbeddingChecksum {
+			return nil, fmt.Errorf("%w: index=%q embedder=%q",
+				ErrEmbedderMismatch, man.EmbeddingChecksum, got)
+		}
+	}
 
 	prevHead := o.Since
 	if prevHead == "" {
@@ -299,6 +311,7 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		"embedding_model":     o.Embedder.Name(),
 		"embedding_dim":       fmt.Sprintf("%d", o.Embedder.Dimension()),
 		"embedding_normalize": man.EmbeddingNormalize,
+		"embedding_checksum":  man.EmbeddingChecksum,
 		"indexed_head":        newHead,
 		"built_at":            builtAt,
 	}); err != nil {

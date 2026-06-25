@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
 // --- IntentScore (E1) -----------------------------------------------------
@@ -244,6 +246,9 @@ type fakeEmbedder struct {
 func (f *fakeEmbedder) Name() string        { return "fake" }
 func (f *fakeEmbedder) Dimension() int      { return 3 }
 func (f *fakeEmbedder) MaxInputTokens() int { return 1024 }
+func (f *fakeEmbedder) Identity() types.EmbeddingIdentity {
+	return types.EmbeddingIdentity{Provider: "fake", Model: "fake", Dim: 3}
+}
 func (f *fakeEmbedder) Embed(_ context.Context, batch []string) ([][]float32, error) {
 	out := make([][]float32, len(batch))
 	for i, s := range batch {

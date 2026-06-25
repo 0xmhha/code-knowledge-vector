@@ -17,6 +17,9 @@ type fakeEmbedder struct {
 func (f *fakeEmbedder) Name() string        { return f.name }
 func (f *fakeEmbedder) Dimension() int      { return f.dim }
 func (f *fakeEmbedder) MaxInputTokens() int { return 0 }
+func (f *fakeEmbedder) Identity() types.EmbeddingIdentity {
+	return types.EmbeddingIdentity{Provider: "fake", Model: f.name, Dim: f.dim}
+}
 func (f *fakeEmbedder) Embed(_ context.Context, batch []string) ([][]float32, error) {
 	f.calls += len(batch)
 	out := make([][]float32, len(batch))
