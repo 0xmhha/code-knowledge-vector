@@ -91,6 +91,7 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 		SrcRoot:                 opts.src,
 		OutDir:                  opts.out,
 		Embedder:                emb,
+		Version:                 Version,
 		CKVIgnore:               opts.exclude,
 		FilesFromPath:           opts.filesFrom,
 		Footprint:               fp,

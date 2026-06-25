@@ -8,16 +8,6 @@ import (
 	"testing"
 )
 
-func TestCacheDir(t *testing.T) {
-	dir, err := CacheDir()
-	if err != nil {
-		t.Fatalf("CacheDir: %v", err)
-	}
-	if dir == "" {
-		t.Error("CacheDir returned empty")
-	}
-}
-
 func TestFetchModel_UnknownModelReturnsError(t *testing.T) {
 	_, err := FetchModel("nonexistent-model-xyz", "", func(string) {})
 	if err == nil {

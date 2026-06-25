@@ -36,6 +36,9 @@ type Options struct {
 	Embedder  types.Embedder // required
 	CKVIgnore []string       // extra ignore patterns from --ckvignore CLI flag
 	BatchSize int            // embedding batch size; 0 → 32
+	// Version is the ckv build version recorded in the manifest. The CLI sets
+	// it from the ldflags-injected cmd/ckv.Version; empty falls back to "dev".
+	Version   string
 	Now       func() time.Time
 	Footprint *footprint.Logger // optional; nil → no logging
 	// ProgressOut receives human-readable per-file progress lines.
@@ -465,9 +468,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("write db manifest: %w", err)
 	}
 
+	ckvVersion := o.Version
+	if ckvVersion == "" {
+		ckvVersion = "dev"
+	}
 	man := &manifest.Manifest{
 		SchemaVersion:      manifest.SchemaVersionCurrent,
-		CKVVersion:         "dev",
+		CKVVersion:         ckvVersion,
 		BuiltAt:            builtAt,
 		SrcRoot:            absOrEmpty(o.SrcRoot),
 		SrcCommit:          commit,
