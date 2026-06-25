@@ -9,6 +9,32 @@ import (
 	"time"
 )
 
+func TestResolveMaxInput_RegistryAware(t *testing.T) {
+	cases := map[string]int{
+		"bge-m3":              8192, // registry value (also the default)
+		"bge-large-en-v1.5":   512,  // registry value, differs from default
+		"embeddinggemma-300m": 2048, // registry value, differs from default
+		"some-ollama-only":    DefaultMaxInputTokens,
+		"":                    DefaultMaxInputTokens,
+	}
+	for model, want := range cases {
+		if got := resolveMaxInput(model); got != want {
+			t.Errorf("resolveMaxInput(%q) = %d; want %d", model, got, want)
+		}
+	}
+}
+
+func TestMaxInputTokens_FallsBackWhenUnset(t *testing.T) {
+	// A directly-constructed adapter (e.g. in tests) has no maxInput; the
+	// accessor must still return a bounded default rather than 0.
+	if got := (&Adapter{}).MaxInputTokens(); got != DefaultMaxInputTokens {
+		t.Errorf("zero-value MaxInputTokens() = %d; want %d", got, DefaultMaxInputTokens)
+	}
+	if got := (&Adapter{maxInput: 512}).MaxInputTokens(); got != 512 {
+		t.Errorf("MaxInputTokens() = %d; want 512", got)
+	}
+}
+
 func TestOpen_RequiresModelName(t *testing.T) {
 	_, err := Open(Options{})
 	if err == nil {

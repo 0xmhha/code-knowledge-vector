@@ -20,6 +20,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/0xmhha/code-knowledge-vector/internal/embed/registry"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
@@ -34,11 +35,17 @@ const DefaultEndpoint = "http://localhost:11434"
 // at startup. A single embed of a chunk batch should be well under this.
 const DefaultTimeout = 60 * time.Second
 
+// DefaultMaxInputTokens is the fallback context limit for an Ollama model not
+// present in the embedding registry. bge-m3's value; safe for BERT-family
+// embedders that don't advertise a larger window.
+const DefaultMaxInputTokens = 8192
+
 // Adapter implements types.Embedder via Ollama's /api/embed endpoint.
 type Adapter struct {
 	endpoint  string
 	modelName string
 	dim       int
+	maxInput  int
 	client    *http.Client
 }
 
@@ -71,6 +78,7 @@ func Open(opts Options) (*Adapter, error) {
 	a := &Adapter{
 		endpoint:  endpoint,
 		modelName: opts.ModelName,
+		maxInput:  resolveMaxInput(opts.ModelName),
 		client:    &http.Client{Timeout: timeout},
 	}
 
@@ -101,9 +109,25 @@ func (a *Adapter) httpClient() *http.Client {
 	return &http.Client{Timeout: DefaultTimeout}
 }
 
-func (a *Adapter) Name() string        { return a.modelName }
-func (a *Adapter) Dimension() int      { return a.dim }
-func (a *Adapter) MaxInputTokens() int { return 8192 }
+func (a *Adapter) Name() string   { return a.modelName }
+func (a *Adapter) Dimension() int { return a.dim }
+func (a *Adapter) MaxInputTokens() int {
+	if a.maxInput > 0 {
+		return a.maxInput
+	}
+	return DefaultMaxInputTokens
+}
+
+// resolveMaxInput returns the model's context limit. It honors the registry's
+// per-model MaxInput (matching the bgeonnx backend) so swapping the embedding
+// model carries the right truncation budget; models Ollama serves but the
+// registry does not know fall back to DefaultMaxInputTokens.
+func resolveMaxInput(modelName string) int {
+	if cfg, err := registry.Lookup(modelName); err == nil && cfg.MaxInput > 0 {
+		return cfg.MaxInput
+	}
+	return DefaultMaxInputTokens
+}
 
 // Identity reports the embedding space. Ollama performs tokenization and
 // pooling internally and does not expose those, so Pooling/Normalize are
