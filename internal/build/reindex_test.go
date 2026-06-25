@@ -11,7 +11,19 @@ import (
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
+
+// diffIdentityEmbedder has the same Name()/Dimension() as its inner embedder
+// but reports a different embedding-space identity, simulating a cross-backend
+// swap (e.g. Ollama vs ONNX of the same model). Reindex must reject it.
+type diffIdentityEmbedder struct{ types.Embedder }
+
+func (e diffIdentityEmbedder) Identity() types.EmbeddingIdentity {
+	id := e.Embedder.Identity()
+	id.Provider = "some-other-backend"
+	return id
+}
 
 // TestReindex_NoManifestFails verifies Reindex refuses to run when the
 // OutDir has no prior index. Surfaces ErrNoManifest so callers know to
@@ -55,6 +67,36 @@ func TestReindex_EmbedderMismatchFails(t *testing.T) {
 	})
 	if !errors.Is(err, ErrEmbedderMismatch) {
 		t.Fatalf("expected ErrEmbedderMismatch, got %v", err)
+	}
+}
+
+// TestReindex_IdentityMismatchFails verifies Reindex refuses an embedder
+// whose embedding space differs from the index even when name+dim match —
+// the cross-backend swap the older name+dim guard could not catch.
+func TestReindex_IdentityMismatchFails(t *testing.T) {
+	src := resolveTestdataSample(t)
+	out := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		Now:      func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+	if err != nil {
+		t.Fatalf("seed Run: %v", err)
+	}
+
+	// Same name+dim as the index, but a different identity (provider).
+	swapped := diffIdentityEmbedder{mock.Default()}
+	_, err = Reindex(context.Background(), ReindexOptions{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: swapped,
+		Files:    []string{"server.go"},
+	})
+	if !errors.Is(err, ErrEmbedderMismatch) {
+		t.Fatalf("expected ErrEmbedderMismatch for identity swap, got %v", err)
 	}
 }
 

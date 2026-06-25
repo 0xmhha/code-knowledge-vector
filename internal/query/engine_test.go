@@ -86,6 +86,43 @@ func TestOpenRejectsModelMismatch(t *testing.T) {
 	}
 }
 
+// sameNameDiffIdentity has the same Name()/Dimension() as the index's
+// embedder but reports a different embedding-space identity, simulating a
+// cross-backend swap (e.g. Ollama bge-m3 vs ONNX bge-m3). Open must reject
+// it via the checksum check even though name+dim match — the gap the older
+// name+dim-only validation could not catch.
+type sameNameDiffIdentity struct{ types.Embedder }
+
+func (e sameNameDiffIdentity) Identity() types.EmbeddingIdentity {
+	id := e.Embedder.Identity()
+	id.Provider = "ollama" // index was built by the "mock" provider
+	return id
+}
+
+func TestOpenRejectsIdentityMismatch(t *testing.T) {
+	out, _ := buildSample(t)
+	emb := sameNameDiffIdentity{mock.Default()}
+	// Precondition: name+dim match the index, so only the checksum check
+	// can reject this embedder.
+	if emb.Name() != mock.Default().Name() || emb.Dimension() != mock.Default().Dimension() {
+		t.Fatal("test embedder must match the index name+dim")
+	}
+	_, err := Open(out, emb)
+	if !errors.Is(err, ErrIndexUnavailable) {
+		t.Fatalf("expected ErrIndexUnavailable for identity mismatch, got %v", err)
+	}
+}
+
+func TestOpenAcceptsMatchingIdentity(t *testing.T) {
+	out, _ := buildSample(t)
+	// Same embedder type that built the index → identity matches → opens.
+	eng, err := Open(out, mock.Default())
+	if err != nil {
+		t.Fatalf("Open with matching identity should succeed, got %v", err)
+	}
+	eng.Close()
+}
+
 func TestSearchFindsListenForTCPQuery(t *testing.T) {
 	out, _ := buildSample(t)
 	eng, err := Open(out, mock.Default())

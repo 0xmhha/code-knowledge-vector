@@ -19,6 +19,8 @@ import (
 	"math"
 	"strings"
 	"unicode"
+
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
 const (
@@ -54,6 +56,17 @@ func Default() *Embedder { return New(defaultDim, defaultName) }
 func (e *Embedder) Name() string        { return e.name }
 func (e *Embedder) Dimension() int      { return e.dim }
 func (e *Embedder) MaxInputTokens() int { return math.MaxInt32 } // no truncation
+
+// Identity reports the mock embedding space. Vectors are L2-normalized
+// feature hashes (see package doc); pooling is not applicable.
+func (e *Embedder) Identity() types.EmbeddingIdentity {
+	return types.EmbeddingIdentity{
+		Provider:  "mock",
+		Model:     e.name,
+		Dim:       e.dim,
+		Normalize: "l2",
+	}
+}
 
 // Embed produces one vector per input string. Pure-Go and synchronous;
 // the context is honored only via early-exit on Done.

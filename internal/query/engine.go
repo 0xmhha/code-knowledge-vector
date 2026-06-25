@@ -258,6 +258,17 @@ func Open(outDir string, emb types.Embedder, opts ...OpenOption) (*Engine, error
 		return nil, fmt.Errorf("%w: model mismatch (index=%q, embedder=%q) — run `ckv build` to reindex",
 			ErrIndexUnavailable, man.EmbeddingModel, emb.Name())
 	}
+	// Full embedding-space identity: provider/pooling/normalization, not just
+	// name+dim. Catches a same-name, same-dim swap across backends (e.g.
+	// Ollama bge-m3 vs ONNX bge-m3) that would silently return meaningless
+	// scores. Empty checksum = index built before this field existed → fall
+	// back to the name+dim checks above (no regression for old indexes).
+	if man.EmbeddingChecksum != "" {
+		if got := emb.Identity().Checksum(); got != man.EmbeddingChecksum {
+			return nil, fmt.Errorf("%w: embedding identity mismatch (index=%q, embedder=%q) — run `ckv build` to reindex",
+				ErrIndexUnavailable, man.EmbeddingChecksum, got)
+		}
+	}
 
 	dbPath := filepath.Join(outDir, "vector.db")
 	store, err := sqlitevec.Open(dbPath, emb.Dimension())

@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"math"
 	"unsafe"
+
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
 // Open loads a CoreML model (.mlpackage or .mlmodelc) and its
@@ -58,6 +60,17 @@ func Open(opts Options) (*Adapter, error) {
 func (a *Adapter) Name() string        { return a.modelName }
 func (a *Adapter) Dimension() int      { return a.dim }
 func (a *Adapter) MaxInputTokens() int { return a.maxSeqLen }
+
+// Identity reports the embedding space. CoreML pooling/normalization are
+// baked into the compiled model and not exposed here, so those fields are
+// left empty; Provider+Model+Dim distinguish a CoreML-built index.
+func (a *Adapter) Identity() types.EmbeddingIdentity {
+	return types.EmbeddingIdentity{
+		Provider: "coreml",
+		Model:    a.modelName,
+		Dim:      a.dim,
+	}
+}
 
 func (a *Adapter) Close() error {
 	if a.tokenizer != nil {

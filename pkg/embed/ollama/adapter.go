@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
 // DefaultEndpoint is the default Ollama API base URL.
@@ -102,7 +104,20 @@ func (a *Adapter) httpClient() *http.Client {
 func (a *Adapter) Name() string        { return a.modelName }
 func (a *Adapter) Dimension() int      { return a.dim }
 func (a *Adapter) MaxInputTokens() int { return 8192 }
-func (a *Adapter) Close() error        { return nil }
+
+// Identity reports the embedding space. Ollama performs tokenization and
+// pooling internally and does not expose those, so Pooling/Normalize are
+// left empty; Provider+Model+Dim still distinguish an Ollama-built index
+// from one built by another backend (e.g. ONNX) for the same model name,
+// which is the swap query.Open must reject.
+func (a *Adapter) Identity() types.EmbeddingIdentity {
+	return types.EmbeddingIdentity{
+		Provider: "ollama",
+		Model:    a.modelName,
+		Dim:      a.dim,
+	}
+}
+func (a *Adapter) Close() error { return nil }
 
 // Embed calls Ollama's /api/embed endpoint with batch input.
 func (a *Adapter) Embed(ctx context.Context, batch []string) ([][]float32, error) {

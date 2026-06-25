@@ -57,6 +57,10 @@ func (c *Cached) Name() string        { return c.inner.Name() }
 func (c *Cached) Dimension() int      { return c.inner.Dimension() }
 func (c *Cached) MaxInputTokens() int { return c.inner.MaxInputTokens() }
 
+// Identity forwards to the inner embedder: caching does not change the
+// embedding space, so cached vectors carry the inner's identity.
+func (c *Cached) Identity() types.EmbeddingIdentity { return c.inner.Identity() }
+
 // Embed checks the cache for each batch entry, calls the inner
 // embedder only for misses, and stores all results before returning.
 func (c *Cached) Embed(ctx context.Context, batch []string) ([][]float32, error) {
