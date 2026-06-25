@@ -229,6 +229,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	defer store.Close()
 
+	// Treat manifest.json as the build's commit marker. From here on the
+	// vector.db is mutated in place, so drop any prior manifest before the
+	// first upsert: while the build runs (or if it fails partway) the index
+	// reads as "not ready" (query.Open returns ErrNotFound → "run ckv build")
+	// instead of pairing a stale manifest with a partially-written index. A
+	// successful run re-commits it via manifest.Save below.
+	if err := manifest.Remove(o.OutDir); err != nil {
+		return nil, fmt.Errorf("clear stale manifest: %w", err)
+	}
+
 	parsers := newParsers()
 	totalStats := chunk.Stats{}
 	languageCounts := make(map[string]int)
