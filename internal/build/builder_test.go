@@ -3,6 +3,7 @@ package build
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,37 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
+
+// failEmbedder wraps a working embedder but errors on Embed, simulating a
+// build that fails partway (e.g. the daemon dies mid-run).
+type failEmbedder struct{ types.Embedder }
+
+func (failEmbedder) Embed(context.Context, []string) ([][]float32, error) {
+	return nil, errors.New("embed failed")
+}
+
+// TestRun_FailedBuildClearsManifest verifies a build that fails partway leaves
+// the index "not ready": the manifest is removed rather than left pairing a
+// stale manifest with a partially-written vector.db.
+func TestRun_FailedBuildClearsManifest(t *testing.T) {
+	src := resolveTestdataSample(t)
+	out := t.TempDir()
+	fixedNow := func() time.Time { return time.Unix(0, 0).UTC() }
+
+	if _, err := Run(context.Background(), Options{SrcRoot: src, OutDir: out, Embedder: mock.Default(), Now: fixedNow}); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	if _, err := manifest.Load(out); err != nil {
+		t.Fatalf("expected manifest after successful build: %v", err)
+	}
+
+	if _, err := Run(context.Background(), Options{SrcRoot: src, OutDir: out, Embedder: failEmbedder{mock.Default()}, Now: fixedNow}); err == nil {
+		t.Fatal("expected the build to fail")
+	}
+	if _, err := manifest.Load(out); !errors.Is(err, manifest.ErrNotFound) {
+		t.Errorf("manifest must be gone after a failed build, got err=%v", err)
+	}
+}
 
 // resolveTestdataSample returns the absolute path to <repo>/testdata/sample,
 // independent of the test's CWD. tests in internal/build run from

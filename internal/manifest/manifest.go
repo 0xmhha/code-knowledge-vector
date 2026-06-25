@@ -119,5 +119,16 @@ func Save(dir string, m *Manifest) error {
 	return nil
 }
 
+// Remove deletes <dir>/manifest.json if present. A missing file is not an
+// error, so callers can use it to mark an index "not ready" before a rebuild:
+// while the build runs (or if it fails partway) Load returns ErrNotFound,
+// keeping a partially-written index from being opened against a stale manifest.
+func Remove(dir string) error {
+	if err := os.Remove(filepath.Join(dir, FileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove manifest: %w", err)
+	}
+	return nil
+}
+
 // ErrNotFound signals that no manifest exists at the given path.
 var ErrNotFound = errors.New("manifest: not found")
