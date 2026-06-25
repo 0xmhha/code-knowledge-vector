@@ -110,11 +110,13 @@ func resolveModel(opts Options) (ModelConfig, string, error) {
 	}
 	modelDir := opts.ModelDir
 	if modelDir == "" {
-		home, err := os.UserHomeDir()
+		// Single source of the cache layout: registry.ModelConfig.DefaultModelDir
+		// (~/.cache/ckv/models/<name>) rather than recomputing it here.
+		d, err := cfg.DefaultModelDir()
 		if err != nil {
 			return ModelConfig{}, "", fmt.Errorf("bgeonnx: resolve model dir: %w", err)
 		}
-		modelDir = filepath.Join(home, ".cache", "ckv", "models", cfg.Name)
+		modelDir = d
 	}
 	return cfg, modelDir, nil
 }

@@ -69,15 +69,6 @@ func FetchModel(name, destDir string, progress func(string)) (string, error) {
 	return destDir, nil
 }
 
-// CacheDir returns the default model cache root: ~/.cache/ckv/models/.
-func CacheDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".cache", "ckv", "models"), nil
-}
-
 func downloadFile(url, dest string) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 		return err
