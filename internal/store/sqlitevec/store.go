@@ -291,8 +291,9 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
 		commit_hash, content_sha256, ckg_node_id, canonical_id, recent_prs,
-		category, guidance, invariants, convention_stats, text
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		category, guidance, invariants, convention_stats, text,
+		flow_meta, enforced_at, provenance
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
@@ -311,7 +312,10 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		guidance = excluded.guidance,
 		invariants = excluded.invariants,
 		convention_stats = excluded.convention_stats,
-		text = excluded.text`)
+		text = excluded.text,
+		flow_meta = excluded.flow_meta,
+		enforced_at = excluded.enforced_at,
+		provenance = excluded.provenance`)
 	if err != nil {
 		return fmt.Errorf("prepare chunk insert: %w", err)
 	}
@@ -340,11 +344,14 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		}
 		invJSON := marshalInvariantRefs(c.Invariants)
 		convJSON := marshalConventionStats(c.ConventionStats)
+		flowJSON := marshalFlowMeta(c)
+		enforcedJSON := marshalEnforcePoints(c.EnforcedAt)
 		if _, err := insChunk.ExecContext(ctx,
 			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
 			c.CommitHash, c.ContentSHA256, c.CKGNodeID, c.CanonicalID, prJSON,
 			c.Category, guideJSON, invJSON, convJSON, c.Text,
+			flowJSON, enforcedJSON, c.Provenance,
 		); err != nil {
 			return fmt.Errorf("insert chunk %s: %w", c.ID, err)
 		}
@@ -423,6 +430,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
 			c.commit_hash, c.content_sha256, c.ckg_node_id, c.canonical_id, c.recent_prs,
 			c.category, c.guidance, c.invariants, c.convention_stats, c.text,
+			c.flow_meta, c.enforced_at, c.provenance,
 			v.distance
 		FROM chunk_vec v
 		JOIN chunks c ON c.id = v.chunk_id
@@ -449,6 +457,9 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			guideJSON sql.NullString
 			invJSON   sql.NullString
 			convJSON  sql.NullString
+			flowJSON  sql.NullString
+			enfJSON   sql.NullString
+			provCol   sql.NullString
 			distance  float64
 		)
 		if err := rows.Scan(
@@ -456,6 +467,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			&c.SymbolName, &symKind, &chKind,
 			&c.CommitHash, &c.ContentSHA256, &ckgID, &canonID, &prJSON,
 			&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
+			&flowJSON, &enfJSON, &provCol,
 			&distance,
 		); err != nil {
 			return nil, fmt.Errorf("scan hit: %w", err)
@@ -474,6 +486,9 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		c.Guidance = guide
 		c.Invariants = unmarshalInvariantRefs(invJSON.String)
 		c.ConventionStats = unmarshalConventionStats(convJSON.String)
+		applyFlowMeta(&c, flowJSON.String)
+		c.EnforcedAt = unmarshalEnforcePoints(enfJSON.String)
+		c.Provenance = provCol.String
 
 		if !filter.Matches(c) {
 			continue
@@ -502,7 +517,8 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 const chunkSelectCols = `c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 	c.symbol_name, c.symbol_kind, c.chunk_kind,
 	c.commit_hash, c.content_sha256, c.ckg_node_id, c.canonical_id, c.recent_prs,
-	c.category, c.guidance, c.invariants, c.convention_stats, c.text`
+	c.category, c.guidance, c.invariants, c.convention_stats, c.text,
+	c.flow_meta, c.enforced_at, c.provenance`
 
 // scanChunk reads one chunks row using the chunkSelectCols column
 // order. Used by Search (with an extra distance column) and by the
@@ -522,12 +538,16 @@ func scanChunk(rs interface {
 		guideJSON sql.NullString
 		invJSON   sql.NullString
 		convJSON  sql.NullString
+		flowJSON  sql.NullString
+		enfJSON   sql.NullString
+		provCol   sql.NullString
 	)
 	if err := rs.Scan(
 		&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 		&c.SymbolName, &symKind, &chKind,
 		&c.CommitHash, &c.ContentSHA256, &ckgID, &canonID, &prJSON,
 		&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
+		&flowJSON, &enfJSON, &provCol,
 	); err != nil {
 		return types.Chunk{}, err
 	}
@@ -545,6 +565,9 @@ func scanChunk(rs interface {
 	c.Guidance = guide
 	c.Invariants = unmarshalInvariantRefs(invJSON.String)
 	c.ConventionStats = unmarshalConventionStats(convJSON.String)
+	applyFlowMeta(&c, flowJSON.String)
+	c.EnforcedAt = unmarshalEnforcePoints(enfJSON.String)
+	c.Provenance = provCol.String
 	return c, nil
 }
 
@@ -871,4 +894,57 @@ func unmarshalConventionStats(s string) map[string]any {
 	var stats map[string]any
 	_ = json.Unmarshal([]byte(s), &stats)
 	return stats
+}
+
+// marshalFlowMeta serializes the flow_meta column: FlowStepMeta for a
+// flow_step chunk, FlowSpineMeta for a flow_spine chunk, "" otherwise. The
+// two are mutually exclusive per chunk, so one column holds either.
+func marshalFlowMeta(c types.Chunk) string {
+	switch {
+	case c.FlowStep != nil:
+		b, _ := json.Marshal(c.FlowStep)
+		return string(b)
+	case c.FlowSpine != nil:
+		b, _ := json.Marshal(c.FlowSpine)
+		return string(b)
+	default:
+		return ""
+	}
+}
+
+// applyFlowMeta deserializes the flow_meta column back onto the chunk,
+// choosing the target struct by chunk_kind.
+func applyFlowMeta(c *types.Chunk, s string) {
+	if s == "" {
+		return
+	}
+	switch c.ChunkKind {
+	case types.ChunkFlowStep:
+		var m types.FlowStepMeta
+		if json.Unmarshal([]byte(s), &m) == nil {
+			c.FlowStep = &m
+		}
+	case types.ChunkFlowSpine:
+		var m types.FlowSpineMeta
+		if json.Unmarshal([]byte(s), &m) == nil {
+			c.FlowSpine = &m
+		}
+	}
+}
+
+func marshalEnforcePoints(pts []types.EnforcePoint) string {
+	if len(pts) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(pts)
+	return string(b)
+}
+
+func unmarshalEnforcePoints(s string) []types.EnforcePoint {
+	if s == "" {
+		return nil
+	}
+	var pts []types.EnforcePoint
+	_ = json.Unmarshal([]byte(s), &pts)
+	return pts
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/convention"
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/filterlist"
+	"github.com/0xmhha/code-knowledge-vector/internal/flowcorpus"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
@@ -73,6 +74,14 @@ type Options struct {
 	// the same index. These roots are not git repos, so chunks carry no
 	// commit hash.
 	DocsRoots []string
+
+	// FlowCorpus is the path to a curated flow corpus JSONL (corpus.jsonl).
+	// When set, the builder parses it (internal/flowcorpus) into flow_step /
+	// flow_spine / curated-invariant chunks and embeds them in the same index.
+	// Step chunks cite their real file:line; flow/invariant chunks are fileless
+	// and cite the corpus path, whose directory is added to the manifest's docs
+	// roots so query-time citation enforcement resolves them. Empty disables it.
+	FlowCorpus string
 
 	// CKGPath is the path to a CKG data directory (containing graph.db).
 	// When set, the builder loads an in-memory (file_path, start_line)
@@ -457,6 +466,42 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 
+	// --flow-corpus: embed a curated flow corpus (corpus.jsonl). Step chunks
+	// cite real code file:line (resolvable under SrcRoot); flow/invariant
+	// chunks are fileless and cite the corpus file by basename, so the corpus
+	// directory is added to the manifest docs roots below for citation
+	// resolution. Embedding the prose is the human-wording → code-keyword bridge.
+	manifestDocsRoots := append([]string{}, o.DocsRoots...)
+	if o.FlowCorpus != "" {
+		corpusRel := filepath.Base(o.FlowCorpus)
+		flowChunks, fcStats, ferr := flowcorpus.Load(o.FlowCorpus, corpusRel)
+		if ferr != nil {
+			return nil, fmt.Errorf("flow corpus: %w", ferr)
+		}
+		for _, w := range fcStats.Warnings {
+			fmt.Fprintf(os.Stderr, "ckv: flow-corpus warning: %s\n", w)
+		}
+		fp.Emit("flow_corpus.loaded",
+			"path", o.FlowCorpus,
+			"flows", fcStats.Flows, "steps", fcStats.Steps,
+			"invariants", fcStats.Invariants, "edges_skipped", fcStats.Edges,
+			"records_skipped", fcStats.Skipped,
+		)
+		if len(flowChunks) > 0 {
+			if err := embedAndUpsert(ctx, store, o.Embedder, flowChunks, o.BatchSize, memSig, embedTextFn); err != nil {
+				return nil, fmt.Errorf("embed/upsert flow corpus: %w", err)
+			}
+			categoryCounts["domain"] += len(flowChunks)
+			indexedFiles++
+			accumulateStats(&totalStats, flowChunks)
+		}
+		// Record the corpus dir as a docs root so fileless flow/invariant
+		// citations (basename) resolve at query time (PR #10 path).
+		if d := filepath.Dir(o.FlowCorpus); d != "" {
+			manifestDocsRoots = append(manifestDocsRoots, d)
+		}
+	}
+
 	builtAt := o.Now().UTC().Format(time.RFC3339)
 
 	// Embedding-space identity is derived from the embedder (which sources
@@ -497,7 +542,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		ChunkCount:         totalStats.Total,
 		Languages:          languageCounts,
 		CKVIgnore:          o.CKVIgnore,
-		DocsRoots:          absRoots(o.DocsRoots),
+		DocsRoots:          absRoots(manifestDocsRoots),
 	}
 	if err := manifest.Save(o.OutDir, man); err != nil {
 		return nil, fmt.Errorf("save manifest.json: %w", err)

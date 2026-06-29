@@ -14,16 +14,17 @@ import (
 )
 
 type buildOpts struct {
-	src       string
-	out       string
-	ckgPath   string
-	languages []string
-	exclude   []string
-	filesFrom string
-	configPth string
-	policy    string
-	docs      []string
-	jsonOut   bool
+	src        string
+	out        string
+	ckgPath    string
+	languages  []string
+	exclude    []string
+	filesFrom  string
+	configPth  string
+	policy     string
+	docs       []string
+	flowCorpus string
+	jsonOut    bool
 
 	includePR bool
 	prSince   string
@@ -56,6 +57,7 @@ Re-running on a populated --out updates chunks in place (Upsert).`,
 	f.StringVar(&opts.configPth, "config", "", "path to ckv.yaml (optional)")
 	f.StringVar(&opts.policy, "policy", "", "path to policy yaml (categorizes chunks by path; e.g. policy/stablenet.yaml)")
 	f.StringSliceVar(&opts.docs, "docs", nil, "additional markdown corpus dirs to embed in the same index (repeatable; chunks tagged Category=domain; e.g. --docs=generated/domain-corpus/go-stablenet)")
+	f.StringVar(&opts.flowCorpus, "flow-corpus", "", "path to a curated flow corpus JSONL (corpus.jsonl) to embed as flow_step/flow_spine/curated-invariant chunks (schema: <go-stablenet>/.claude/docs/corpus/SCHEMA.md)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 	f.BoolVar(&opts.includePR, "include-pr-history", false, "fetch merged PRs via gh CLI and index descriptions + commit messages")
 	f.StringVar(&opts.prSince, "pr-since", "", "only PRs merged after this date (YYYY-MM-DD); requires --include-pr-history")
@@ -99,6 +101,7 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
 		PolicyPath:              opts.policy,
 		DocsRoots:               opts.docs,
+		FlowCorpus:              opts.flowCorpus,
 		CKGPath:                 opts.ckgPath,
 	}
 	if opts.includePR {
