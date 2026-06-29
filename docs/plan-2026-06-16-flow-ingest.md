@@ -227,9 +227,12 @@ step → 실제 구현 코드"로 이동 가능.
   (백업·15,575행 보존·재실행 no-op) 양방향 실데이터 검증
 - [x] store 무변경으로 기존 청크 회귀 0 (명시적 컬럼 리스트 확인)
 
-**Phase B 완료 시:**
-- [ ] go-stablenet 실 corpus.jsonl(255) 적재 → flow_step 79 / flow_spine 18 / curated-invariant 16 청크
-- [ ] 기존 MCP 도구 회귀 0
+**Phase B 완료 (2026-06-29, commits `72ef76f` 파서 / `db6789a` 빌드통합):**
+- [x] go-stablenet 실 corpus.jsonl(255) 적재 → flow_spine 18 / flow_step 78 / curated-invariant 16
+  (step `disc-03` line 누락 → warn+skip, edge 142 graph-only skip). store flow_meta/enforced_at/
+  provenance 영속 + round-trip. corpus 입력 = `go-stablenet/.claude.backup.20260625_180533/docs/corpus/`
+- [x] 기존 MCP/검색 회귀 0 (build/store/query 테스트 통과)
+- [ ] (후속) bge-m3 실모델로 사람-워딩 질의 → flow_step 회수 의미검증
 
 **Phase C 완료 시:**
 - [ ] step file:line → 코드 청크 해소율 ≥80% (동기화 상태)

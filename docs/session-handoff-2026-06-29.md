@@ -99,6 +99,47 @@ CI는 명시적으로 제외(`abb5ae2`). 코드 회귀 아님. (개선 후보: M
 
 ---
 
+## 3.5 DB 생성 일관성 + 사람-워딩 브리지 (2026-06-29 갭 분석)
+
+> **문제 제기(사용자)**: ckv vector DB는 Jira 등 *사람이 쓴 워딩*을 이해하고 그것을
+> *정확한 코드 키워드*에 연결해야 한다. 그런데 DB 생성에 **일관된 규칙이 미흡**하다.
+
+**데이터 대조 (동일 커밋 `0bf2f4d1b`)**: 정본 `knowledge-data/pr-77/ckv` vs 세션 bare 빌드.
+
+| 브리지 레이어 | pr-77 | 세션(bare) | 의미 |
+|---|---|---|---|
+| canonical_id/ckg_node_id (정밀 코드 심볼 키) | ✅ 13,549/15,303 | ❌ 0 | `--ckg` 누락 |
+| 사람 도메인 문서(`.claude/docs`: wbft-consensus 등) | ❌ 0 | ✅ 256 | pr-77이 `--docs` 누락 |
+| flow corpus(사람 인과 "현상→원인") | ❌ | ❌ | 양쪽 다 `--flow-corpus` 미적용 |
+
+→ **두 DB 모두 불완전**. 사람-워딩→코드 브리지는 *모든 레이어*가 필요한데 ad-hoc 플래그로
+빌드돼 매번 빠진다.
+
+**검증된 정본 레시피 (= 일관된 규칙)** — analysis-test-3(go-stablenet@`0bf2f4d1b`)에서 실증:
+```
+ckv build --src <go-stablenet> --out <data> \
+  --ckg <graph.db dir>            # canonical_id (정밀 심볼 키)   ← knowledge-data/pr-77/ckg
+  --files-from gstable-files.json # 빌드소스 allowlist(130)       ← knowledge-data/pr-77/
+  --docs <src>/.claude/docs       # 사람 도메인 문서              ← analysis-test-3/.claude/docs
+  --flow-corpus corpus.jsonl      # 사람 인과 흐름(Phase B)       ← go-stablenet/.claude.backup*/docs/corpus
+  --embedder ollama --model-name bge-m3   # (실측은 실모델 필요)
+```
+결과: 15,909 청크 = 심볼 14,273 + canonical_id 13,549 + 사람문서 222 + flow 112. **pr-77의 정밀
+키 + pr-77이 빠뜨린 사람문서 + flow 인과**를 모두 가진 상위집합.
+
+**누락 자료 위치 (github/ 하위)**:
+- CKG 그래프(canonical_id): `knowledge-data/pr-77/ckg/graph.db` (schema 1.22)
+- allowlist: `knowledge-data/pr-77/gstable-files.json`
+- 사람 도메인 문서: `test/analysis-test-3/.claude/docs/*.md`
+- flow corpus: `go-stablenet/.claude.backup.20260625_180533/docs/corpus/corpus.jsonl` (+SCHEMA.md)
+- glossary 생성기: `code-knowledge-system/cmd/cks-glossary-gen` (**CKS 소유** — CKV `internal/glossary`는 미배선 standalone)
+
+**조치**: 이 레시피를 **flow-ingest Phase E(build-profiles.yaml + scripts/build-knowledge.sh)** 로
+코드화해 "한 스크립트 = 모든 레이어"를 보장(= 사용자가 요구한 일관된 알고리즘 규칙). glossary
+배선은 CKS 소유라 3자 협의 항목.
+
+---
+
 ## 4. 남은 작업 리스트 (협의 반영, 우선순위별)
 
 ### A. 즉시 착수 가능 (의존성 없음)
@@ -121,7 +162,14 @@ CI는 명시적으로 제외(`abb5ae2`). 코드 회귀 아님. (개선 후보: M
   마이그레이션 004(flow_meta/enforced_at/provenance). go-stablenet@`0bf2f4d1b`
   (test/analysis-test-3)에서 신규 빌드(000–004, 19,605청크) + pr-77 인덱스 003→004
   업그레이드(백업·15,575행 보존·멱등) 양방향 검증.
-- [ ] Phase B(파서/적재 + `--flow-corpus`) → C(file:line 정렬) → E(빌드 오케스트레이션) → F(평가).
+- [x] **Phase B 완료** (2026-06-29, commits `72ef76f` 파서, `db6789a` 빌드통합) —
+  `internal/flowcorpus` 파서(corpus.jsonl → flow_step/flow_spine/curated-invariant,
+  edge는 graph-only skip, 형식이탈 warn+skip) + `--flow-corpus` 플래그 + store 컬럼
+  배선(flow_meta/enforced_at/provenance, insert+양 scan 경로). step은 실코드 file:line,
+  flow/invariant은 corpus.jsonl cite(corpus dir를 manifest DocsRoots에 추가 → citation 해소).
+  실 corpus(255레코드) 검증: 18 spine + 78 step + 16 inv(step 1건 line누락 warn+skip),
+  메타 round-trip·citation 해소 확인. **의미 검색 품질은 bge-m3 실모델 필요(mock은 구조만).**
+- [ ] Phase C(file:line 정렬 강화) → E(빌드 오케스트레이션) → F(평가).
 - [ ] 특히 **Phase D 4도구**(get_flow/expand_flow/find_branches/
   **get_invariant_enforcement**)는 결정 5로 Phase 2 노출 확정 → CKV가 안정 인터페이스 산출,
   CKS가 `cks_context_*` 표면 노출 (3자 공동설계). cks 기대 시그니처 초안: 입력 {심볼/지점,
