@@ -56,3 +56,4 @@ This keeps the record honest about what was true at each point in time.
 | [004](004-ckv-reindex-s1-5-promotion.md) | Promote ckv reindex from S2 to S1.5 | Accepted | 2026-05-19 |
 | [005](005-coreml-mlprogram-static-shapes.md) | CoreML format = MLProgram with static shapes | Accepted | 2026-05-20 |
 | [006](006-bm25-temporary-rerank.md) | BM25 candidate-set rerank as temporary measurement infrastructure | Rejected | 2026-05-26 |
+| [007](007-canonical-id-join-key.md) | canonical_id is the CKG↔CKV join key | Accepted | 2026-06-29 |
