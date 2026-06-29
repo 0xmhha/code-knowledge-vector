@@ -115,8 +115,14 @@ CI는 명시적으로 제외(`abb5ae2`). 코드 회귀 아님. (개선 후보: M
   정밀도 실측 → 차원 결정(결정 6, CKV 주관).
 - [ ] Qwen3 어댑터: query-prefix("Instruct:") 흡수 + MRL truncate 경로 + `knownDims` 합의.
 
-### D. Flow-corpus (`plan-2026-06-16-flow-ingest.md`, 전부 미착수)
-- [ ] Phase A~F. 특히 **Phase D 4도구**(get_flow/expand_flow/find_branches/
+### D. Flow-corpus (`plan-2026-06-16-flow-ingest.md`)
+- [x] **Phase A 완료** (2026-06-29, commit `7158572`) — flow_step/flow_spine chunk kinds +
+  FlowStepMeta/FlowSpineMeta/Branch/EnforcePoint 타입 + Chunk 필드(omitempty) +
+  마이그레이션 004(flow_meta/enforced_at/provenance). go-stablenet@`0bf2f4d1b`
+  (test/analysis-test-3)에서 신규 빌드(000–004, 19,605청크) + pr-77 인덱스 003→004
+  업그레이드(백업·15,575행 보존·멱등) 양방향 검증.
+- [ ] Phase B(파서/적재 + `--flow-corpus`) → C(file:line 정렬) → E(빌드 오케스트레이션) → F(평가).
+- [ ] 특히 **Phase D 4도구**(get_flow/expand_flow/find_branches/
   **get_invariant_enforcement**)는 결정 5로 Phase 2 노출 확정 → CKV가 안정 인터페이스 산출,
   CKS가 `cks_context_*` 표면 노출 (3자 공동설계). cks 기대 시그니처 초안: 입력 {심볼/지점,
   방향 up/down, budget} → 출력 {랭크된 flow 노드, 엣지 종류, invariant 위반 후보}.

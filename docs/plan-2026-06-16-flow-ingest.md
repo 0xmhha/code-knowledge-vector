@@ -219,10 +219,17 @@ step → 실제 구현 코드"로 이동 가능.
 
 ## 7. 측정·검증 체크포인트
 
-**Phase A~B 완료 시:**
+**Phase A 완료 (2026-06-29, commit `7158572`):**
+- [x] 타입(flow_step/flow_spine kind, FlowStepMeta/FlowSpineMeta/Branch/EnforcePoint,
+  Chunk 필드) + JSON round-trip 테스트
+- [x] 마이그레이션 004 idempotent + 자동 backup — go-stablenet@`0bf2f4d1b`
+  (test/analysis-test-3) 신규 빌드(000–004, 19,605청크) + pr-77 003→004 업그레이드
+  (백업·15,575행 보존·재실행 no-op) 양방향 실데이터 검증
+- [x] store 무변경으로 기존 청크 회귀 0 (명시적 컬럼 리스트 확인)
+
+**Phase B 완료 시:**
 - [ ] go-stablenet 실 corpus.jsonl(255) 적재 → flow_step 79 / flow_spine 18 / curated-invariant 16 청크
 - [ ] 기존 MCP 도구 회귀 0
-- [ ] 마이그레이션 004 idempotent + 자동 backup
 
 **Phase C 완료 시:**
 - [ ] step file:line → 코드 청크 해소율 ≥80% (동기화 상태)
