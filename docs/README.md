@@ -36,6 +36,7 @@
 | [`flow-knowledge-design-2026-06-16.md`](./flow-knowledge-design-2026-06-16.md) | 플로우 지식 설계 방향 |
 | [`plan-2026-06-16-flow-ingest.md`](./plan-2026-06-16-flow-ingest.md) | 플로우 인제스트 구현 계획 |
 | [`embedding-model-recommendation-2026-06-22.md`](./embedding-model-recommendation-2026-06-22.md) | 임베딩 모델 업그레이드 추천 (bge-m3 → Qwen3-Embedding) |
+| [`coordination-prompts-2026-06-29.md`](./coordination-prompts-2026-06-29.md) | 교차 세션 협의 프롬프트 (CKG / CKS / coding-agent) |
 
 ## ADR (아키텍처 결정 기록)
 

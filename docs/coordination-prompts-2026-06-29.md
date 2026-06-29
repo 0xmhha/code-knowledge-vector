@@ -1,0 +1,175 @@
+# 교차 세션 협의 프롬프트 — CKG / CKS / coding-agent
+
+> **시점**: 2026-06-29 (스냅샷).
+> **목적**: CKV의 남은 작업 다수가 **CKG · CKS · coding-agent** 와 경계를 공유한다.
+> 각 세션(별도 진행 중)에 그대로 붙여넣어 현황 확인 + 협의를 시작하기 위한 프롬프트 모음.
+> **선행 검토**: docs 전수 검토 + 코드 대조 결과(2026-06-29). 현 SoT는
+> [`session-handoff-2026-06-15.md`](./session-handoff-2026-06-15.md) (단, PR #7~#15 미반영 — 아래 §0 참조).
+
+---
+
+## 0. 협의가 필요한 배경 (요약)
+
+### 세 세션에 공통으로 걸리는 결정 3가지
+1. **임베딩 모델 교체 + 전면 reindex** — bge-m3 → Qwen3-Embedding 검토
+   ([`embedding-model-recommendation-2026-06-22.md`](./embedding-model-recommendation-2026-06-22.md)).
+   PR #12(임베딩 공간 identity 강제)로 공간 혼용이 금지되어, 교체 시 CKS가 관리하는
+   인덱스까지 동일 모델로 재생성해야 한다.
+2. **canonical_id / Symbol ID 정규화(B7)** — CKG↔CKV join key 합의.
+3. **Flow-corpus 책임 분담** — Phase 1(CKV 단독) vs Phase 2(CKG symbol join + CKS 오케스트레이션).
+
+### 핸드오프 이후 머지되어 협의 입력이 되는 PR
+- #7 ollama embed 타임아웃·응답형상 검증 / #8 모델 다운로드 타임아웃
+- #9 **CKG canonical_id 청크 상속**(B7 진척) / #10 docs corpus citation 해소
+- #12 **임베딩 공간 identity 강제** / #13 **MaxInputTokens 레지스트리 도출**
+- #14 manifest 빌드 커밋 마커화 / #15 빌드 버전 기록 + model-cache 경로 단일화
+
+> 위 PR들은 현 SoT 핸드오프에 미반영. 협의 완료 후 새 핸드오프(`session-handoff-2026-06-29.md`)로 통합 예정.
+
+---
+
+## 1. → CKG 세션
+
+```text
+[CKV → CKG 협의 요청]
+
+나는 CKV(code-knowledge-vector, 벡터 검색 엔진) 세션이다. 우리 쪽에서 최근
+머지된 변경과 남은 작업이 CKG와 맞물려 있어 확인·협의가 필요하다.
+
+## CKV 쪽 현황 (네가 알아야 할 것)
+- PR #4: ckgalign — chunks.ckg_node_id를 file:line 4-step lookup으로 연결(완료)
+- PR #9: 청크가 CKG의 canonical_id를 그대로 상속(Phase 2). cks가 positional
+  node id 대신 build-stable한 canonical_id로 FindByCanonicalID 가능해짐.
+  단, population은 "canonical_id 컬럼이 있는, schema >= 1.16로 reindex된 CKG
+  그래프"를 대상으로 정렬할 때만 채워진다. 구버전 그래프면 빈 값.
+  (CKV는 PRAGMA로 canonical_id 컬럼 존재를 probe해서 하위호환 유지 중)
+
+## 확인해줘
+1. CKG 현재 스키마 버전이 몇이고, canonical_id 컬럼이 (a) 존재하며 (b) 모든
+   노드에 채워져 있나? 비어있는 노드 비율은?
+2. canonical_id의 안정성 보장 범위 — 같은 코드를 rebuild하면 동일 노드에 대해
+   canonical_id가 불변인가? 무엇을 기반으로 생성되나(qname? file+symbol? hash?)
+3. Symbol ID 정규화 규칙(우리 backlog B7) — CKG↔CKV가 같은 심볼을 가리키는
+   join key를 무엇으로 합의할지. 현재 CKV는 file:line 정렬 + canonical_id 상속
+   두 경로가 있다. 정규화 규칙 합의 + 양쪽 integration fixture가 남은 과제다.
+4. BM25 corpus 확장(우리 backlog D4) — qname + signature + doc-comment를 corpus에
+   넣는 작업 상태. ADR-003대로 BM25는 CKG 소유 / CKV는 vector-only / CKS가 RRF
+   fusion이다. hybrid 정확도가 여기에 의존한다.
+
+## 협의하고 싶은 것
+- CKG↔CKV join 매칭률을 곧 실측하려 한다(기대 ≥90%). 측정 대상 CKG 그래프를
+  schema >= 1.16로 reindex한 상태로 맞춰줄 수 있나? 측정 시점·대상 repo 정하자.
+- Flow-corpus Phase 2 관련: corpus step의 symbol(약식 pkg.Func)을 CKG 노드와
+  조인하는 건 B7 정규화 선행이 필요하다. 또 함수 내부 control-flow 엣지는 corpus가
+  커버 못 하는 영역이라 CKG 쪽 제공 가능 여부를 알고 싶다.
+
+## 질문
+- 위 1~4 현황과, join key 합의안에 대한 너의 제안을 달라.
+```
+
+---
+
+## 2. → CKS 세션
+
+```text
+[CKV → CKS 협의 요청]
+
+나는 CKV(code-knowledge-vector) 세션이다. CKS는 CKV+CKG를 consume해서 RRF
+fusion + MCP 노출 + composer를 담당하는 상위 레이어다. 우리 쪽 변경과 남은
+작업이 CKS와 직접 맞물려 확인·협의가 필요하다.
+
+## CKV 쪽 현황 (네가 알아야 할 것)
+- R1′(PR #1): ollama embedder를 pkg/embed/ollama로 승격 + 구조화된 Freshness()
+  노출. → CKS가 CGO·subprocess 없이 in-process로 real Embedder를 구성하고
+  pkg/ckv.Engine을 직접 쓸 수 있는 사전작업 완료.
+- PR #9: 청크가 CKG canonical_id 상속 → CKS가 FindByCanonicalID로 CKV↔CKG를
+  build-stable key로 join 가능(단 CKG가 schema >= 1.16여야 채워짐).
+- PR #12: 임베딩 공간 identity 강제. index open 시 (provider,model,dim,pooling,
+  normalization,checksum)가 다르면 거부한다. 예: Ollama bge-m3 vs ONNX bge-m3는
+  이제 섞이면 에러. ★CKS가 임베더를 바꿔 끼우면 반드시 동일 공간으로 reindex해야 함.
+- PR #13: ollama MaxInputTokens를 모델 레지스트리에서 도출. 모델 교체 시
+  truncation budget이 자동으로 맞춰짐(어댑터가 Open()에서 자체 해소).
+- PR #7: ollama embed 요청 타임아웃(default 60s) + 응답 count 검증.
+
+## 확인해줘 (CKS-1/2/3 + D 그룹 상태)
+1. CKS가 이미 subprocess MCP proxy → in-process pkg/ckv로 마이그레이션했나?
+   (ckvclient에서 pkg/embed/ollama.Open + ckv.Open 직접 사용)
+2. ckvclient에 신규 6도구(embed/vector_search/rerank/related_changes/index/
+   explain_match 등) 노출 + composer 활용(CKS-1/2/3) 진행 상태
+3. D1: RRF fusion + cks-mcp 통합 binary 상태 (CKV는 pkg/mcp.Server.Underlying()
+   표면 이미 노출 완료)
+4. D2: cks.context.query_code multiplex(CKV+CKG hybrid) 설계/구현 상태
+
+## 협의하고 싶은 것 — 임베딩 모델 업그레이드 (중요)
+- CKV에서 bge-m3 → Qwen3-Embedding 교체를 검토 중이다(정밀도↑, Apache 2.0).
+  CKS가 in-process로 real Embedder를 구성하므로 모델·차원 결정을 함께 해야 한다.
+- 후보: Qwen3-Embedding-4B(권장, MRL로 1024 truncate 시 현 스키마 호환) /
+  0.6B(네이티브 1024, 드롭인) / 8B(최고 정밀, 24GB에서 Q8 가능).
+- #12 때문에 교체 = 전면 reindex 필수(공간 혼용 금지). CKS가 관리하는 인덱스도
+  동일 모델로 재생성해야 한다. 차원을 1024로 유지할지, 2560/4096으로 올릴지
+  (sqlite-vec 인덱스 차원 + ModelConfig 레지스트리 변경 수반) 합의 필요.
+- Qwen3는 instruction-aware 비대칭 인코딩(쿼리에 "Instruct:" 프리픽스)이라
+  쿼리 측 프롬프트 처리를 어느 레이어(CKV 어댑터 vs CKS composer)가 책임질지 정하자.
+
+## 협의 — Flow-corpus
+- CKV가 flow-aware 도구 4종(get_flow/expand_flow/find_branches/
+  get_invariant_enforcement)을 단독(bounded) 구현 예정(Phase 1). cross-flow
+  다중홉 인과 체인과 CKV/CKG 교차 오케스트레이션은 Phase 2 = CKS 영역이다.
+  CKS가 이 인과 체인 오케스트레이션을 맡는 그림에 동의하는지, 인터페이스 기대치 확인.
+
+## 질문
+- 위 확인 1~4 상태와, 임베딩 모델/차원/프리픽스 책임에 대한 너의 결정·선호를 달라.
+- reindex 일정·대상 인덱스를 맞추기 위한 제약(다운타임 등)이 있으면 알려달라.
+```
+
+---
+
+## 3. → coding-agent 세션
+
+```text
+[CKV → coding-agent 협의 요청]
+
+나는 CKV(code-knowledge-vector, cks가 consume하는 벡터 검색 엔진) 세션이다.
+coding-agent는 cks의 cks_context_* MCP 도구로 retrieval을 받아 analyzer/planner/
+implementer/evaluator 파이프라인을 돌리는 최종 소비자다. 우리 쪽 변경과 남은
+작업이 coding-agent가 보는 검색 품질·도구 계약에 영향을 줘서 협의가 필요하다.
+
+## CKV 쪽 현황 (네가 알아야 할 것)
+- CKV는 MCP 도구 15종(semantic_search/keyword_search/vector_search/
+  narrow_candidates/expand_in_file/find_invariants/get_conventions/explain_match/
+  embed/rerank/related_changes/health/get_freshness/warmup/index)을 노출한다.
+  모든 응답에 schema_version 포함(현재 "1"/"1.1"). additive 변경만 minor.
+- 임베딩 모델 교체(bge-m3 → Qwen3-Embedding)를 검토 중 → 검색 recall/정밀도가
+  바뀐다. 교체 시 전면 reindex 필요(임베딩 공간 identity 강제, PR #12).
+- Flow-corpus 기능을 신규 도입 예정: flow-aware 도구 4종(get_flow/expand_flow/
+  find_branches/get_invariant_enforcement). "현상 → 원인" 인과 분석을 도구 호출만으로
+  가능하게 하는 게 목표 — 이건 coding-agent의 diagnose/analyzer 유스케이스와 직결된다.
+
+## 확인해줘
+1. coding-agent(analyzer/planner 등)가 현재 의존하는 cks 도구 목록과, 각 도구
+   응답에서 실제로 읽는 필드. CKV/CKS 변경 시 무엇을 깨면 안 되는지 알아야 한다.
+2. bench(A/B/C: cks vs code-only vs code+skills)에서 측정하는 retrieval 품질 지표.
+   우리도 곧 CKV recall / CKG↔CKV 매칭률을 실측하는데, coding-agent bench 수치와
+   기준(평가셋·메트릭 정의)을 일치시켜 같은 언어로 말하고 싶다.
+
+## 협의하고 싶은 것
+- 임베딩 모델 교체가 coding-agent가 보는 검색 품질을 바꾼다. 교체 전후 A/B를
+  coding-agent bench로도 한 번 돌려 회귀 여부를 같이 확인하고 싶다. 가능한지?
+- Flow-corpus의 flow-aware 도구 4종이 나오면, analyzer/diagnose의 근본원인 추적
+  (root-cause-lifecycle: produce→store→consume)에 get_flow/find_branches/
+  get_invariant_enforcement를 붙이는 게 자연스럽다. 인터페이스 기대치(입력/출력
+  형태)를 미리 맞춰서 도구를 그 방향으로 설계하고 싶다. 원하는 시그니처가 있나?
+- schema_version 정책: coding-agent 측 파서가 major만 비교하고 mismatch 시
+  last-known-good fallback 하는 컨벤션에 동의하나?
+
+## 질문
+- 위 1~2 답과, Flow-aware 도구에 바라는 입출력 형태, bench 공동 측정 가능 여부를 달라.
+```
+
+---
+
+## 4. 협의 후 후속
+
+- 세 세션 답변 수집 → 결정사항을 새 핸드오프(`session-handoff-2026-06-29.md`)에 통합,
+  현 SoT(2026-06-15)는 `archive/`로 이동.
+- 합의된 join key / 임베딩 모델·차원 / flow 도구 시그니처를 각각 ADR로 승격 검토.
