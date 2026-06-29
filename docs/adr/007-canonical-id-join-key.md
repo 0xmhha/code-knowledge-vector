@@ -45,10 +45,21 @@ normalization rule is introduced (closes backlog B7 as "no normalization
 needed"). Non-symbol nodes (CallSite/IfStmt/Loop/…), which carry no
 canonical_id by design, fall back to the positional node ID.
 
-CKV must **gate alignment on the CKG graph's manifest
-`schema_version >= 1.19`**, replacing the current PRAGMA column-existence
-probe in `internal/ckgalign`. Aligning against a < 1.19 graph must be
-refused (or treated as "no canonical_id available"), never joined on NULL.
+CKV must stop trusting the PRAGMA column-existence probe alone (which
+passes 1.16–1.18 graphs whose canonical_id is empty). Two gate points:
+
+- **In `internal/ckgalign` (per build)**: probe for actual *population* —
+  the column exists AND at least one non-empty canonical_id value is
+  present. `ckgalign` only opens `graph.db`, so population detection is
+  the self-contained, robust proxy for "a ≥ 1.19 cache". When unpopulated,
+  expose it (`CanonicalAvailable() == false`) so the build surfaces
+  "canonical_id unavailable" instead of inheriting empty join keys.
+- **At the wiring/measurement layer**: assert the CKG build's published
+  manifest `schema_version >= 1.19` (and graph.db sha) before pointing CKV
+  or CKS at a graph. The exact manifest format is CKG-published; this
+  assertion is a follow-up once that format is fixed.
+
+Either way: never join on a NULL/empty canonical_id.
 
 A shared integration fixture (small fixed repo) asserts that CKV chunk and
 CKG node carry the same canonical_id, with both caveats (≥1.19 gate,
@@ -81,6 +92,12 @@ CKG node carry the same canonical_id, with both caveats (≥1.19 gate,
 
 - PR #9 (`c554cc5`): canonical_id inheritance onto chunks + `FindByCanonicalID`
   readiness.
-- Pending CKV action: gate `internal/ckgalign` on manifest
-  `schema_version >= 1.19` (handoff §4-A, "immediately actionable").
+- 2026-06-29: `internal/ckgalign` now gates on canonical_id *population*
+  (`canonicalHasValue` probe + `Index.CanonicalAvailable()`), and
+  `internal/build` emits a warning + `ckg_align.canonical_unavailable`
+  footprint when a graph has no populated canonical_id. Tests:
+  `TestCanonicalAvailable_ColumnPresentButEmpty`, `_ColumnAbsent`.
+- Pending wiring follow-up: assert CKG's published manifest
+  `schema_version >= 1.19` before pointing at a graph (needs CKG manifest
+  format).
 - Pending shared work: integration fixture (CKV + CKG).

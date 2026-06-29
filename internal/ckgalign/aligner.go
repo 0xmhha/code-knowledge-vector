@@ -38,6 +38,11 @@ type Entry struct {
 // each file's slice sorted ascending by start_line.
 type Index struct {
 	byFile map[string][]Entry
+	// canonicalAvailable is true when the source ckg graph actually populates
+	// canonical_id (a schema >= 1.19 cache). The column exists from schema 1.16
+	// but carries values only from 1.19, so column-presence alone is not enough:
+	// a 1.16–1.18 graph would silently yield empty join keys. See ADR-007.
+	canonicalAvailable bool
 }
 
 // Load opens <ckgPath>/graph.db read-only and indexes alignment-eligible
@@ -62,10 +67,20 @@ func Load(ckgPath string) (*Index, error) {
 	// when present; otherwise Entry.CanonicalID stays ""). COALESCE handles a
 	// NULL value, but referencing a missing column is a hard SQL error, hence
 	// the probe rather than a blind SELECT.
+	//
+	// Column presence is necessary but NOT sufficient: ckg added the column at
+	// schema 1.16 but only populates it from cache SchemaVersion >= 1.19, so a
+	// 1.16–1.18 graph has the column entirely empty. Joining on those empty
+	// values fails silently (ADR-007), so we additionally probe for at least one
+	// populated value and expose the result via CanonicalAvailable() — the
+	// build can then surface "canonical_id unavailable" instead of inheriting
+	// empty keys as if the alignment were complete.
 	hasCanonical := columnExists(db, "nodes", "canonical_id")
 	canonicalSel := "''"
+	canonicalPopulated := false
 	if hasCanonical {
 		canonicalSel = "COALESCE(canonical_id,'')"
+		canonicalPopulated = canonicalHasValue(db)
 	}
 	q := `
 SELECT id, file_path, start_line, end_line, ` + canonicalSel + `
@@ -81,7 +96,7 @@ WHERE file_path != ''
 	}
 	defer rows.Close()
 
-	ix := &Index{byFile: make(map[string][]Entry)}
+	ix := &Index{byFile: make(map[string][]Entry), canonicalAvailable: canonicalPopulated}
 	var id, file, canonicalID string
 	var start, end int
 	for rows.Next() {
@@ -106,6 +121,21 @@ WHERE file_path != ''
 // treated as "absent" so the caller falls back to the safe query.
 func columnExists(db *sql.DB, table, col string) bool {
 	rows, err := db.Query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`, table, col)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	return rows.Next()
+}
+
+// canonicalHasValue reports whether the nodes table has at least one non-empty
+// canonical_id. A graph whose column exists but is entirely empty is a pre-1.19
+// ckg cache (the column landed at schema 1.16 but is populated only from 1.19):
+// its canonical_id is not a usable join key. Any probe error is treated as
+// "no value" so the caller degrades to canonical-id-unavailable. Caller must
+// have confirmed the column exists first (this references it directly).
+func canonicalHasValue(db *sql.DB) bool {
+	rows, err := db.Query(`SELECT 1 FROM nodes WHERE canonical_id IS NOT NULL AND canonical_id != '' LIMIT 1`)
 	if err != nil {
 		return false
 	}
@@ -273,6 +303,19 @@ func (ix *Index) LookupEntry(filePath string, startLine, endLine int) *Entry {
 		return &entries[bestNear]
 	}
 	return nil
+}
+
+// CanonicalAvailable reports whether the loaded ckg graph actually populates
+// canonical_id (a schema >= 1.19 cache). When false, inherited chunk
+// canonical_ids are empty and cks FindByCanonicalID joins are unavailable, so
+// the build should surface this rather than treat the alignment as complete
+// (ADR-007). The wiring/measurement layer additionally asserts the ckg
+// build's published manifest schema_version >= 1.19 before pointing at a graph.
+func (ix *Index) CanonicalAvailable() bool {
+	if ix == nil {
+		return false
+	}
+	return ix.canonicalAvailable
 }
 
 // FileCount returns the number of unique files indexed (diagnostic /

@@ -273,4 +273,83 @@ INSERT INTO nodes VALUES
 	if e2 := ix.LookupEntry("a/f.go", 40, 50); e2 == nil || e2.CanonicalID != "" {
 		t.Errorf("empty-canonical node: got %+v, want non-nil with empty CanonicalID", e2)
 	}
+	// the graph has a populated canonical_id (n_m) → available.
+	if !ix.CanonicalAvailable() {
+		t.Error("CanonicalAvailable() = false, want true (graph has a populated canonical_id)")
+	}
+}
+
+// TestCanonicalAvailable_ColumnPresentButEmpty verifies the ADR-007 gate: a ckg
+// graph whose canonical_id column exists but is entirely empty (a pre-1.19 cache)
+// reports CanonicalAvailable() == false, so the build surfaces it instead of
+// silently inheriting empty join keys. Lookup still resolves node IDs.
+func TestCanonicalAvailable_ColumnPresentButEmpty(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "graph.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.Exec(`
+CREATE TABLE nodes (
+  id TEXT PRIMARY KEY,
+  qualified_name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  start_line INTEGER NOT NULL,
+  end_line INTEGER NOT NULL,
+  canonical_id TEXT
+);
+INSERT INTO nodes VALUES
+  ('n_a', 'pkg.A', 'a/f.go', 20, 30, ''),
+  ('n_b', 'pkg.B', 'a/f.go', 40, 50, NULL);
+`); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed: %v", err)
+	}
+	_ = db.Close()
+
+	ix, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if ix.CanonicalAvailable() {
+		t.Error("CanonicalAvailable() = true, want false (column present but all empty/NULL)")
+	}
+	// Node-ID alignment still works — only canonical_id is unavailable.
+	if got := ix.Lookup("a/f.go", 20, 30); got != "n_a" {
+		t.Errorf("Lookup(a/f.go, 20, 30) = %q, want n_a", got)
+	}
+}
+
+// TestCanonicalAvailable_ColumnAbsent verifies a pre-1.16 graph (no canonical_id
+// column at all) also reports CanonicalAvailable() == false without error.
+func TestCanonicalAvailable_ColumnAbsent(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "graph.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.Exec(`
+CREATE TABLE nodes (
+  id TEXT PRIMARY KEY,
+  qualified_name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  start_line INTEGER NOT NULL,
+  end_line INTEGER NOT NULL
+);
+INSERT INTO nodes VALUES ('n_a', 'pkg.A', 'a/f.go', 20, 30);
+`); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed: %v", err)
+	}
+	_ = db.Close()
+
+	ix, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if ix.CanonicalAvailable() {
+		t.Error("CanonicalAvailable() = true, want false (no canonical_id column)")
+	}
 }

@@ -284,7 +284,18 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			"ckg_path", o.CKGPath,
 			"files_indexed", ckgIx.FileCount(),
 			"entries", ckgIx.EntryCount(),
+			"canonical_available", ckgIx.CanonicalAvailable(),
 		)
+		if !ckgIx.CanonicalAvailable() {
+			// Column-present-but-empty (pre-1.19 ckg cache) or column absent:
+			// chunks will inherit empty canonical_ids and cks FindByCanonicalID
+			// joins won't resolve. Surface it loudly instead of silently
+			// shipping an index that looks aligned but isn't (ADR-007).
+			fmt.Fprintf(os.Stderr, "ckv: warning: ckg graph at %s has no populated canonical_id "+
+				"(pre-1.19 cache or missing column); chunks inherit empty join keys "+
+				"and cks FindByCanonicalID is unavailable\n", o.CKGPath)
+			fp.Emit("ckg_align.canonical_unavailable", "ckg_path", o.CKGPath)
+		}
 	}
 
 	// Memory watchdog runs while the file loop progresses and flips a
