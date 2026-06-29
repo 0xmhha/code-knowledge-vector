@@ -1,0 +1,7 @@
+{"type":"flow","id":"ep-cli-init","entry_point":"EP-CLI-INIT","trigger":"gstable init <genesis.json>","summary":"제네시스 JSON을 읽어 WBFT 헤더가 박힌 0번 블록을 기록.","root_symbol":"main.initGenesis","links":["spine-blockimport"],"called_by":[]}
+{"type":"step","id":"init-01","flow":"ep-cli-init","symbol":"main.initGenesis","file":"cmd/gstable/chaincmd.go","line":191,"kind":"stablenet","calls":["init-02"],"reads":"genesis.json","writes":"core.Genesis","emits":"—","branches":[{"when":"경로 인자 없음/파일 열기 실패","then":"Fatalf 종료","at":"chaincmd.go:199"}],"invariants":["INV-CONSENSUS-01"],"prose":"인자 경로의 파일을 열어 JSON을 core.Genesis로 디코드한다."}
+{"type":"edge","rel":"calls","from":"ep-cli-init:init-01","to":"ep-cli-init:init-02"}
+{"type":"invariant","id":"INV-CONSENSUS-01","domain":"CONSENSUS","title":"정족수 확정","statement":"블록은 QuorumSize()=ceil(2N/3) 이상 COMMIT일 때만 확정된다.","assumes":"N>=3f+1","enforced_at":[{"flow":"spine-consensus-rounds","step":"rounds-04","loc":"commit.go:123"}],"check":"N=4,7,10 경계 검증."}
+{"type":"step","id":"bad-01","flow":"ep-cli-init","symbol":"x","kind":"stablenet","prose":"file/line 없는 불량 step (skip 대상)."}
+{"type":"frobnicate","id":"weird-1"}
+{"type":"flow","summary":"id 없는 flow (skip 대상)."}
