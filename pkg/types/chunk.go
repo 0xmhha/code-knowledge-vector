@@ -66,6 +66,13 @@ const (
 	// The agent queries these to learn what idioms the package follows
 	// before proposing edits — preventing convention drift.
 	ChunkConvention ChunkKind = "convention"
+
+	// Flow-corpus kinds. A curated flow corpus (corpus.jsonl, loaded via
+	// --flow-corpus) describes "현상 → 원인" causal paths through the code so
+	// an agent can trace a symptom to its cause. Additive — present only in
+	// indexes built with --flow-corpus.
+	ChunkFlowStep  ChunkKind = "flow_step"  // one step in a flow (symbol + branches)
+	ChunkFlowSpine ChunkKind = "flow_spine" // a flow's entry/summary backbone
 )
 
 // InvariantTier classifies how an invariant was detected.
@@ -91,6 +98,52 @@ type InvariantRef struct {
 	ChunkID string        `json:"chunk_id"`         // ID of the ChunkInvariant chunk
 	Tier    InvariantTier `json:"tier"`             // 1, 2, or 3
 	Marker  string        `json:"marker,omitempty"` // e.g. "CRITICAL", "panic"
+}
+
+// Branch is one conditional edge inside a flow step: under condition When,
+// control goes to Then at code location At. Mapping a symptom (When) to its
+// cause site (Then@At) is the core of flow-based root-cause analysis.
+type Branch struct {
+	When string `json:"when"`
+	Then string `json:"then"`
+	At   string `json:"at"`
+}
+
+// FlowStepMeta is the structured metadata for a ChunkFlowStep chunk: the
+// symbol the step runs at, the symbols it calls, what it reads/writes/emits,
+// its conditional branches, and the invariant ids it must uphold. Serialized
+// into the flow_meta column (populated in Phase B).
+type FlowStepMeta struct {
+	FlowID     string   `json:"flow_id"`
+	StepID     string   `json:"step_id"`
+	Symbol     string   `json:"symbol,omitempty"`
+	Kind       string   `json:"kind,omitempty"`
+	Calls      []string `json:"calls,omitempty"`
+	Reads      string   `json:"reads,omitempty"`
+	Writes     string   `json:"writes,omitempty"`
+	Emits      string   `json:"emits,omitempty"`
+	Branches   []Branch `json:"branches,omitempty"`
+	Invariants []string `json:"invariants,omitempty"`
+}
+
+// FlowSpineMeta is the structured metadata for a ChunkFlowSpine chunk: a
+// flow's entry point, what triggers it, and how it links to other flows.
+// Serialized into the flow_meta column (populated in Phase B).
+type FlowSpineMeta struct {
+	FlowID     string   `json:"flow_id"`
+	EntryPoint string   `json:"entry_point,omitempty"`
+	Trigger    string   `json:"trigger,omitempty"`
+	RootSymbol string   `json:"root_symbol,omitempty"`
+	Links      []string `json:"links,omitempty"`
+	CalledBy   []string `json:"called_by,omitempty"`
+}
+
+// EnforcePoint records where a curated invariant is enforced: a step in a
+// flow at a code location. Serialized into the enforced_at column.
+type EnforcePoint struct {
+	Flow string `json:"flow"`
+	Step string `json:"step"`
+	Loc  string `json:"loc"`
 }
 
 // PRRef records a PR that touched a chunk's file or symbol. Stored as
@@ -147,6 +200,10 @@ type Chunk struct {
 	Guidance        *ModificationGuidance `json:"guidance,omitempty"`         // attached by policy loader; nil for unclassified
 	Invariants      []InvariantRef        `json:"invariants,omitempty"`       // back-pointers to ChunkInvariant chunks extracted from this source
 	ConventionStats map[string]any        `json:"convention_stats,omitempty"` // populated on ChunkConvention chunks; empty for source chunks
+	FlowStep        *FlowStepMeta         `json:"flow_step,omitempty"`        // populated on ChunkFlowStep chunks (flow_meta column)
+	FlowSpine       *FlowSpineMeta        `json:"flow_spine,omitempty"`       // populated on ChunkFlowSpine chunks (flow_meta column)
+	Provenance      string                `json:"provenance,omitempty"`       // invariant origin: "auto" (extracted) | "curated" (corpus); empty for non-invariant chunks
+	EnforcedAt      []EnforcePoint        `json:"enforced_at,omitempty"`      // populated on curated ChunkInvariant chunks (enforced_at column)
 	Text            string                `json:"text"`                       // chunk source (for re-embedding / display)
 }
 

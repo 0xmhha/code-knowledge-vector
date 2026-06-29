@@ -136,3 +136,97 @@ func TestChunkCategoryAndGuidance_RoundTrip(t *testing.T) {
 		t.Errorf("WatchOut=%v", out.Guidance.WatchOut)
 	}
 }
+
+func TestFlowChunk_JSONOmitempty(t *testing.T) {
+	// A non-flow chunk must omit all flow fields so schema_version 1.0
+	// consumers stay compatible.
+	plain := Chunk{
+		ID: "x", File: "f.go", StartLine: 1, EndLine: 2,
+		Language: "go", ChunkKind: ChunkSymbol, ContentSHA256: "h",
+	}
+	b, err := json.Marshal(plain)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, f := range []string{`"flow_step"`, `"flow_spine"`, `"provenance"`, `"enforced_at"`} {
+		if strings.Contains(string(b), f) {
+			t.Errorf("empty flow field %s must be omitted: %s", f, b)
+		}
+	}
+}
+
+func TestFlowStep_RoundTrip(t *testing.T) {
+	in := Chunk{
+		ID: "s1", File: "consensus/wbft/finalize.go", StartLine: 10, EndLine: 20,
+		Language: "go", ChunkKind: ChunkFlowStep, ContentSHA256: "h",
+		FlowStep: &FlowStepMeta{
+			FlowID: "deposit", StepID: "import_finalize", Symbol: "wbft.Finalize",
+			Kind: "step", Calls: []string{"state.Commit", "txpool.Reset"},
+			Reads: "header", Writes: "statedb", Emits: "BlockFinalized",
+			Branches: []Branch{
+				{When: "quorum not reached", Then: "reject block", At: "finalize.go:42"},
+			},
+			Invariants: []string{"equal-power-quorum"},
+		},
+	}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out Chunk
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.FlowStep == nil {
+		t.Fatal("FlowStep must round-trip non-nil")
+	}
+	if out.FlowStep.FlowID != "deposit" || out.FlowStep.StepID != "import_finalize" {
+		t.Errorf("flow ids: %+v", out.FlowStep)
+	}
+	if len(out.FlowStep.Calls) != 2 || out.FlowStep.Calls[1] != "txpool.Reset" {
+		t.Errorf("Calls=%v", out.FlowStep.Calls)
+	}
+	if len(out.FlowStep.Branches) != 1 || out.FlowStep.Branches[0].At != "finalize.go:42" {
+		t.Errorf("Branches=%+v", out.FlowStep.Branches)
+	}
+	if len(out.FlowStep.Invariants) != 1 || out.FlowStep.Invariants[0] != "equal-power-quorum" {
+		t.Errorf("Invariants=%v", out.FlowStep.Invariants)
+	}
+}
+
+func TestFlowSpineAndCuratedInvariant_RoundTrip(t *testing.T) {
+	spine := Chunk{
+		ID: "f1", File: "", ChunkKind: ChunkFlowSpine, ContentSHA256: "h",
+		FlowSpine: &FlowSpineMeta{
+			FlowID: "deposit", EntryPoint: "rpc.Deposit", Trigger: "user tx",
+			RootSymbol: "api.Deposit", Links: []string{"finalize"}, CalledBy: []string{"gateway"},
+		},
+	}
+	raw, _ := json.Marshal(spine)
+	var out Chunk
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal spine: %v", err)
+	}
+	if out.FlowSpine == nil || out.FlowSpine.EntryPoint != "rpc.Deposit" {
+		t.Fatalf("FlowSpine round-trip: %+v", out.FlowSpine)
+	}
+
+	inv := Chunk{
+		ID: "i1", ChunkKind: ChunkInvariant, ContentSHA256: "h",
+		Provenance: "curated",
+		EnforcedAt: []EnforcePoint{
+			{Flow: "deposit", Step: "import_finalize", Loc: "finalize.go:42"},
+		},
+	}
+	raw2, _ := json.Marshal(inv)
+	var out2 Chunk
+	if err := json.Unmarshal(raw2, &out2); err != nil {
+		t.Fatalf("unmarshal inv: %v", err)
+	}
+	if out2.Provenance != "curated" {
+		t.Errorf("Provenance=%q, want curated", out2.Provenance)
+	}
+	if len(out2.EnforcedAt) != 1 || out2.EnforcedAt[0].Loc != "finalize.go:42" {
+		t.Errorf("EnforcedAt=%+v", out2.EnforcedAt)
+	}
+}
