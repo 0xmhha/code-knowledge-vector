@@ -3,8 +3,8 @@
 이 디렉터리는 **살아있는 레퍼런스 문서**, **시점 스냅샷**, **폐기된 아카이브**가 섞여 있다.
 새 세션은 아래 분류를 보고 "현재 유효한 것"부터 읽는다.
 
-> **현행 단일 진입점(SoT):** [`session-handoff-2026-06-15.md`](./session-handoff-2026-06-15.md)
-> — 새 세션은 이 문서부터 읽는다.
+> **현행 단일 진입점(SoT):** [`session-handoff-2026-06-29.md`](./session-handoff-2026-06-29.md)
+> — 새 세션은 이 문서부터 읽는다. (직전 `session-handoff-2026-06-15.md`는 archive로 이동.)
 
 ## 레퍼런스 (living — 코드와 함께 유지보수)
 
@@ -48,6 +48,7 @@
 
 | 문서 | 대체 |
 |------|------|
-| [`archive/session-handoff-2026-05-23.md`](./archive/session-handoff-2026-05-23.md) | → `session-handoff-2026-06-15.md` |
-| [`archive/session-handoff-2026-05-29.md`](./archive/session-handoff-2026-05-29.md) | → `session-handoff-2026-06-15.md` |
+| [`archive/session-handoff-2026-05-23.md`](./archive/session-handoff-2026-05-23.md) | → `session-handoff-2026-06-29.md` |
+| [`archive/session-handoff-2026-05-29.md`](./archive/session-handoff-2026-05-29.md) | → `session-handoff-2026-06-29.md` |
+| [`archive/session-handoff-2026-06-15.md`](./archive/session-handoff-2026-06-15.md) | → `session-handoff-2026-06-29.md` (PR #7~#15 + 4세션 협의 미반영) |
 | [`archive/cks-design-2026-05-29.md`](./archive/cks-design-2026-05-29.md) | hypothetical 초안 (실제 CKS 상태와 불일치) |

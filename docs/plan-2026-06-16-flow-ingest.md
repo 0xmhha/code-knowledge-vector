@@ -267,4 +267,4 @@ step → 실제 구현 코드"로 이동 가능.
 - `<go-stablenet>/.claude/docs/corpus/SCHEMA.md` — corpus 스키마 (입력 계약)
 - [`plan-2026-05-29-ckv-refactor.md`](./plan-2026-05-29-ckv-refactor.md) — invariant/convention/마이그레이션 프레임워크 (재사용)
 - `internal/ckgalign/aligner.go` — file:line 정렬 (#4, 재사용)
-- [`session-handoff-2026-06-15.md`](./session-handoff-2026-06-15.md) — 현행 SoT
+- [`session-handoff-2026-06-29.md`](./session-handoff-2026-06-29.md) — 현행 SoT
