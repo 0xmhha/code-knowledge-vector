@@ -1,0 +1,16 @@
+{
+  "_comment": "사람-워딩 의미검증 세트. query=Jira식 패러프레이즈 한국어(코퍼스 본문 아님), expect=기대 코드 파일 경로 substring. 브리지가 동작하면 top-K 인용 파일에 expect가 나타나야 함.",
+  "k": 10,
+  "queries": [
+    {"query": "제네시스 블록을 처음 만들 때 설정을 읽어 0번 블록을 기록하는 코드는 어디에 있나?", "expect": "cmd/gstable/chaincmd.go", "note": "ep-cli-init initGenesis"},
+    {"query": "초기 검증자와 시스템 컨트랙트를 제네시스 상태에 심는 부분", "expect": "core/genesis.go", "note": "initializeAnzeonGenesis"},
+    {"query": "WBFT 합의 코어의 메시지·타임아웃·확정 이벤트를 처리하는 루프", "expect": "consensus/wbft/core/handler.go", "note": "Core.handleEvents"},
+    {"query": "서명된 원시 트랜잭션이 풀에 들어가기 전 상태 기반 검증을 하는 곳", "expect": "core/txpool", "note": "rpc-sendrawtx validation"},
+    {"query": "키스토어에서 비밀번호로 개인키를 복호화해 메모리에 올리는 로직", "expect": "accounts/keystore/keystore.go", "note": "KeyStore.Unlock"},
+    {"query": "UDP로 피어를 발견해 노드 테이블을 채우는 디스커버리 코드", "expect": "p2p/discover", "note": "ep-discovery"},
+    {"query": "블록 제안 시 txpool에서 실행 가능한 트랜잭션을 골라 채우는 부분", "expect": "miner/worker.go", "note": "worker.fillTransactions"},
+    {"query": "GraphQL 요청 본문을 파싱해 질의를 실행하는 핸들러", "expect": "graphql/service.go", "note": "graphql handler"},
+    {"query": "동기화로 피어에게서 내려받은 블록을 체인에 삽입하는 곳", "expect": "eth/downloader/downloader.go", "note": "importBlockResults"},
+    {"query": "확정된 블록과 신규 트랜잭션을 피어에게 전파하는 브로드캐스트 루프", "expect": "eth/handler.go", "note": "txBroadcastLoop"}
+  ]
+}
