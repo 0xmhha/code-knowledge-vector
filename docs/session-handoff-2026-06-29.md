@@ -143,12 +143,19 @@ ckv build --src <go-stablenet> --out <data> \
 ## 4. 남은 작업 리스트 (협의 반영, 우선순위별)
 
 ### A. 즉시 착수 가능 (의존성 없음)
-- [ ] **ckgalign 게이트 ≥1.19** (결정 2) — CKV 단독, 가장 먼저.
+- [x] **ckgalign 게이트 ≥1.19** (결정 2) — 완료 (commits `5ee66f8` population probe, `35326e5`
+  manifest schema_version 게이트). ckg in-db `manifest` 테이블의 schema_version을 읽어
+  major.minor 정수비교(1.9<1.19), 구버전은 population fallback.
 - [ ] **B10** parser fuzz/property 테스트.
 
-### B. 측정 (커밋 핀 정본 그래프 준비 후)
-- [ ] **CKG↔CKV 매칭률 실측** — reindex-A(`0bf2f4d1b`+bge-m3), 공유언어 스코프(§3.3).
-- [ ] **bge-large/bge-m3 실모델 N=50 측정** (현재 mock baseline만).
+### B. 측정 (정본 그래프 정렬)
+- [x] **CKG↔CKV 매칭률 실측 완료** (2026-06-30) — CKG 정본 그래프
+  `/tmp/ckg-eval/stablenet-0bf2f4d1bfeb/graph.db`(commit `0bf2f4d1b`, schema **1.23**,
+  sha256 `16ee6fb7…`)에 ckgalign 정렬(독자 재빌드 안 함). **canonical_id 매칭률 = 13,472/14,273
+  심볼청크 = 94.4%** (≥90% 충족). ckg_node_id(file:line) 정렬률 99.3%. proto(CKV 미파싱)·
+  promoted(canonical 없음) 제외. 갭 ~6% = 패키지레벨 var/const 블록(CKV가 ckg 노드와 다르게 청크).
+  통합 fixture CKV 半 = `internal/ckgalign/integration_test.go`(verbatim 상속 + `@<line>` caveat).
+- [ ] **bge-m3 실모델 사람-워딩 의미검증** (중단됨 — reindex-A 빌드 ~20분; 재개 시 flow_step 회수 확인).
 - [ ] **PR-77 통합 bench** (coding-agent 주관, CKV recall 상보 cross-ref).
 
 ### C. 임베딩 모델 교체 (reindex-B)
