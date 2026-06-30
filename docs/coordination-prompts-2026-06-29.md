@@ -787,3 +787,45 @@ flow_meta / enforced_at 컬럼(Phase B 영속) 위에서 동작. 모두 bounded(
 
 질문: §9.1에 대한 확정/수정안 + 노출 방식(2) + 일정(4)을 회신해 달라.
 ```
+
+### 9.2-R. CKS 회신 — §9.1 계약 확정/조정 + 노출 방식 + 일정 (2026-06-30)
+
+> CKS 사본: `code-knowledge-system/docs/coordination-response-cks-2026-06-29.md`
+> (Phase D 섹션). go.mod 갱신 완료: ckg `3ada0ad`, ckv `83b963f` (build·vet 클린).
+
+- **Q1 계약: ✅ §2-R2와 정합, 조정 2건.** `expand_flow`(지점+방향)·`find_branches`(score=랭크)·
+  `get_flow`(topo)·`get_invariant_enforcement`(H-가드레일) 매핑 확인.
+  - **조정① budget 캡**: cks는 token-budgeted → `get_flow`에 `max_steps?`(budget), `expand_flow`에
+    `limit?`, `get_invariant_enforcement.enforced_at`에 상한 옵션 추가 요청(`find_branches`는 `k` ✓).
+  - **조정② canonical_id 명시**: 각 step/symbol 출력에 `canonical_id` 필드 명시 요청(cks가
+    `FindByCanonicalID`로 ckg join 시 재해석 불요). 이 2건 반영 시 §9.1 확정.
+- **Q2 노출 방식: ✅ in-process `ckvclient` 4(+2)메서드** (`GetFlow/ExpandFlow/FindBranches/
+  GetInvariantEnforcement` + `FindInvariants/GetConventions`) → `pkg/ckv.Engine` 직접 호출.
+  **ckv MCP proxy 안 함**(cks는 subprocess proxy 제거·in-process 이행 완료, §2-R).
+- **Q3 직접 호출 도구: ✅ 동의.** `cks.context.get_flow`/`expand_flow`/`find_branches`/
+  `get_invariant_enforcement`(+`find_invariants`/`get_conventions`)를 get_for_task 합성과 별개
+  표면으로. coding-agent analyzer/diagnose 직접 호출.
+- **Q4 일정: CKS 병렬 착수 가능(지금)** — ① `ckvclient` 인터페이스+타입+Fake/Dummy 스텁 ②
+  `internal/mcp/flow.go` 도구 등록 골격 ③ 계약 테스트. **선행조건** = CKV가 §9.1(조정 반영)
+  `pkg/ckv.Engine` 메서드 출시+태그(현재 미구현 확인). 출시 후 go.mod bump → Real 본체 연결 →
+  표면 활성. 같은 Phase 2에 맞춤.
+
+### 9-R. CKV 회신 — Phase D CKV-side 구현 완료 (2026-06-30)
+
+> §9.1 계약대로 CKV가 flow-aware 4도구를 구현 완료(commit `5c35aed`). CKS는 §9.2대로
+> 표면 노출만 남음 — 아래 in-process API를 ckvclient에서 호출하면 된다.
+
+- **구현**: `pkg/ckv.Engine`에 4메서드 노출(in-process, ckvclient 직접 호출용):
+  - `GetFlow(ctx, FlowSelector{FlowID|EntryPoint|InvariantID}) (*FlowView, error)`
+  - `ExpandFlow(ctx, stepID, direction "up"|"down", hops int) (*ExpandResult, error)`
+  - `FindBranches(ctx, symptom string, k int) ([]BranchMatch, error)` (실 embedder 필요)
+  - `GetInvariantEnforcement(ctx, invID string) (*InvariantEnforcement, error)`
+  - 타입도 `pkg/ckv`에서 재노출(FlowView/FlowStepView/ExpandResult/FlowNeighbor/BranchMatch/
+    InvariantEnforcement) — internal/query import 불필요.
+- **MCP**: `cks.context.{get_flow,expand_flow,find_branches,get_invariant_enforcement}` 등록
+  (CKV MCP 표면 15→19). proxy 방식이면 그대로 노출 가능.
+- **라이브 검증**(pr-77-2 bge-m3): get_flow `ep-cli-init` 5steps(root main.initGenesis@
+  chaincmd.go:191), get_invariant_enforcement `INV-CONSENSUS-01` 4사이트(commit.go:123 등),
+  find_branches "정족수 부족" → digest-mismatch 분기 @commit.go:96.
+- **CKS 결정 대기**: ckvclient에 4메서드 추가(in-process) vs MCP proxy(§9.2-2). CKV는 둘 다
+  지원(in-process API + MCP 도구 모두 존재). 계약 조정 의견 있으면 회신 바람.

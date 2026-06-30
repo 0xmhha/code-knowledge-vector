@@ -189,11 +189,13 @@ ckv build --src <go-stablenet> --out <data> \
   flow/invariant은 corpus.jsonl cite(corpus dir를 manifest DocsRoots에 추가 → citation 해소).
   실 corpus(255레코드) 검증: 18 spine + 78 step + 16 inv(step 1건 line누락 warn+skip),
   메타 round-trip·citation 해소 확인. **의미 검색 품질은 bge-m3 실모델 필요(mock은 구조만).**
-- [ ] Phase C(file:line 정렬 강화) → E(빌드 오케스트레이션) → F(평가).
-- [ ] 특히 **Phase D 4도구**(get_flow/expand_flow/find_branches/
-  **get_invariant_enforcement**)는 결정 5로 Phase 2 노출 확정 → CKV가 안정 인터페이스 산출,
-  CKS가 `cks_context_*` 표면 노출 (3자 공동설계). cks 기대 시그니처 초안: 입력 {심볼/지점,
-  방향 up/down, budget} → 출력 {랭크된 flow 노드, 엣지 종류, invariant 위반 후보}.
+- [x] **Phase D CKV-side 완료** (2026-06-30, commit `5c35aed`) — flow-aware 4도구
+  (get_flow/expand_flow/find_branches/get_invariant_enforcement): store 조회 +
+  in-memory flow 모델(call-order topo, cycle-safe) + `pkg/ckv` 재노출(in-process cks 소비용) +
+  `cks.context.*` MCP 도구(15→**19**). 계약 = 협의 doc §9.1. 실 pr-77-2 인덱스 라이브검증
+  (get_flow ep-cli-init 5steps@chaincmd.go:191, INV-CONSENSUS-01 4사이트, 한국어 증상→
+  commit.go:96 분기). **남은 것 = CKS 표면 노출**(§9.2 프롬프트 전달됨, 결정 5/D-4).
+- [ ] Phase C(file:line 정렬 강화) → E(빌드 오케스트레이션, `build-knowledge.sh`로 일부 해소) → F(평가).
 
 ### E. 코드 미구현 (기존 backlog)
 - [ ] **#7(D.2)** LLM contextual prefix — throughput buffer 후 재구현.
