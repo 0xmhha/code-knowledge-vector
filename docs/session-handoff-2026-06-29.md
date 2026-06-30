@@ -160,9 +160,16 @@ ckv build --src <go-stablenet> --out <data> \
   `knowledge-data/pr-77-2/ckv/vector.db` (sha256 `1c3d9073…`, 15,575청크). ckg와 동일
   필터(`stablenet-files-with-tests.json`, 1010파일)로 스코프 일치. **canonical_id 상속률 94.6%**
   재확인. 협의 doc §8-R 공표.
-- [ ] **bge-m3 사람-워딩 의미검증** — 위 reindex-A 인덱스에 Jira식 한국어 질의 → flow_step/심볼
-  회수 확인(아직 flow-corpus 미포함 빌드 — 의미검증엔 `--docs`/`--flow-corpus` 추가 권장).
+- [x] **bge-m3 사람-워딩 의미검증 완료** (2026-06-30) — 완전 인덱스(코드+docs+flow, sha
+  `c0e448f2…`, 15,909청크)에서 패러프레이즈 한국어 Jira식 질의 **10/10** 기대 코드 파일 회수.
+  코드-only 8/10 → flow corpus로 2건 회복(사람-워딩 레이어 가치 입증). 재현 = `scripts/build-knowledge.sh`.
 - [ ] **PR-77 통합 bench** (coding-agent 주관, CKV recall 상보 cross-ref).
+
+### A2. 빌드 일관성 (Phase E 코드화 완료)
+- [x] **`scripts/build-knowledge.sh`** (2026-06-30, commit `5cb9123`) — 정본 레시피
+  (`--ckg + --files-from + --docs + --flow-corpus`, bge-m3)를 한 스크립트로 코드화 + 매칭률
+  + 사람-워딩 의미검증(`scripts/semantic-validation-queries.json`) + sha 공표. env로 경로
+  override(다른 dataset 재사용), `--skip-build`/`--build-only` 모드. = §3.5 "일관된 규칙" 해소.
 
 ### C. 임베딩 모델 교체 (reindex-B)
 - [ ] **Qwen3 A/B PoC** — `testdata/queries.yaml`·`why-queries.yaml`. 1024-truncate vs full-dim
