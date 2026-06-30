@@ -325,6 +325,33 @@ func (s *Server) registerTools() {
 			mcpgo.Description("Number of following chunks in the same file to include (default 2)."),
 		),
 	), s.handleExpandInFile)
+
+	// --- flow-aware tools (Phase D): trace a symptom to its cause over the
+	// curated flow corpus. READ-ONLY. ---
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.get_flow",
+		mcpgo.WithDescription("Lay out a curated flow's steps in call order: each step's symbol, citation (file:line), reads/writes/emits, failure branches, and invariants. Select by exactly one of flow_id / entry_point / invariant_id. READ-ONLY."),
+		mcpgo.WithString("flow_id", mcpgo.Description("Flow id (e.g. 'ep-cli-init').")),
+		mcpgo.WithString("entry_point", mcpgo.Description("Entry-point id (e.g. 'EP-CLI-INIT').")),
+		mcpgo.WithString("invariant_id", mcpgo.Description("Invariant id; resolves to the first flow in its enforced_at.")),
+	), s.handleGetFlow)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.expand_flow",
+		mcpgo.WithDescription("Return the steps adjacent to a step — downstream (direction=down, follows calls) or upstream (direction=up, follows callers) — up to `hops` away, plus the origin step's failure branches. READ-ONLY."),
+		mcpgo.WithString("step_id", mcpgo.Description("Step id to expand from."), mcpgo.Required()),
+		mcpgo.WithString("direction", mcpgo.Description("'down' (callees) or 'up' (callers). Default 'down'.")),
+		mcpgo.WithNumber("hops", mcpgo.Description("Traversal depth (default 1).")),
+	), s.handleExpandFlow)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.find_branches",
+		mcpgo.WithDescription("Map a symptom phrase to the failure branches (when→then@at) of the most relevant flow steps. Use for 'this error/behavior happens — where is it decided?' diagnosis. READ-ONLY."),
+		mcpgo.WithString("symptom_text", mcpgo.Description("Natural-language symptom / failure condition."), mcpgo.Required()),
+		mcpgo.WithNumber("k", mcpgo.Description("Top-K flow steps to draw branches from (default 10).")),
+	), s.handleFindBranches)
+
+	s.mcp.AddTool(mcpgo.NewTool("cks.context.get_invariant_enforcement",
+		mcpgo.WithDescription("List every (flow, step, loc) where a curated invariant is enforced. Enables code-derived implementation-invariant guardrails. READ-ONLY."),
+		mcpgo.WithString("inv_id", mcpgo.Description("Curated invariant id (e.g. 'INV-CONSENSUS-01')."), mcpgo.Required()),
+	), s.handleGetInvariantEnforcement)
 }
 
 // ---- handlers ----
@@ -816,5 +843,100 @@ func (s *Server) handleExpandInFile(ctx context.Context, req mcpgo.CallToolReque
 	return jsonResult(map[string]any{
 		"hits":  hits,
 		"count": len(hits),
+	})
+}
+
+func (s *Server) handleGetFlow(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.get_flow")
+	defer done()
+
+	args := req.GetArguments()
+	sel := query.FlowSelector{}
+	sel.FlowID, _ = args["flow_id"].(string)
+	sel.EntryPoint, _ = args["entry_point"].(string)
+	sel.InvariantID, _ = args["invariant_id"].(string)
+	if sel.FlowID == "" && sel.EntryPoint == "" && sel.InvariantID == "" {
+		return mcpgo.NewToolResultError("one of flow_id / entry_point / invariant_id is required"), nil
+	}
+
+	flow, err := s.engine.GetFlow(ctx, sel)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("get_flow: %v", err)), nil
+	}
+	return jsonResult(map[string]any{
+		"flow":  flow,
+		"steps": len(flow.Steps),
+	})
+}
+
+func (s *Server) handleExpandFlow(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.expand_flow")
+	defer done()
+
+	args := req.GetArguments()
+	stepID, _ := args["step_id"].(string)
+	if stepID == "" {
+		return mcpgo.NewToolResultError("step_id is required"), nil
+	}
+	direction, _ := args["direction"].(string)
+	if direction == "" {
+		direction = "down"
+	}
+	hops := 1
+	if v, ok := args["hops"].(float64); ok && v > 0 {
+		hops = int(v)
+	}
+
+	res, err := s.engine.ExpandFlow(ctx, stepID, direction, hops)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("expand_flow: %v", err)), nil
+	}
+	return jsonResult(map[string]any{
+		"result":    res,
+		"neighbors": len(res.Neighbors),
+	})
+}
+
+func (s *Server) handleFindBranches(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.find_branches")
+	defer done()
+
+	args := req.GetArguments()
+	symptom, _ := args["symptom_text"].(string)
+	if symptom == "" {
+		return mcpgo.NewToolResultError("symptom_text is required"), nil
+	}
+	k := 10
+	if v, ok := args["k"].(float64); ok && v > 0 {
+		k = int(v)
+	}
+
+	matches, err := s.engine.FindBranches(ctx, symptom, k)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("find_branches: %v", err)), nil
+	}
+	return jsonResult(map[string]any{
+		"matches": matches,
+		"count":   len(matches),
+	})
+}
+
+func (s *Server) handleGetInvariantEnforcement(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+	done := s.fp.Span("mcp.get_invariant_enforcement")
+	defer done()
+
+	args := req.GetArguments()
+	invID, _ := args["inv_id"].(string)
+	if invID == "" {
+		return mcpgo.NewToolResultError("inv_id is required"), nil
+	}
+
+	enf, err := s.engine.GetInvariantEnforcement(ctx, invID)
+	if err != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("get_invariant_enforcement: %v", err)), nil
+	}
+	return jsonResult(map[string]any{
+		"enforcement": enf,
+		"count":       len(enf.EnforcedAt),
 	})
 }

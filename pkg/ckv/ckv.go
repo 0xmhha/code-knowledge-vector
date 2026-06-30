@@ -84,6 +84,18 @@ type Response = query.Response
 // snippet, normalized score, and symbol metadata.
 type Hit = query.Hit
 
+// Flow-aware retrieval types (Phase D), re-exported so in-process consumers
+// (cks's ckvclient) get them without importing internal/query.
+type (
+	FlowSelector         = query.FlowSelector
+	FlowView             = query.FlowView
+	FlowStepView         = query.FlowStepView
+	ExpandResult         = query.ExpandResult
+	FlowNeighbor         = query.FlowNeighbor
+	BranchMatch          = query.BranchMatch
+	InvariantEnforcement = query.InvariantEnforcement
+)
+
 // DensityTier names the 3-tier snippet ladder. Set on every Hit so
 // callers know which compression level the engine rendered at, and
 // pass via SearchOptions.MaxDensity to cap the maximum tier (e.g.
@@ -160,6 +172,44 @@ func (e *Engine) SemanticSearch(ctx context.Context, intent string, opts SearchO
 		return nil, errors.New("ckv: engine is closed")
 	}
 	return e.inner.Search(ctx, intent, opts)
+}
+
+// GetFlow lays out a curated flow's steps in call order (Phase D). Select by
+// exactly one of FlowSelector.FlowID / EntryPoint / InvariantID.
+func (e *Engine) GetFlow(ctx context.Context, sel FlowSelector) (*FlowView, error) {
+	if e == nil || e.inner == nil {
+		return nil, errors.New("ckv: engine is closed")
+	}
+	return e.inner.GetFlow(ctx, sel)
+}
+
+// ExpandFlow returns steps adjacent to stepID up to hops away, following
+// downstream calls ("down") or upstream callers ("up"), plus the origin's
+// failure branches.
+func (e *Engine) ExpandFlow(ctx context.Context, stepID, direction string, hops int) (*ExpandResult, error) {
+	if e == nil || e.inner == nil {
+		return nil, errors.New("ckv: engine is closed")
+	}
+	return e.inner.ExpandFlow(ctx, stepID, direction, hops)
+}
+
+// FindBranches maps a symptom phrase to the failure branches of the most
+// relevant flow steps (semantic search over the flow corpus). Needs a real
+// embedder.
+func (e *Engine) FindBranches(ctx context.Context, symptom string, k int) ([]BranchMatch, error) {
+	if e == nil || e.inner == nil {
+		return nil, errors.New("ckv: engine is closed")
+	}
+	return e.inner.FindBranches(ctx, symptom, k)
+}
+
+// GetInvariantEnforcement lists every (flow, step, loc) where a curated
+// invariant is enforced.
+func (e *Engine) GetInvariantEnforcement(ctx context.Context, invID string) (*InvariantEnforcement, error) {
+	if e == nil || e.inner == nil {
+		return nil, errors.New("ckv: engine is closed")
+	}
+	return e.inner.GetInvariantEnforcement(ctx, invID)
 }
 
 // Manifest returns a copy of the loaded manifest. Useful for

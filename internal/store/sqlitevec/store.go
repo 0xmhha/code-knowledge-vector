@@ -647,6 +647,48 @@ func (s *Store) FindInvariants(ctx context.Context, file, category string) ([]ty
 	return out, rows.Err()
 }
 
+// FlowChunks returns the curated flow-corpus chunks: flow_step + flow_spine.
+// The corpus is small (hundreds of chunks), so callers build an in-memory flow
+// model from the result. Ordered by file/line for stable iteration.
+func (s *Store) FlowChunks(ctx context.Context) ([]types.Chunk, error) {
+	stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c
+		WHERE c.chunk_kind IN ('flow_step','flow_spine') ORDER BY c.file, c.start_line`
+	rows, err := s.db.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, fmt.Errorf("flow_chunks: %w", err)
+	}
+	defer rows.Close()
+	var out []types.Chunk
+	for rows.Next() {
+		c, scanErr := scanChunk(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// CuratedInvariant returns the curated invariant chunk whose symbol_name equals
+// id (the corpus invariant id, e.g. "INV-CONSENSUS-01"), or nil if not found.
+func (s *Store) CuratedInvariant(ctx context.Context, id string) (*types.Chunk, error) {
+	stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c
+		WHERE c.chunk_kind = 'invariant' AND c.provenance = 'curated' AND c.symbol_name = ? LIMIT 1`
+	rows, err := s.db.QueryContext(ctx, stmt, id)
+	if err != nil {
+		return nil, fmt.Errorf("curated_invariant: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	c, scanErr := scanChunk(rows)
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	return &c, rows.Err()
+}
+
 // FindConventions returns ChunkConvention rows for the given package
 // prefix. Empty prefix returns every convention chunk in the index.
 // The prefix is matched against the chunk's File field using SQLite's
