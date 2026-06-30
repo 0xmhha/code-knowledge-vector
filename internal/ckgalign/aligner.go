@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3" // CGO driver — already pulled in by sqlite-vec
 )
@@ -77,10 +79,20 @@ func Load(ckgPath string) (*Index, error) {
 	// empty keys as if the alignment were complete.
 	hasCanonical := columnExists(db, "nodes", "canonical_id")
 	canonicalSel := "''"
-	canonicalPopulated := false
+	canonicalAvailable := false
 	if hasCanonical {
 		canonicalSel = "COALESCE(canonical_id,'')"
-		canonicalPopulated = canonicalHasValue(db)
+		// Agreed gate (ADR-007 / coordination D-2): canonical_id is only a
+		// trustworthy join key on a ckg cache at manifest schema_version
+		// >= 1.19 (the column exists from 1.16 but is populated only from
+		// 1.19). Prefer the recorded schema_version from the in-db manifest
+		// table; fall back to a population probe for older graphs that predate
+		// that manifest table.
+		if maj, min, ok := readManifestSchemaVersion(db); ok {
+			canonicalAvailable = maj > 1 || (maj == 1 && min >= 19)
+		} else {
+			canonicalAvailable = canonicalHasValue(db)
+		}
 	}
 	q := `
 SELECT id, file_path, start_line, end_line, ` + canonicalSel + `
@@ -96,7 +108,7 @@ WHERE file_path != ''
 	}
 	defer rows.Close()
 
-	ix := &Index{byFile: make(map[string][]Entry), canonicalAvailable: canonicalPopulated}
+	ix := &Index{byFile: make(map[string][]Entry), canonicalAvailable: canonicalAvailable}
 	var id, file, canonicalID string
 	var start, end int
 	for rows.Next() {
@@ -126,6 +138,40 @@ func columnExists(db *sql.DB, table, col string) bool {
 	}
 	defer rows.Close()
 	return rows.Next()
+}
+
+// readManifestSchemaVersion reads ckg's recorded cache schema version from the
+// in-db key/value `manifest` table (row key='schema_version', e.g. "1.23") and
+// returns it as (major, minor). ok is false when the table or row is absent
+// (older graphs) or the value doesn't parse — the caller then falls back to a
+// population probe. Compared as integer major/minor (not float) so 1.9 < 1.19.
+func readManifestSchemaVersion(db *sql.DB) (major, minor int, ok bool) {
+	var v string
+	if err := db.QueryRow(`SELECT value FROM manifest WHERE key = 'schema_version'`).Scan(&v); err != nil {
+		return 0, 0, false
+	}
+	return parseMajorMinor(v)
+}
+
+// parseMajorMinor parses "MAJOR" or "MAJOR.MINOR" (ignoring any further
+// dot-separated parts) into integers. Returns ok=false on malformed input.
+func parseMajorMinor(s string) (major, minor int, ok bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(s, ".", 3)
+	maj, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return 0, 0, false
+	}
+	min := 0
+	if len(parts) > 1 {
+		if min, err = strconv.Atoi(strings.TrimSpace(parts[1])); err != nil {
+			return 0, 0, false
+		}
+	}
+	return maj, min, true
 }
 
 // canonicalHasValue reports whether the nodes table has at least one non-empty

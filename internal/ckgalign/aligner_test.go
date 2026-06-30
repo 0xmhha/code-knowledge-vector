@@ -353,3 +353,69 @@ INSERT INTO nodes VALUES ('n_a', 'pkg.A', 'a/f.go', 20, 30);
 		t.Error("CanonicalAvailable() = true, want false (no canonical_id column)")
 	}
 }
+
+// TestCanonicalAvailable_ManifestSchemaGate verifies the ADR-007/D-2 gate: a
+// graph whose in-db manifest records schema_version >= 1.19 is trusted (even
+// before a population probe), and < 1.19 is refused. Float-pitfall guarded:
+// "1.9" must be treated as < "1.19".
+func TestCanonicalAvailable_ManifestSchemaGate(t *testing.T) {
+	cases := []struct {
+		name      string
+		schemaVer string
+		want      bool
+	}{
+		{"1.23 ok", "1.23", true},
+		{"1.19 boundary ok", "1.19", true},
+		{"1.16 too old", "1.16", false},
+		{"1.9 is below 1.19 (not float)", "1.9", false},
+		{"2.0 newer major ok", "2.0", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			dbPath := filepath.Join(dir, "graph.db")
+			db, err := sql.Open("sqlite3", dbPath)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			// canonical_id column present but EMPTY: only the manifest
+			// schema_version should decide availability here.
+			if _, err := db.Exec(`
+CREATE TABLE nodes (id TEXT PRIMARY KEY, qualified_name TEXT NOT NULL,
+  file_path TEXT NOT NULL, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL,
+  canonical_id TEXT);
+CREATE TABLE manifest (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT INTO nodes VALUES ('n','pkg.A','a/f.go',1,2,'');
+INSERT INTO manifest VALUES ('schema_version', '` + tc.schemaVer + `');
+`); err != nil {
+				_ = db.Close()
+				t.Fatalf("seed: %v", err)
+			}
+			_ = db.Close()
+			ix, err := Load(dir)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if ix.CanonicalAvailable() != tc.want {
+				t.Errorf("schema_version %q: CanonicalAvailable()=%v, want %v", tc.schemaVer, ix.CanonicalAvailable(), tc.want)
+			}
+		})
+	}
+}
+
+func TestParseMajorMinor(t *testing.T) {
+	cases := []struct {
+		in       string
+		maj, min int
+		ok       bool
+	}{
+		{"1.23", 1, 23, true}, {"1.19", 1, 19, true}, {"1.9", 1, 9, true},
+		{"2", 2, 0, true}, {"1.23.4", 1, 23, true}, {"", 0, 0, false}, {"x.y", 0, 0, false},
+	}
+	for _, c := range cases {
+		maj, min, ok := parseMajorMinor(c.in)
+		if maj != c.maj || min != c.min || ok != c.ok {
+			t.Errorf("parseMajorMinor(%q)=(%d,%d,%v), want (%d,%d,%v)", c.in, maj, min, ok, c.maj, c.min, c.ok)
+		}
+	}
+}
