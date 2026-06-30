@@ -1,9 +1,9 @@
 # CKV MCP Tools Reference
 
-문서 버전: 1.0 (2026-05-29)
+문서 버전: 1.1 (2026-06-30 — flow-aware 4도구 추가, 총 19)
 대상 ResponseSchemaVersion: `1.1`
 
-CKV의 MCP 서버(`ckv mcp`)가 노출하는 15개 도구의 입출력 스키마, 사용 시나리오, 호출 예시를 정리한다. coding-agent SKILL 작성자, CKS 오케스트레이터 통합자, 외부 MCP 클라이언트가 참조한다.
+CKV의 MCP 서버(`ckv mcp`)가 노출하는 19개 도구의 입출력 스키마, 사용 시나리오, 호출 예시를 정리한다. coding-agent SKILL 작성자, CKS 오케스트레이터 통합자, 외부 MCP 클라이언트가 참조한다.
 
 도구 분류:
 
@@ -12,6 +12,7 @@ CKV의 MCP 서버(`ckv mcp`)가 노출하는 15개 도구의 입출력 스키마
 | 검색 | `semantic_search`, `keyword_search`, `vector_search` | 1차 retrieval |
 | 정제 | `narrow_candidates`, `expand_in_file` | 후보 좁힘 / 컨텍스트 확장 |
 | 메타 | `find_invariants`, `get_conventions`, `explain_match` | 정책·컨벤션·설명 |
+| 흐름 | `get_flow`, `expand_flow`, `find_branches`, `get_invariant_enforcement` | flow corpus 기반 현상→원인 |
 | 보조 | `embed`, `rerank`, `related_changes` | 저수준 / 보조 |
 | 운영 | `health`, `get_freshness`, `warmup`, `index` | 인덱스 운영 |
 
@@ -260,6 +261,72 @@ CKV의 MCP 서버(`ckv mcp`)가 노출하는 15개 도구의 입출력 스키마
 
 ---
 
+## 흐름 (flow-aware)
+
+> 큐레이션된 flow corpus(`ckv build --flow-corpus corpus.jsonl`로 적재된 flow_step /
+> flow_spine / curated-invariant 청크)를 기반으로 "현상 → 원인" 인과를 추적한다. corpus가
+> 없는 인덱스에서는 빈 결과를 반환한다. 모두 READ-ONLY, bounded(단일 flow / 단일 lookup).
+> in-process 소비자(cks ckvclient)는 `pkg/ckv.Engine`의 동명 메서드를 직접 호출 가능.
+
+### `cks.context.get_flow`
+
+**용도:** 한 flow의 step들을 호출(calls) topological 순서로 나열. 각 step의 symbol·citation·
+분기·invariant 포함. cycle-safe(사이클 step은 원래 순서로 보존).
+
+**입력:** (셋 중 하나 필수)
+- `flow_id` (string): flow id (예: `ep-cli-init`)
+- `entry_point` (string): 진입점 id (예: `EP-CLI-INIT`)
+- `invariant_id` (string): 불변식 id → 그 invariant의 enforced_at 첫 flow로 해소
+
+**출력:** `{flow: {flow_id, entry_point, trigger, root_symbol, links[], called_by[],
+steps: [{step_id, symbol, citation{file,start_line,end_line}, kind, calls[], reads, writes,
+emits, branches[{when,then,at}], invariants[]}]}, steps: <count>}`
+
+**사용 시나리오:** "X 작업의 전체 코드 경로를 순서대로 보여줘."
+
+### `cks.context.expand_flow`
+
+**용도:** 한 step의 인접 step 탐색 — downstream(`direction=down`, calls) 또는 upstream
+(`direction=up`, callers) — `hops`까지. origin step의 실패 분기도 함께 반환.
+
+**입력:**
+- `step_id` (string, required)
+- `direction` (string, optional, default `down`): `down` | `up`
+- `hops` (number, optional, default 1)
+
+**출력:** `{result: {origin, direction, origin_branches[{when,then,at}],
+neighbors: [{step_id, symbol, citation, relation: "calls"|"called_by"}]}, neighbors: <count>}`
+
+**사용 시나리오:** "이 step 직전/직후에 무엇이 호출되나?"
+
+### `cks.context.find_branches`
+
+**용도:** 증상 문구를 가장 관련 있는 flow step들의 실패 분기(when→then@at)에 매핑. flow_step
+임베딩 텍스트에 branch.when이 포함돼 있어 실패조건으로도 검색됨. 실 embedder 필요.
+
+**입력:**
+- `symptom_text` (string, required): 자연어 증상/실패조건
+- `k` (number, optional, default 10): 분기를 뽑을 top-K flow step
+
+**출력:** `{matches: [{when, then, at, step_id, flow_id, symbol, citation, score}], count}`
+
+**사용 시나리오:** "이 에러/현상이 어디서 결정되나?" (현상→원인 진단).
+
+### `cks.context.get_invariant_enforcement`
+
+**용도:** 큐레이션된 불변식이 강제되는 모든 (flow, step, loc) 나열. coding-agent의 코드-도출
+구현 불변식 가드레일 enabler.
+
+**입력:** `inv_id` (string, required): 불변식 id (예: `INV-CONSENSUS-01`)
+
+**출력:** `{enforcement: {inv_id, statement, enforced_at: [{flow, step, loc}]}, count}`
+
+**사용 시나리오:** "이 불변식은 코드 어디어디서 검사되나?"
+
+**에러(흐름 4종 공통):** 미존재 flow/step/invariant → `isError: true`. corpus 미적재 인덱스 → 빈 결과.
+
+---
+
 ## 멀티홉 패턴 예시
 
 agent가 jira ticket을 받았을 때 권장 호출 순서:
@@ -280,6 +347,19 @@ agent가 jira ticket을 받았을 때 권장 호출 순서:
 ```
 
 이 6단계로 토큰 사용량은 grep+read 반복 대비 ~50% 감소 예상 (V1 측정 후 갱신).
+
+**현상→원인 진단(flow corpus 적재 시)**:
+
+```
+1. find_branches(symptom_text=ticket 증상)
+   → 증상과 일치하는 실패 분기 + 그 step의 file:line
+2. get_flow(flow_id=matches[0].flow_id)
+   → 그 step이 속한 전체 흐름을 호출 순서로
+3. expand_flow(step_id=matches[0].step_id, direction=up)
+   → 그 분기 직전 단계(원인 후보)로 거슬러
+4. get_invariant_enforcement(inv_id=step.invariants[0])
+   → 관련 불변식이 강제되는 다른 지점들 (영향 범위)
+```
 
 ---
 
