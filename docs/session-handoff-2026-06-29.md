@@ -155,7 +155,13 @@ ckv build --src <go-stablenet> --out <data> \
   심볼청크 = 94.4%** (≥90% 충족). ckg_node_id(file:line) 정렬률 99.3%. proto(CKV 미파싱)·
   promoted(canonical 없음) 제외. 갭 ~6% = 패키지레벨 var/const 블록(CKV가 ckg 노드와 다르게 청크).
   통합 fixture CKV 半 = `internal/ckgalign/integration_test.go`(verbatim 상속 + `@<line>` caveat).
-- [ ] **bge-m3 실모델 사람-워딩 의미검증** (중단됨 — reindex-A 빌드 ~20분; 재개 시 flow_step 회수 확인).
+- [x] **reindex-A 산출 완료** (2026-06-30) — 새 ckg 정본 그래프 `knowledge-data/pr-77-2`
+  (schema 1.23, test포함 go+sol 필터)에 정렬, **bge-m3@1024** 빌드(~20분). 산출물
+  `knowledge-data/pr-77-2/ckv/vector.db` (sha256 `1c3d9073…`, 15,575청크). ckg와 동일
+  필터(`stablenet-files-with-tests.json`, 1010파일)로 스코프 일치. **canonical_id 상속률 94.6%**
+  재확인. 협의 doc §8-R 공표.
+- [ ] **bge-m3 사람-워딩 의미검증** — 위 reindex-A 인덱스에 Jira식 한국어 질의 → flow_step/심볼
+  회수 확인(아직 flow-corpus 미포함 빌드 — 의미검증엔 `--docs`/`--flow-corpus` 추가 권장).
 - [ ] **PR-77 통합 bench** (coding-agent 주관, CKV recall 상보 cross-ref).
 
 ### C. 임베딩 모델 교체 (reindex-B)
