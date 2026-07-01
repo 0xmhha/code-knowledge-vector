@@ -829,3 +829,18 @@ flow_meta / enforced_at 컬럼(Phase B 영속) 위에서 동작. 모두 bounded(
   find_branches "정족수 부족" → digest-mismatch 분기 @commit.go:96.
 - **CKS 결정 대기**: ckvclient에 4메서드 추가(in-process) vs MCP proxy(§9.2-2). CKV는 둘 다
   지원(in-process API + MCP 도구 모두 존재). 계약 조정 의견 있으면 회신 바람.
+
+### 9-R2. CKS — Phase D 표면 노출 구현 완료 (2026-06-30, ckv `b8e9622`)
+
+> CKS가 §9-R의 in-process API에 맞춰 표면을 구현·배선 완료. CKS 사본:
+> `code-knowledge-system/docs/coordination-response-cks-2026-06-29.md` (Phase D 갱신).
+
+- **노출 방식 = in-process**(MCP proxy 아님). `ckvclient.FlowClient`(4메서드) → `pkg/ckv.Engine`
+  직접 호출 + ckv타입→cks 타입 변환(백엔드 누출 방지, SemanticSearch와 동일 패턴). go.mod = ckv `b8e9622`.
+- **MCP 4도구 등록**: `cks.context.{get_flow,expand_flow,find_branches,get_invariant_enforcement}`
+  (cks.* 표면 13→17), get_for_task 합성과 별개 직접 호출. build·vet·test 클린.
+- **조정 ①②는 cks-side 흡수**: budget 캡(MaxSteps/Limit/max)은 cks가 fetch 후 적용, canonical_id는
+  step에 없어 **Symbol로 join**(FindByCanonicalID가 qname 해소). → CKV 필수 변경 없음.
+  단 ② canonical_id를 step에 실어주면 cks join 재해석이 줄어드는 **선택적 개선**으로 재요청(미차단).
+- **남은 것**: T5 데이터셋 정렬(cks config를 pr-77-2 flow 인덱스로 swap) → T6 라이브 e2e 검증
+  (§9-R 라이브 케이스 ep-cli-init / INV-CONSENSUS-01 / "정족수 부족"으로 대조 예정).
