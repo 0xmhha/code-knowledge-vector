@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ckv Atlas — 지식 분포 + 실검색</title>
+<style>
+  :root { --accent:#825FF0; --hl:#ff5a4f; --gray:#7C7B73; --rule:#2a2a30; --paper:#0f0f12; --card:#17171c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:#e8e6e1;
+         font-family:"Apple SD Gothic Neo",Pretendard,-apple-system,system-ui,sans-serif; }
+  header { padding:12px 18px; border-bottom:1px solid var(--rule); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0 10px 0 0; font-weight:800; }
+  #q { flex:1; min-width:240px; padding:8px 12px; background:var(--card); border:1px solid var(--rule);
+       color:#fff; border-radius:6px; font-size:14px; }
+  #q:focus { outline:none; border-color:var(--accent); }
+  select { padding:8px 10px; background:var(--card); border:1px solid var(--rule); color:#e8e6e1; border-radius:6px; }
+  #status { padding:5px 18px; color:var(--gray); font-size:12px; border-bottom:1px solid var(--rule); }
+  .err { color:#ff7a7a; }
+  #wrap { display:flex; height:calc(100vh - 88px); }
+  #left { flex:1.35; position:relative; border-right:1px solid var(--rule); }
+  #cv { display:block; width:100%; height:100%; cursor:grab; }
+  #right { flex:1; overflow-y:auto; }
+  .hit { padding:8px 14px; border-bottom:1px solid var(--rule); cursor:pointer; }
+  .hit:hover, .hit.sel { background:#1c1c22; }
+  .hit .top { display:flex; gap:8px; align-items:center; }
+  .hit .rank { color:var(--gray); font-size:12px; width:20px; }
+  .hit .sym { font-weight:700; color:#fff; }
+  .hit .score { margin-left:auto; color:var(--hl); font-size:12px; font-variant-numeric:tabular-nums; }
+  .hit .file { color:var(--gray); font-size:12px; margin:2px 0 0 28px; }
+  .hit pre { margin:5px 0 0 28px; padding:5px 8px; background:#0b0b0e; border:1px solid var(--rule);
+             border-radius:5px; font-size:11px; color:#b9b4a8; overflow:auto; max-height:76px; }
+  #tip { position:absolute; pointer-events:none; background:#000; border:1px solid var(--accent);
+         color:#fff; font-size:12px; padding:5px 8px; border-radius:6px; display:none; max-width:340px; z-index:5; }
+  .legend { position:absolute; left:10px; bottom:10px; font-size:11px; color:var(--gray);
+            background:rgba(0,0,0,.5); padding:6px 8px; border-radius:6px; line-height:1.7; max-width:46%; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin:0 4px 0 8px; vertical-align:middle; }
+  .hint { position:absolute; right:10px; bottom:10px; font-size:11px; color:var(--gray);
+          background:rgba(0,0,0,.5); padding:6px 8px; border-radius:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ckv <span style="color:var(--accent)">Atlas</span></h1>
+  <input id="q" placeholder='자연어 질의 — 예: "0번 블록" · "gasTip 복원 시 tx 정체" (타이핑하면 실시간 검색)' autofocus>
+  <select id="k"><option>10</option><option selected>20</option><option>30</option></select>
+  <select id="lang"><option value="">전체</option><option>go</option><option>solidity</option><option>markdown</option></select>
+</header>
+<div id="status">데이터 로딩중…</div>
+<div id="wrap">
+  <div id="left"><canvas id="cv"></canvas><div id="tip"></div><div class="legend" id="legend"></div>
+    <div class="hint">드래그=회전 · 휠=줌 · 붉은 점=검색 히트 · ◇=질의 위치</div></div>
+  <div id="right"><div style="padding:14px;color:var(--gray)">질의를 입력하면 <b>실제 ckv</b>(bge-m3+sqlite-vec)가 검색하고, 히트가 공간에서 붉게 표시됩니다.</div></div>
+</div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const cv = $('#cv'), ctx = cv.getContext('2d');
+const DPR = window.devicePixelRatio || 1;
+
+// ---- 데이터 ----
+let N = 0, XYZ = null, META = [], byChunk = new Map();
+// ---- 카메라(yaw/pitch/dist) ----
+let yaw = 0.6, pitch = 0.35, dist = 2.6;
+// ---- 검색 상태 ----
+let hits = new Map();        // chunk_id → {score, rank}
+let queryXYZ = null;
+let hoverIdx = -1, selChunk = null;
+
+const PAL = { consensus:'#825FF0', state:'#48b0f7', crypto:'#f7b731', p2p:'#2dd4a7',
+              txpool:'#ff7ab6', vm:'#c084fc', rpc:'#f97316', '':'#6f7480' };
+function catColor(c){ if (PAL[c] !== undefined) return PAL[c];
+  let h=0; for (const ch of c) h=(h*31+ch.charCodeAt(0))>>>0; return `hsl(${h%360} 60% 60%)`; }
+
+function rot(x,y,z){ // yaw(Y축) → pitch(X축)
+  const cy=Math.cos(yaw), sy=Math.sin(yaw), cp=Math.cos(pitch), sp=Math.sin(pitch);
+  const x1=cy*x+sy*z, z1=-sy*x+cy*z;
+  const y2=cp*y-sp*z1, z2=sp*y+cp*z1;
+  return [x1,y2,z2];
+}
+function projPt(x,y,z,W,H){
+  const [rx,ry,rz]=rot(x,y,z);
+  const zc = rz + dist;                    // 카메라 앞 거리
+  if (zc <= 0.05) return null;
+  const f = (Math.min(W,H)*0.85)/zc;
+  return [W/2+rx*f, H/2-ry*f, zc];
+}
+
+function draw(){
+  const r = $('#left').getBoundingClientRect(), W=r.width, H=r.height;
+  ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,W,H);
+  // 좌표축 (projector 풍)
+  const axes=[[[-1,0,0],[1,0,0],'#3a3f4a'],[[0,-1,0],[0,1,0],'#3a3f4a'],[[0,0,-1],[0,0,1],'#3a3f4a']];
+  for (const [a,b,c] of axes){
+    const p1=projPt(...a,W,H), p2=projPt(...b,W,H);
+    if(!p1||!p2) continue;
+    ctx.strokeStyle=c; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); ctx.stroke();
+  }
+  if (!XYZ) return;
+  const hasSearch = hits.size > 0;
+  // 1패스: 일반 점 (검색 중엔 살짝 가라앉힘 — 색은 유지, 투명도만)
+  ctx.globalAlpha = hasSearch ? 0.28 : 0.85;
+  for (let i=0;i<N;i++){
+    const cid = META[i][0];
+    if (hasSearch && hits.has(cid)) continue;
+    const p = projPt(XYZ[i*3], XYZ[i*3+1], XYZ[i*3+2], W, H);
+    if (!p) continue;
+    const s = Math.max(1.2, 2.6 - p[2]*0.35);
+    ctx.fillStyle = catColor(META[i][3] || '');
+    ctx.fillRect(p[0]-s/2, p[1]-s/2, s, s);
+  }
+  // 2패스: 검색 히트 (붉은 강조, score 크기)
+  ctx.globalAlpha = 1;
+  if (hasSearch){
+    for (const [cid, h] of hits){
+      const i = byChunk.get(cid);
+      if (i === undefined) continue;
+      const p = projPt(XYZ[i*3], XYZ[i*3+1], XYZ[i*3+2], W, H);
+      if (!p) continue;
+      const s = 4 + h.score*7;
+      ctx.beginPath(); ctx.arc(p[0], p[1], s, 0, 7);
+      ctx.fillStyle = (cid===selChunk) ? '#ffffff' : '#ff5a4f';
+      ctx.fill();
+      if (h.rank <= 5){
+        ctx.fillStyle='#ffb4ad'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+        ctx.fillText(META[i][1].slice(0,20), p[0], p[1]-s-4);
+      }
+    }
+  }
+  // 질의 점 (◇ 흰색)
+  if (queryXYZ){
+    const p = projPt(...queryXYZ, W, H);
+    if (p){
+      ctx.strokeStyle='#fff'; ctx.fillStyle='rgba(255,255,255,.9)'; ctx.lineWidth=1.5;
+      ctx.beginPath();
+      ctx.moveTo(p[0],p[1]-8); ctx.lineTo(p[0]+8,p[1]); ctx.lineTo(p[0],p[1]+8); ctx.lineTo(p[0]-8,p[1]);
+      ctx.closePath(); ctx.stroke();
+      ctx.font='bold 12px sans-serif'; ctx.textAlign='center'; ctx.fillText('질의', p[0], p[1]-12);
+    }
+  }
+  // hover 링
+  if (hoverIdx >= 0){
+    const p = projPt(XYZ[hoverIdx*3], XYZ[hoverIdx*3+1], XYZ[hoverIdx*3+2], W, H);
+    if (p){ ctx.strokeStyle='#fff'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.arc(p[0],p[1],6,0,7); ctx.stroke(); }
+  }
+}
+
+function resize(){ const r=$('#left').getBoundingClientRect();
+  cv.width=r.width*DPR; cv.height=r.height*DPR; draw(); }
+window.addEventListener('resize', resize);
+
+// ---- 인터랙션: 드래그 회전 / 휠 줌 / hover ----
+let dragging=false, lx=0, ly=0;
+cv.addEventListener('mousedown', e=>{ dragging=true; lx=e.clientX; ly=e.clientY; cv.style.cursor='grabbing'; });
+window.addEventListener('mouseup', ()=>{ dragging=false; cv.style.cursor='grab'; });
+window.addEventListener('mousemove', e=>{
+  if (dragging){
+    yaw += (e.clientX-lx)*0.006; pitch += (e.clientY-ly)*0.006;
+    pitch = Math.max(-1.5, Math.min(1.5, pitch));
+    lx=e.clientX; ly=e.clientY; draw();
+  }
+});
+cv.addEventListener('wheel', e=>{ e.preventDefault();
+  dist = Math.max(0.6, Math.min(8, dist * (e.deltaY>0?1.08:0.93))); draw(); }, {passive:false});
+cv.addEventListener('mousemove', e=>{
+  if (dragging || !XYZ) return;
+  const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const rect=$('#left').getBoundingClientRect();
+  let best=-1, bd=64; // 8px^2
+  // 검색 중엔 히트만 hover 대상 (성능+명료함); 평시엔 샘플 전수
+  const scan = hits.size>0 ? [...hits.keys()].map(c=>byChunk.get(c)).filter(i=>i!==undefined)
+                           : null;
+  const check = i=>{ const p=projPt(XYZ[i*3],XYZ[i*3+1],XYZ[i*3+2],rect.width,rect.height);
+    if(!p) return; const d=(p[0]-mx)**2+(p[1]-my)**2; if(d<bd){bd=d;best=i;} };
+  if (scan) scan.forEach(check); else { for(let i=0;i<N;i++) check(i); }
+  const tip=$('#tip');
+  hoverIdx=best;
+  if (best>=0){ const m=META[best];
+    tip.style.display='block'; tip.style.left=(mx+14)+'px'; tip.style.top=(my+10)+'px';
+    tip.innerHTML=`<b>${m[1]}</b> <span style="color:var(--gray)">${m[5]}</span><br>${m[2]}:${m[6]}<br><span style="color:var(--gray)">${m[3]||'-'} · ${m[4]}</span>`;
+  } else tip.style.display='none';
+  draw();
+});
+
+// ---- 검색: 타이핑 → 디바운스 → 진짜 ckv ----
+let timer=null, seq=0;
+$('#q').addEventListener('input', ()=>{
+  clearTimeout(timer);
+  const q=$('#q').value.trim();
+  if (!q){ hits=new Map(); queryXYZ=null; selChunk=null; renderPanel(null); draw();
+    $('#status').textContent=`${N} chunks — 대기중`; return; }
+  timer=setTimeout(()=>search(q), 350);
+});
+async function search(q){
+  const my=++seq;
+  $('#status').innerHTML=`검색중… "<b>${q}</b>" → ckv(bge-m3)`;
+  try{
+    const res=await fetch(`/query?q=${encodeURIComponent(q)}&k=${$('#k').value}&lang=${$('#lang').value}`);
+    const d=await res.json();
+    if (my!==seq) return;                       // 뒤늦은 응답 폐기
+    if (d.error){ $('#status').innerHTML=`<span class="err">에러: ${d.error}</span> <span style="color:var(--gray)">(ollama/ckv 확인)</span>`; return; }
+    hits=new Map();
+    (d.hits||[]).forEach((h,idx)=>hits.set(h.chunk_id,{score:h.score.normalized, rank:idx+1, h}));
+    queryXYZ=d.query_xyz||null; selChunk=null;
+    renderPanel(d); draw();
+    const inCloud=[...hits.keys()].filter(c=>byChunk.has(c)).length;
+    $('#status').innerHTML=`"<b>${q}</b>" → <b>${hits.size}</b> hits (공간 표시 ${inCloud}) `+
+      `· tokens ${d.metadata?.tokens_used ?? '-'} · <span style="color:var(--gray)">실제 ckv engine.Search 결과</span>`;
+  }catch(e){ if (my===seq) $('#status').innerHTML=`<span class="err">요청 실패: ${e}</span>`; }
+}
+function renderPanel(d){
+  const R=$('#right');
+  if (!d){ R.innerHTML='<div style="padding:14px;color:var(--gray)">질의를 입력하면 실제 ckv가 검색합니다.</div>'; return; }
+  const arr=d.hits||[];
+  if (!arr.length){ R.innerHTML='<div style="padding:14px;color:var(--gray)">결과 없음 (threshold 0.4 미만은 ckv가 버림)</div>'; return; }
+  R.innerHTML=arr.map((h,i)=>{
+    const sym=h.symbol||h.citation.file.split('/').pop();
+    const snip=(h.snippet||'').replace(/</g,'&lt;');
+    return `<div class="hit" data-c="${h.chunk_id}">
+      <div class="top"><span class="rank">${i+1}</span><span class="sym">${sym}</span>
+        <span class="score">${h.score.normalized.toFixed(3)}</span></div>
+      <div class="file">${h.citation.file}:${h.citation.start_line}-${h.citation.end_line}${h.category?` · ${h.category}`:''}</div>
+      ${snip?`<pre>${snip}</pre>`:''}</div>`;
+  }).join('');
+  R.querySelectorAll('.hit').forEach(el=>{
+    el.onmouseenter=()=>{ selChunk=el.dataset.c; el.classList.add('sel'); draw(); };
+    el.onmouseleave=()=>{ selChunk=null; el.classList.remove('sel'); draw(); };
+  });
+}
+
+// ---- 부팅 ----
+(async ()=>{
+  try{
+    const d=await (await fetch('/data/points.json')).json();
+    N=d.n; XYZ=new Float32Array(d.xyz); META=d.meta;
+    META.forEach((m,i)=>byChunk.set(m[0], i));
+    const cats={}; META.forEach(m=>{ const c=m[3]||'(none)'; cats[c]=(cats[c]||0)+1; });
+    $('#legend').innerHTML='PCA 3D · '+Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,8)
+      .map(([c,n])=>`<span class="dot" style="background:${catColor(c==='(none)'?'':c)}"></span>${c} ${n}`).join('');
+    const cfg=await (await fetch('/config')).json();
+    $('#status').textContent=`${N} chunks 로드 — db=${cfg.db.split('/').slice(-2).join('/')} · ${cfg.model} · 질의 투영 ${cfg.projection?'ON':'OFF'}`;
+    resize();
+  }catch(e){
+    $('#status').innerHTML=`<span class="err">points.json 로드 실패 — 먼저 <b>python3 export_projection.py</b> 실행</span>`;
+  }
+})();
+resize();
+</script>
+</body>
+</html>
