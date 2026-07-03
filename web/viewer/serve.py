@@ -44,7 +44,8 @@ def load_projection():
     with open(p, encoding="utf-8") as f:
         d = json.load(f)
     PROJ.update(mean=d["mean"], comps=d["components"], scale=d["scale"],
-                dim=d["dim"], loaded=True)
+                dim=d["dim"], evr=d.get("explained_variance_ratio"),
+                axes=d.get("axes"), loaded=True)
 
 
 def embed_query(text):
@@ -71,6 +72,59 @@ def project(vec):
     m, comps, sc = PROJ["mean"], PROJ["comps"], PROJ["scale"]
     c = [v - mv for v, mv in zip(vec, m)]
     return [sum(ci * wi for ci, wi in zip(c, comp)) / sc for comp in comps]
+
+
+def load_chunk_vectors(chunk_ids):
+    """vector.db shadow 테이블에서 특정 chunk 들의 임베딩을 읽는다.
+    (유사도 행렬 뷰용 — K≤30 개라 순수 파이썬으로 충분)"""
+    import sqlite3
+    import struct
+    db = CFG["db"] if CFG["db"].endswith(".db") else os.path.join(CFG["db"], "vector.db")
+    if not os.path.exists(db):
+        return {}
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        ph = ",".join("?" * len(chunk_ids))
+        rows = con.execute(
+            f"SELECT id, chunk_id, chunk_offset FROM chunk_vec_rowids WHERE id IN ({ph})",
+            list(chunk_ids)).fetchall()
+        out = {}
+        blocks = {}
+        for cid, blk, off in rows:
+            if blk not in blocks:
+                r = con.execute(
+                    "SELECT vectors FROM chunk_vec_vector_chunks00 WHERE rowid=?", (blk,)).fetchone()
+                blocks[blk] = r[0] if r else None
+            raw = blocks[blk]
+            if raw is None:
+                continue
+            start = off * 4096  # 1024 dims × 4B
+            seg = raw[start:start + 4096]
+            if len(seg) == 4096:
+                out[cid] = struct.unpack("<1024f", seg)
+        return out
+    finally:
+        con.close()
+
+
+def sim_matrix(hits):
+    """히트 간 pairwise 코사인 (unit-norm 이므로 내적). hits 순서 정렬 유지."""
+    ids = [h.get("chunk_id") for h in hits]
+    vecs = load_chunk_vectors([i for i in ids if i])
+    n = len(ids)
+    m = [[None] * n for _ in range(n)]
+    for a in range(n):
+        va = vecs.get(ids[a])
+        if va is None:
+            continue
+        m[a][a] = 1.0
+        for b in range(a + 1, n):
+            vb = vecs.get(ids[b])
+            if vb is None:
+                continue
+            s = round(sum(x * y for x, y in zip(va, vb)), 4)
+            m[a][b] = m[b][a] = s
+    return m
 
 
 def run_ckv(q, k, lang):
@@ -117,7 +171,9 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, json.dumps({"error": "no data — run export_projection.py first"}))
         if u.path == "/config":
             return self._send(200, json.dumps({
-                "db": CFG["db"], "model": CFG["model"], "projection": PROJ["loaded"]}))
+                "db": CFG["db"], "model": CFG["model"], "projection": PROJ["loaded"],
+                "dim": PROJ.get("dim"), "evr": PROJ.get("evr"),
+                "axes": PROJ.get("axes")}))
         if u.path == "/query":
             qs = urllib.parse.parse_qs(u.query)
             q = (qs.get("q") or [""])[0].strip()
@@ -128,6 +184,10 @@ class H(BaseHTTPRequestHandler):
             res = run_ckv(q, k, lang)
             if "error" not in res:
                 res["query_xyz"] = project(embed_query(q))
+                try:
+                    res["sim"] = sim_matrix(res.get("hits") or [])
+                except Exception:
+                    res["sim"] = None  # 행렬 실패는 검색 자체를 막지 않는다
             return self._send(200, json.dumps(res))
         return self._send(404, json.dumps({"error": "not found"}))
 
