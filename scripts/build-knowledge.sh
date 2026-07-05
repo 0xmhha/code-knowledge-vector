@@ -27,11 +27,15 @@ set -uo pipefail
 # ---- config (env-overridable) ----------------------------------------------
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="${SRC:-/Users/wm-it-25_0220/Work/github/test/analysis-test-3}"
+# CKG_DIR is the dataset root; the ckg graph lives in $CKG_DIR/graph-db/ and
+# the vector index is written to $CKG_DIR/vector-db/ (sibling layout).
 CKG_DIR="${CKG_DIR:-/Users/wm-it-25_0220/Work/github/knowledge-data/pr-77-2}"
+GRAPH_DB_DIR="$CKG_DIR/graph-db"
 FILTER="${FILTER:-/Users/wm-it-25_0220/Work/github/code-knowledge-graph/eval/stablenet/stablenet-files-with-tests.json}"
 DOCS="${DOCS:-$SRC/.claude/docs}"
 FLOW_CORPUS="${FLOW_CORPUS:-/Users/wm-it-25_0220/Work/github/go-stablenet/.claude.backup.20260625_180533/docs/corpus/corpus.jsonl}"
-OUT="${OUT:-$CKG_DIR/ckv}"
+POLICY="${POLICY:-$REPO/policy/stablenet.yaml}"
+OUT="${OUT:-$CKG_DIR/vector-db}"
 EMBEDDER="${EMBEDDER:-ollama}"
 MODEL="${MODEL:-bge-m3}"
 LANGS="${LANGS:-go,solidity}"
@@ -55,7 +59,7 @@ die() { printf '\033[31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 preflight() {
   say "preflight"
   [ -d "$SRC" ] || die "SRC not found: $SRC"
-  [ -f "$CKG_DIR/graph.db" ] || die "ckg graph.db not found in: $CKG_DIR"
+  [ -f "$GRAPH_DB_DIR/graph.db" ] || die "ckg graph.db not found in: $GRAPH_DB_DIR"
   [ -f "$FILTER" ] || die "files-from filter not found: $FILTER"
   [ -f "$FLOW_CORPUS" ] || echo "  warn: flow corpus missing ($FLOW_CORPUS) — building without it"
   [ -d "$DOCS" ] || echo "  warn: docs dir missing ($DOCS) — building without it"
@@ -67,17 +71,18 @@ preflight() {
   fi
 
   # ckg schema must be >= 1.19 for canonical_id to be populated (ADR-007 / D-2)
-  local sv; sv="$(sqlite3 "$CKG_DIR/graph.db" "SELECT value FROM manifest WHERE key='schema_version';" 2>/dev/null)"
-  local commit; commit="$(sqlite3 "$CKG_DIR/graph.db" "SELECT value FROM manifest WHERE key='src_commit';" 2>/dev/null)"
+  local sv; sv="$(sqlite3 "$GRAPH_DB_DIR/graph.db" "SELECT value FROM manifest WHERE key='schema_version';" 2>/dev/null)"
+  local commit; commit="$(sqlite3 "$GRAPH_DB_DIR/graph.db" "SELECT value FROM manifest WHERE key='src_commit';" 2>/dev/null)"
   echo "  ckg: schema_version=$sv  src_commit=${commit:0:12}"
   case "$sv" in
     1.19|1.2[0-9]|1.[3-9][0-9]|[2-9].*) : ;;  # >= 1.19 (coarse guard; ckgalign does the precise gate)
     *) echo "  warn: ckg schema_version=$sv may be < 1.19 — canonical_id could be empty" ;;
   esac
   echo "  recipe: src=$SRC"
-  echo "          ckg=$CKG_DIR  filter=$(basename "$FILTER")  langs=$LANGS"
+  echo "          ckg=$GRAPH_DB_DIR  filter=$(basename "$FILTER")  langs=$LANGS"
   echo "          docs=$DOCS"
   echo "          flow=$FLOW_CORPUS"
+  echo "          policy=$POLICY"
   echo "          embedder=$EMBEDDER/$MODEL  out=$OUT"
 }
 
@@ -85,9 +90,10 @@ preflight() {
 build() {
   say "build (full recipe)"
   [ -x "$CKV" ] || { echo "  building bin/ckv"; (cd "$REPO" && make build >/dev/null) || die "make build"; }
-  local args=(build --src="$SRC" --ckg="$CKG_DIR" --files-from="$FILTER" --out="$OUT" --lang="$LANGS")
+  local args=(build --src="$SRC" --ckg="$GRAPH_DB_DIR" --files-from="$FILTER" --out="$OUT" --lang="$LANGS")
   [ -d "$DOCS" ] && args+=(--docs="$DOCS")
   [ -f "$FLOW_CORPUS" ] && args+=(--flow-corpus="$FLOW_CORPUS")
+  [ -f "$POLICY" ] && args+=(--policy="$POLICY")
   rm -rf "$OUT"
   echo "  ckv ${args[*]} --embedder $EMBEDDER --model-name $MODEL"
   CKV_OLLAMA_ENDPOINT="$OLLAMA" "$CKV" "${args[@]}" --embedder "$EMBEDDER" --model-name "$MODEL" \

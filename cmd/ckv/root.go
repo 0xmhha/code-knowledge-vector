@@ -32,12 +32,12 @@ func newRootCmd() *cobra.Command {
 
 	cmd.PersistentFlags().BoolVar(&globalFlags.noFootprint, "no-footprint", false,
 		"disable the JSONL footprint log written to <out>/footprint.jsonl")
-	cmd.PersistentFlags().StringVar(&globalFlags.embedder, "embedder", "mock",
+	cmd.PersistentFlags().StringVar(&globalFlags.embedder, "embedder", "ollama",
 		"embedder backend: mock | bgeonnx | ollama")
 	cmd.PersistentFlags().StringVar(&globalFlags.modelDir, "model-dir", "",
 		"override the model cache directory")
 	cmd.PersistentFlags().StringVar(&globalFlags.modelName, "model-name", "",
-		"model name (for ollama: e.g. bge-m3; for bgeonnx: overrides default)")
+		"model name (for ollama: default bge-m3, also qwen3-embedding:0.6b|4b; for bgeonnx: overrides default)")
 	cmd.PersistentFlags().StringVar(&globalFlags.logLevel, "log-level", "",
 		"slog minimum level: debug | info | warn | error (default info; falls back to $CKV_LOG_LEVEL)")
 	cmd.PersistentFlags().StringVar(&globalFlags.profile, "profile", "",

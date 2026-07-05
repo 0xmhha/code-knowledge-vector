@@ -26,7 +26,10 @@ func TestRegistry_EntryShape(t *testing.T) {
 				t.Errorf("MaxInput must be > 0, got %d", cfg.MaxInput)
 			}
 			if cfg.OnnxFile == "" {
-				t.Error("OnnxFile must not be empty")
+				// Ollama-only entry (no ONNX export configured) — Open()
+				// rejects it before any file access, so the ONNX shape
+				// requirements below don't apply.
+				t.Skipf("model %q is ollama-only", cfg.Name)
 			}
 			if cfg.TokenizerFile == "" {
 				t.Error("TokenizerFile must not be empty")

@@ -84,8 +84,8 @@ jobs:
       - name: Build index + eval (mock embedder)
         run: |
           TMP_OUT=$(mktemp -d)
-          go run ./cmd/ckv build --src ./testdata/sample --out "$TMP_OUT"
-          go run ./cmd/ckv eval --fixture ./testdata/queries.yaml \
+          go run ./cmd/ckv build --embedder=mock --src ./testdata/sample --out "$TMP_OUT"
+          go run ./cmd/ckv eval --embedder=mock --fixture ./testdata/queries.yaml \
             --out "$TMP_OUT" --src ./testdata/sample \
             --min-recall5 0.5 --json
           rm -rf "$TMP_OUT"
