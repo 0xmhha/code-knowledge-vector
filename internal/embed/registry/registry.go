@@ -126,7 +126,7 @@ func (c ModelConfig) DefaultModelDir() (string, error) {
 }
 
 // DefaultModelName is used when no model is explicitly specified.
-const DefaultModelName = "bge-large-en-v1.5"
+const DefaultModelName = "bge-m3"
 
 // models is the global model catalog.
 var models = map[string]ModelConfig{
@@ -177,6 +177,25 @@ var models = map[string]ModelConfig{
 		},
 		Pooling:        PoolingMean,
 		EstimatedRAMMB: 2500,
+	},
+
+	// qwen3-embedding entries are Ollama-only: no ONNX export is configured
+	// (OnnxFile/HFRepo empty), so `ckv model fetch` and the bgeonnx backend
+	// reject them. The ollama adapter reads Dim/MaxInput from here so the
+	// truncation budget matches the model's 32k context window.
+	"qwen3-embedding:0.6b": {
+		Name:      "qwen3-embedding:0.6b",
+		Dim:       1024,
+		MaxInput:  32768,
+		Normalize: "l2",
+		Pooling:   PoolingLastToken,
+	},
+	"qwen3-embedding:4b": {
+		Name:      "qwen3-embedding:4b",
+		Dim:       2560,
+		MaxInput:  32768,
+		Normalize: "l2",
+		Pooling:   PoolingLastToken,
 	},
 }
 

@@ -67,6 +67,10 @@ func Open(opts Options) (*Adapter, error) {
 		return nil, err
 	}
 
+	if cfg.OnnxFile == "" {
+		return nil, fmt.Errorf("bgeonnx: model %q has no ONNX export configured — use --embedder=ollama", cfg.Name)
+	}
+
 	for _, f := range []string{cfg.OnnxFile, cfg.TokenizerFile} {
 		if _, err := os.Stat(filepath.Join(modelDir, f)); err != nil {
 			return nil, fmt.Errorf("bgeonnx: %s missing in %s — see docs/d1-installation-guide.md", f, modelDir)

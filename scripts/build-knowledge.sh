@@ -31,7 +31,8 @@ CKG_DIR="${CKG_DIR:-/Users/wm-it-25_0220/Work/github/knowledge-data/pr-77-2}"
 FILTER="${FILTER:-/Users/wm-it-25_0220/Work/github/code-knowledge-graph/eval/stablenet/stablenet-files-with-tests.json}"
 DOCS="${DOCS:-$SRC/.claude/docs}"
 FLOW_CORPUS="${FLOW_CORPUS:-/Users/wm-it-25_0220/Work/github/go-stablenet/.claude.backup.20260625_180533/docs/corpus/corpus.jsonl}"
-OUT="${OUT:-$CKG_DIR/ckv}"
+POLICY="${POLICY:-$REPO/policy/stablenet.yaml}"
+OUT="${OUT:-$CKG_DIR/vector-db}"
 EMBEDDER="${EMBEDDER:-ollama}"
 MODEL="${MODEL:-bge-m3}"
 LANGS="${LANGS:-go,solidity}"
@@ -78,6 +79,7 @@ preflight() {
   echo "          ckg=$CKG_DIR  filter=$(basename "$FILTER")  langs=$LANGS"
   echo "          docs=$DOCS"
   echo "          flow=$FLOW_CORPUS"
+  echo "          policy=$POLICY"
   echo "          embedder=$EMBEDDER/$MODEL  out=$OUT"
 }
 
@@ -88,6 +90,7 @@ build() {
   local args=(build --src="$SRC" --ckg="$CKG_DIR" --files-from="$FILTER" --out="$OUT" --lang="$LANGS")
   [ -d "$DOCS" ] && args+=(--docs="$DOCS")
   [ -f "$FLOW_CORPUS" ] && args+=(--flow-corpus="$FLOW_CORPUS")
+  [ -f "$POLICY" ] && args+=(--policy="$POLICY")
   rm -rf "$OUT"
   echo "  ckv ${args[*]} --embedder $EMBEDDER --model-name $MODEL"
   CKV_OLLAMA_ENDPOINT="$OLLAMA" "$CKV" "${args[@]}" --embedder "$EMBEDDER" --model-name "$MODEL" \

@@ -11,8 +11,9 @@ import (
 )
 
 // resolveEmbedder picks the embedder backend for build/query/mcp/eval
-// from the per-command --embedder flag. mock is the safe default —
-// works with no system dependencies and matches the eval baseline.
+// from the per-command --embedder flag. ollama/bge-m3 is the default —
+// requires a running `ollama serve` with the model pulled. mock works
+// with no system dependencies and matches the eval baseline.
 // bgeonnx requires the model + libonnxruntime; see docs/d1-onnx-poc.md.
 //
 // modelDir is the user-supplied --model-dir (passed through to bgeonnx).
@@ -33,7 +34,11 @@ func resolveEmbedder(name, modelDir string) (types.Embedder, func(), error) {
 		}
 		return a, func() { _ = a.Close() }, nil
 	case "ollama":
-		a, err := ollama.Open(ollama.Options{ModelName: globalFlags.modelName})
+		modelName := globalFlags.modelName
+		if modelName == "" {
+			modelName = "bge-m3"
+		}
+		a, err := ollama.Open(ollama.Options{ModelName: modelName})
 		if err != nil {
 			return nil, noop, fmt.Errorf("embedder ollama: %w", err)
 		}

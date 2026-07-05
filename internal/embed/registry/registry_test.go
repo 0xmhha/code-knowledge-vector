@@ -77,7 +77,18 @@ func TestModelConfig_EntryShape(t *testing.T) {
 				t.Errorf("MaxInput must be > 0")
 			}
 			if cfg.OnnxFile == "" {
-				t.Error("OnnxFile must not be empty")
+				// Ollama-only entry: identity metadata only. It must not
+				// half-configure the ONNX/fetch path.
+				if cfg.TokenizerFile != "" {
+					t.Error("ollama-only entry must not set TokenizerFile")
+				}
+				if cfg.HFRepo != "" {
+					t.Error("ollama-only entry must not set HFRepo")
+				}
+				if len(cfg.InputOrder) != 0 {
+					t.Error("ollama-only entry must not set InputOrder")
+				}
+				return
 			}
 			if cfg.TokenizerFile == "" {
 				t.Error("TokenizerFile must not be empty")
