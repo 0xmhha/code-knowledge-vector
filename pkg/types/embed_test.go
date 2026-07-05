@@ -19,10 +19,10 @@ func TestEmbeddingIdentityChecksum(t *testing.T) {
 	// real swap we need Open to reject.
 	cases := map[string]EmbeddingIdentity{
 		"provider (Ollama vs ONNX, same model+dim)": {Provider: "bgeonnx", Model: "bge-m3", Dim: 1024},
-		"model swap":                                {Provider: "ollama", Model: "qwen3-embedding", Dim: 1024},
-		"dimension":                                 {Provider: "ollama", Model: "bge-m3", Dim: 768},
-		"pooling":                                   {Provider: "ollama", Model: "bge-m3", Dim: 1024, Pooling: "cls"},
-		"normalize":                                 {Provider: "ollama", Model: "bge-m3", Dim: 1024, Normalize: "l2"},
+		"model swap": {Provider: "ollama", Model: "qwen3-embedding", Dim: 1024},
+		"dimension":  {Provider: "ollama", Model: "bge-m3", Dim: 768},
+		"pooling":    {Provider: "ollama", Model: "bge-m3", Dim: 1024, Pooling: "cls"},
+		"normalize":  {Provider: "ollama", Model: "bge-m3", Dim: 1024, Normalize: "l2"},
 	}
 	for name, id := range cases {
 		if id.Checksum() == base.Checksum() {
