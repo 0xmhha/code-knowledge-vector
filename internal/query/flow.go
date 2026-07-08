@@ -3,6 +3,8 @@ package query
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
@@ -169,7 +171,7 @@ func (e *Engine) GetFlow(ctx context.Context, sel FlowSelector) (*FlowView, erro
 		return nil, fmt.Errorf("get_flow: one of flow_id/entry_point/invariant_id required")
 	}
 	if flowID == "" {
-		return nil, fmt.Errorf("get_flow: no flow found for selector")
+		return nil, fmt.Errorf("get_flow: no flow found for selector %q — %s", selectorText(sel), e.flowMissHint(ctx, m, selectorText(sel)))
 	}
 	steps := m.stepsByFlow[flowID]
 	if len(steps) == 0 {
@@ -188,6 +190,97 @@ func (e *Engine) GetFlow(ctx context.Context, sel FlowSelector) (*FlowView, erro
 		view.Steps = append(view.Steps, stepView(c))
 	}
 	return view, nil
+}
+
+// selectorText returns whichever selector key was provided, for diagnostics.
+func selectorText(sel FlowSelector) string {
+	switch {
+	case sel.FlowID != "":
+		return sel.FlowID
+	case sel.EntryPoint != "":
+		return sel.EntryPoint
+	default:
+		return sel.InvariantID
+	}
+}
+
+// flowMissHint builds a recovery hint for a selector miss: the nearest flows
+// by embedding similarity (best-effort), every known selector key (the corpus
+// is small, so listing them is cheap), and a pointer to find_branches for
+// natural-language lookup — so a caller that guessed a code symbol can
+// self-correct instead of hitting a dead end.
+func (e *Engine) flowMissHint(ctx context.Context, m *flowModel, text string) string {
+	var b strings.Builder
+	if near := e.nearestFlows(ctx, text, 3); len(near) > 0 {
+		fmt.Fprintf(&b, "nearest flows by similarity: %s; ", strings.Join(near, ", "))
+	}
+	entries := make([]string, 0, len(m.flowByEntry))
+	for ep := range m.flowByEntry {
+		entries = append(entries, ep)
+	}
+	sort.Strings(entries)
+	flows := make([]string, 0, len(m.spineByFlow))
+	for id := range m.spineByFlow {
+		flows = append(flows, id)
+	}
+	sort.Strings(flows)
+	fmt.Fprintf(&b, "known entry_points: [%s]; known flow_ids: [%s]; ", strings.Join(entries, ", "), strings.Join(flows, ", "))
+	b.WriteString("tip: for a natural-language or code-symbol query use find_branches(symptom_text) first, then get_flow(flow_id)")
+	return b.String()
+}
+
+// nearestFlows searches the flow corpus by embedding similarity and returns
+// up to k distinct flow ids in rank order, each tagged with its normalized
+// similarity score ("spine-finalize(0.41)") — a low score tells the caller
+// this is a same-neighborhood guess, not a match, so it can fall back to
+// semantic_search/find_branches instead. Best-effort: empty on any error so
+// a degraded embedder never masks the primary miss message.
+func (e *Engine) nearestFlows(ctx context.Context, text string, k int) []string {
+	if text == "" {
+		return nil
+	}
+	resp, err := e.Search(ctx, text, Options{K: k * 4, Filter: types.Filter{Language: "flow"}, Threshold: -1})
+	if err != nil || resp == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(resp.Hits))
+	score := make(map[string]float64, len(resp.Hits))
+	for _, h := range resp.Hits {
+		ids = append(ids, h.ChunkID)
+		score[h.ChunkID] = h.Score.Normalized
+	}
+	chunks, err := e.store.LookupByIDs(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	byID := make(map[string]types.Chunk, len(chunks))
+	for _, c := range chunks {
+		byID[c.ID] = c
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, id := range ids { // preserve similarity rank
+		c, ok := byID[id]
+		if !ok {
+			continue
+		}
+		var fid string
+		switch {
+		case c.FlowStep != nil:
+			fid = c.FlowStep.FlowID
+		case c.FlowSpine != nil:
+			fid = c.FlowSpine.FlowID
+		}
+		if fid == "" || seen[fid] {
+			continue
+		}
+		seen[fid] = true
+		out = append(out, fmt.Sprintf("%s(%.2f)", fid, score[id]))
+		if len(out) >= k {
+			break
+		}
+	}
+	return out
 }
 
 // topoSortSteps orders steps by their intra-flow `calls` edges (Kahn's

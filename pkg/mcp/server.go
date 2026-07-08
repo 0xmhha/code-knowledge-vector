@@ -861,7 +861,7 @@ func (s *Server) handleGetFlow(ctx context.Context, req mcpgo.CallToolRequest) (
 
 	flow, err := s.engine.GetFlow(ctx, sel)
 	if err != nil {
-		return mcpgo.NewToolResultError(fmt.Sprintf("get_flow: %v", err)), nil
+		return mcpgo.NewToolResultError(err.Error()), nil
 	}
 	return jsonResult(map[string]any{
 		"flow":  flow,
@@ -889,7 +889,7 @@ func (s *Server) handleExpandFlow(ctx context.Context, req mcpgo.CallToolRequest
 
 	res, err := s.engine.ExpandFlow(ctx, stepID, direction, hops)
 	if err != nil {
-		return mcpgo.NewToolResultError(fmt.Sprintf("expand_flow: %v", err)), nil
+		return mcpgo.NewToolResultError(err.Error()), nil
 	}
 	return jsonResult(map[string]any{
 		"result":    res,
@@ -913,7 +913,7 @@ func (s *Server) handleFindBranches(ctx context.Context, req mcpgo.CallToolReque
 
 	matches, err := s.engine.FindBranches(ctx, symptom, k)
 	if err != nil {
-		return mcpgo.NewToolResultError(fmt.Sprintf("find_branches: %v", err)), nil
+		return mcpgo.NewToolResultError(err.Error()), nil
 	}
 	return jsonResult(map[string]any{
 		"matches": matches,
@@ -933,7 +933,7 @@ func (s *Server) handleGetInvariantEnforcement(ctx context.Context, req mcpgo.Ca
 
 	enf, err := s.engine.GetInvariantEnforcement(ctx, invID)
 	if err != nil {
-		return mcpgo.NewToolResultError(fmt.Sprintf("get_invariant_enforcement: %v", err)), nil
+		return mcpgo.NewToolResultError(err.Error()), nil
 	}
 	return jsonResult(map[string]any{
 		"enforcement": enf,

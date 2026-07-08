@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -187,6 +188,23 @@ func TestTopoSortSteps_CycleSafe(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "d"} {
 		if !seen[id] {
 			t.Errorf("missing %q", id)
+		}
+	}
+}
+
+// A selector miss must not be a dead end: the error carries every known
+// selector key and points at find_branches, so an agent that guessed a code
+// symbol (e.g. "Engine.verifyGasTip") can self-correct in the next call.
+func TestGetFlow_MissSuggestsRecovery(t *testing.T) {
+	eng := openFlowEngine(t)
+	_, err := eng.GetFlow(context.Background(), FlowSelector{EntryPoint: "Engine.verifyGasTip"})
+	if err == nil {
+		t.Fatal("expected selector miss error")
+	}
+	msg := err.Error()
+	for _, want := range []string{`"Engine.verifyGasTip"`, "EP-X", "ep-x", "find_branches"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("miss error missing %q:\n%s", want, msg)
 		}
 	}
 }
