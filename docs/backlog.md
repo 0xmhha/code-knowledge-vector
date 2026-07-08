@@ -31,6 +31,8 @@
 
 **현재 진행 중**: Group α 완료 (#1 / #3 / #5 부분 ✅), Group β 진입 가능. F / G 두 그룹은 2026-05-20~21 세션에서 전면 처리. 자세히 §4 마스터 표.
 
+> **신규 추적 (2026-07-08)**: `ckg_node_id` 은퇴 · `canonical_id` 단일화 → [`retire-ckg-node-id.md`](./retire-ckg-node-id.md) (CKV가 **생산자**라 먼저 이관). 마스터: `code-knowledge-system/docs/retire-ckg-node-id.md`.
+
 **가장 시급한 항목** (사용자 결정 또는 작업 의존성 trigger):
 - ~~**B9** Secret 회피 패턴~~ — ✅ 2026-05-21 (commit `b1ad8aa`)
 - ~~**B6** Error model 5 종~~ — ✅ 2026-05-21 (commit `c7f8969`)
