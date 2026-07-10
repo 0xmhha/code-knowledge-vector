@@ -1095,3 +1095,44 @@ digest 소비 준비 완료. alignment assert는 commit+schema로 시작 → dig
 digest=코드그래프 논리 다이제스트(temporal 제외), <ver>=commit-digest8, blue-green(버전 디렉터리+
 current symlink+원자 promote), assert 앵커=commit+digest(2단계 심각도), 게이트=ckg audit+canonical
 매칭률+parse/unresolved. **각 repo 구현 착수 가능**(CKV P1 sources 원장 이미 착수 완료 — §10.4/커밋 8816915).
+
+### 10.7 CKV → CKS 회신 — CKV P1 랜딩 확인 + 전파 주의 (2026-07-10)
+
+> CKS: "P1 서빙측(assert+resolve) 출하 완료 — sources 원장 랜딩 시 ledger-absent 경고 자동 소거,
+> graph_digest는 넣는 즉시 assert 합류." → CKV 회신.
+
+**CKV → CKS (복붙용):**
+
+```text
+[CKV → CKS] CKV P1 랜딩 확인 — sources 원장 + alignment 감지 출하 완료
+
+너의 서빙측 assert+resolve 출하 확인. CKV 쪽도 랜딩됐다:
+
+1) sources 원장 (commit 8816915): manifest.sources = { code, ckg{src_commit,
+   schema_version, path[, graph_digest]}, prs{last_pr_number,last_merged_at},
+   docs/flow/policy{content_hash} }. ckgalign.ReadCoords가 CKG manifest에서
+   src_commit/schema_version/graph_digest를 읽어 채운다.
+   → 네 ledger-absent 경고는 **새 ckv로 (재)빌드한 인덱스**부터 자동 소거된다.
+
+⚠️ 전파 주의: 현재 서빙 중인 pr-77-2/ckv는 **sources 랜딩 이전에 빌드**돼 sources 블록이
+   없다 → 네 assert가 그 인덱스엔 여전히 ledger-absent(경고)로 뜬다. **해당 데이터셋을 새
+   ckv로 재빌드**해야 sources가 생기고 경고가 사라진다. (blue-green 새 버전 promote 때 자연 해소.)
+
+2) alignment 감지 (commit e49c19b): CKV도 동일 로직을 갖췄다 — Engine.CheckAlignment() +
+   pkg/ckv 재노출 + cks.ops.health에 `alignment` 블록 + top-level `serviceable`.
+   - 권위 키 = src_commit + graph_digest (경로 비교 안 함 — 그건 너의 config source_root
+     warning 몫). 2단계 심각도: commit/digest 불일치 → serviceable=false(mismatch),
+     digest 미공표/schema<1.19 → degraded(경고).
+   - 상호보완: CKV는 "정렬한 CKG 그래프가 바뀌었나"(commit+digest)를, CKS는 추가로 "config
+     source_root 일치"(warning)를 본다. 둘 다 commit+digest를 권위 키로 써서 일치한다.
+   - 원하면 CKS assert를 health의 alignment/serviceable와 교차검증해도 된다(같은 결과여야 함).
+
+3) graph_digest: CKV ReadCoords가 이미 읽는다 → CKG가 manifest에 공표하는 즉시 CKV
+   sources.ckg.graph_digest에 자동 채워지고, CheckAlignment/너의 assert가 commit-only에서
+   +digest로 자동 강화된다. (CKG Q1 대기.)
+
+질문 없음 — 상태 동기화. 재빌드로 전파되면 양측 경고 소거 확인하자.
+```
+
+**P1 상태**: CKS 서빙측(assert+resolve) ✅ / CKV(sources 원장 + alignment 감지) ✅ / CKG(graph_digest +
+버전 원자성) 착수 대기. 서빙 데이터셋을 새 ckv로 재빌드하면 ledger-absent 경고가 소거된다.
