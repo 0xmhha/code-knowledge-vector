@@ -9,10 +9,13 @@ package sqlitevec
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"sort"
 	"strings"
 
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -414,6 +417,14 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	if k <= 0 {
 		return nil, nil
 	}
+	// Kind-scoped search means "search WITHIN these kinds", not "hope the
+	// kinds appear near the top of a global KNN". Knowledge kinds
+	// (invariant/convention) are ~1% of the index, so KNN + post-filter
+	// returns zero for them essentially always. Rows of the named kinds
+	// are few enough to score exactly.
+	if len(filter.ChunkKinds) > 0 {
+		return s.searchWithinKinds(ctx, query, k, filter)
+	}
 	fetch := k
 	if !filter.IsZero() {
 		fetch = k * 3
@@ -510,6 +521,101 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		return nil, err
 	}
 	return out, nil
+}
+
+// searchWithinKinds is the exact-scan variant of Search for kind-scoped
+// filters: select every chunk of the named kinds, apply the remaining
+// filter fields, score each against the query vector with the same
+// metric vec0 uses (Euclidean over unit vectors, range [0,2]), and keep
+// the top k. Point-reads each embedding from chunk_vec; the named kinds
+// are assumed rare (the caller's contract for ChunkKinds).
+func (s *Store) searchWithinKinds(ctx context.Context, query []float32, k int, filter types.Filter) ([]types.Hit, error) {
+	placeholders := make([]string, len(filter.ChunkKinds))
+	args := make([]any, len(filter.ChunkKinds))
+	for i, kind := range filter.ChunkKinds {
+		placeholders[i] = "?"
+		args[i] = string(kind)
+	}
+	stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c WHERE c.chunk_kind IN (` +
+		strings.Join(placeholders, ",") + `)`
+	rows, err := s.db.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return nil, fmt.Errorf("kind scan: %w", err)
+	}
+	var chunks []types.Chunk
+	for rows.Next() {
+		c, err := scanChunk(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if !filter.Matches(c) {
+			continue
+		}
+		chunks = append(chunks, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	scored := make([]types.Hit, 0, len(chunks))
+	for _, c := range chunks {
+		var blob []byte
+		err := s.db.QueryRowContext(ctx,
+			`SELECT embedding FROM chunk_vec WHERE chunk_id = ?`, c.ID).Scan(&blob)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue // chunk without a vector cannot be scored
+		}
+		if err != nil {
+			return nil, fmt.Errorf("kind scan embedding %s: %w", c.ID, err)
+		}
+		vec, err := deserializeFloat32(blob)
+		if err != nil {
+			return nil, fmt.Errorf("kind scan embedding %s: %w", c.ID, err)
+		}
+		if len(vec) != len(query) {
+			return nil, fmt.Errorf("kind scan: embedding dim %d != query dim %d for %s", len(vec), len(query), c.ID)
+		}
+		scored = append(scored, types.Hit{
+			Chunk: c,
+			Score: types.HitScore{VectorDistance: euclidean(query, vec)},
+		})
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].Score.VectorDistance < scored[j].Score.VectorDistance
+	})
+	if len(scored) > k {
+		scored = scored[:k]
+	}
+	for i := range scored {
+		scored[i].Score.VectorRank = i + 1
+		scored[i].Score.Normalized = normalize(scored[i].Score.VectorDistance)
+	}
+	return scored, nil
+}
+
+// deserializeFloat32 decodes the little-endian float32 blob format vec0
+// stores (the inverse of sqlitevec.SerializeFloat32).
+func deserializeFloat32(blob []byte) ([]float32, error) {
+	if len(blob)%4 != 0 {
+		return nil, fmt.Errorf("embedding blob length %d not a multiple of 4", len(blob))
+	}
+	out := make([]float32, len(blob)/4)
+	for i := range out {
+		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(blob[i*4:]))
+	}
+	return out, nil
+}
+
+// euclidean is vec0's default KNN metric.
+func euclidean(a, b []float32) float64 {
+	var sum float64
+	for i := range a {
+		d := float64(a[i]) - float64(b[i])
+		sum += d * d
+	}
+	return math.Sqrt(sum)
 }
 
 // chunkSelectCols lists every metadata column on chunks. Centralized so
