@@ -141,3 +141,46 @@ func TestEnforceCitationsRejectsInvalidLineRange(t *testing.T) {
 		t.Errorf("expected 2 dropped + 1 kept, got dropped=%d keep=%d", dropped, len(keep))
 	}
 }
+
+// TestEnforceCitations_SyntheticExempt verifies the fix for the "generated
+// but never queryable" bug: chunks whose File is a synthetic identifier
+// (PR / convention / flow_spine / curated invariant) must survive citation
+// enforcement even though no such file exists on disk, while code-location
+// chunks with a bogus file are still dropped.
+func TestEnforceCitations_SyntheticExempt(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "real.go"), []byte("package x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	syn := func(kind types.ChunkKind, file string, start int, prov string) types.Hit {
+		return types.Hit{Chunk: types.Chunk{
+			File: file, StartLine: start, EndLine: start,
+			ChunkKind: kind, Provenance: prov,
+		}}
+	}
+	hits := []types.Hit{
+		syn(types.ChunkPRBackground, "pr/owner/repo#63", 1, ""),                                       // synthetic → keep
+		syn(types.ChunkPRSolution, "pr/owner/repo#63", 2, ""),                                         // synthetic → keep
+		syn(types.ChunkCommitMessage, "pr/owner/repo#63", 3, ""),                                      // synthetic → keep
+		syn(types.ChunkConvention, "pkg/<convention>", 0, ""),                                         // synthetic (line 0) → keep
+		syn(types.ChunkFlowSpine, "corpus.jsonl", 0, ""),                                              // synthetic → keep
+		syn(types.ChunkInvariant, "corpus.jsonl", 0, "curated"),                                       // curated → keep
+		{Chunk: types.Chunk{File: "real.go", StartLine: 1, EndLine: 1, ChunkKind: types.ChunkSymbol}}, // real → keep
+		// regressions: must still drop
+		syn(types.ChunkInvariant, "gone.go", 1, "auto"),                                                  // auto-extracted, bogus file → drop
+		{Chunk: types.Chunk{File: "missing.go", StartLine: 1, EndLine: 1, ChunkKind: types.ChunkSymbol}}, // bogus code → drop
+	}
+	keep, dropped := EnforceCitations(hits, dir)
+	if dropped != 2 {
+		t.Errorf("expected 2 dropped (auto-invariant + missing symbol), got %d", dropped)
+	}
+	if len(keep) != 7 {
+		t.Fatalf("expected 7 kept (6 synthetic/real), got %d: %+v", len(keep), keep)
+	}
+	// sanity: none of the kept are the two bogus code chunks
+	for _, h := range keep {
+		if h.Chunk.File == "gone.go" || h.Chunk.File == "missing.go" {
+			t.Errorf("bogus code chunk survived: %s", h.Chunk.File)
+		}
+	}
+}
