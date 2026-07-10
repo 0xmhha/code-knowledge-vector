@@ -456,6 +456,12 @@ func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpg
 			"indexed_head":  man.IndexedHead,
 		},
 	}
+	// CKG↔CKV alignment (design §3.1): surface whether the ckg graph this
+	// index aligned against still matches (src_commit + graph_digest). A
+	// mismatch means canonical_id joins may be wrong → not serviceable.
+	align := s.engine.CheckAlignment()
+	payload["alignment"] = align
+	payload["serviceable"] = align.Serviceable()
 	return jsonResult(payload)
 }
 
