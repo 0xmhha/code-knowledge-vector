@@ -21,7 +21,7 @@
 |---|---|---|
 | 증분 캐시 | ✅ A3 per-file (`cache_key = sha256(content\|ckg-ver\|parser-ver\|schema-ver)`, mtime, node/edge ids) | ❌ 없음 (git diff만) |
 | 증분 라우팅 | short-circuit / incremental / cold | reindex(코드) / full build |
-| 증분 범위 | 전 노드·엣지 (단 partial-cache는 **실질 cold fallback** — cross-file 엣지 손실) | **소스코드만** (PR·docs·flow·convention·CKG정렬 제외) |
+| 증분 범위 | 전 노드·엣지 (C1 reverse-ref invalidation 구현됨 — 서비스 신선도용; 측정/정본 그래프는 항상 cold) | **소스코드만** (PR·docs·flow·convention·CKG정렬 제외) |
 | 삭제 처리 | FK `ON DELETE CASCADE` (6 테이블) | `DeleteByFile`(chunks+vec) |
 | 원자성 | cold = `os.Remove(graph.db)` 후 재빌드(비원자) / SetManifest 트랜잭션 | full build만 manifest 마커 / **reindex 마커 없음** |
 | 검증 | `validateAndSanitize`(dangling edge) + FK 강제 | ❌ 없음 |
@@ -63,7 +63,7 @@
 ### 2.1 CKG manifest (있는 것 + 추가)
 - 있음: `schema_version`, `ckg_version`, `build_timestamp`, `src_commit`(path-aware), `Files[]`
   (per-file `sha256`/`cache_key`/`mtime`/`parser_version`/`node_ids`/`edge_ids`), `Stats`.
-- 추가: **`graph_sha256`** (산출물 지문 — CKV/CKS가 pin), **`content_hash`**(스키마 무관 내용 지문).
+- 추가: **`graph_digest`** (CKG **논리** 다이제스트=정렬 canonical_id+edge 해시; 파일-바이트 sha는 SQLite 레이아웃 탓 비결정적이라 부적합. CKV/CKS가 pin), **`content_hash`**(스키마 무관 내용 지문).
 
 ### 2.2 CKV manifest (있는 것 + 추가)
 - 있음: `schema_version`, `ckv_version`, `built_at`, `src_commit`/`indexed_head`,
@@ -72,14 +72,14 @@
   ```json
   "sources": {
     "code":  { "indexed_head": "<commit>", "built_at": "<date>" },
-    "ckg":   { "graph_sha256": "<sha>", "src_commit": "<commit>", "schema_version": "1.23" },
+    "ckg":   { "graph_digest": "<CKG 논리 다이제스트>", "src_commit": "<commit>", "schema_version": "1.23", "path": "<ckg dir>" },
     "prs":   { "repo": "owner/repo", "last_pr_number": 68, "last_merged_at": "<date>" },
     "docs":  { "root": "...", "content_hash": "<sha>" },
     "flow":  { "corpus": "corpus.jsonl", "content_hash": "<sha>" },
     "policy":{ "path": "stablenet.yaml", "content_hash": "<sha>" }
   }
   ```
-- `ckg.graph_sha256`/`src_commit`가 **CKG↔CKV 불일치 감지의 앵커**. `prs.last_pr_number`가 증분 PR
+- `ckg.graph_digest`/`src_commit`가 **CKG↔CKV 불일치 감지의 앵커**. `prs.last_pr_number`가 증분 PR
   인제스트의 cutoff. 나머지 `content_hash`는 "바뀌었는지" 감지용.
 
 ---
@@ -89,16 +89,16 @@
 두 DB는 **같은 소스 커밋 + 정합 스키마**에서 만들어져야 canonical_id join이 성립한다.
 
 ### 3.1 좌표 pin & 불일치 감지
-- CKV 빌드/정렬 시 CKG manifest의 `{src_commit, graph_sha256, schema_version}`을 읽어 CKV manifest에
+- CKV 빌드/정렬 시 CKG manifest의 `{src_commit, graph_digest, schema_version}`을 읽어 CKV manifest에
   기록.
-- Open/freshness 시 **CKV.ckg.graph_sha256 ≠ 현재 CKG graph.db sha** → **stale 경고 + 재정렬 필요
+- Open/freshness 시 **CKV.ckg.graph_digest ≠ 현재 CKG manifest의 graph_digest** → **stale 경고 + 재정렬 필요
   플래그**(현재는 감지 불가).
 - `schema_version < 1.19` → canonical_id 신뢰 불가(ADR-007 게이트, 이미 구현).
 
 ### 3.2 조율된 갱신 순서 (원자성 §4와 결합)
 ```
-1. CKG: 대상 커밋에서 그래프 (재)빌드 → graph_sha256 산출 → 공표
-2. CKV: 그 커밋·그 graph_sha256에 맞춰 (재)빌드/정렬
+1. CKG: 대상 커밋에서 그래프 (재)빌드 → graph_digest 산출 → 공표
+2. CKV: 그 커밋·그 graph_digest에 맞춰 (재)빌드/정렬
 3. 검증 게이트(§5): canonical_id 매칭률 ≥90% 등 통과해야 promote
 4. CKS: 두 새 아티팩트로 원자적 전환(§4) + 재로드
 ```
@@ -148,10 +148,10 @@ CKG가 **결정적**(같은 커밋+바이너리+필터 → 같은 그래프·can
 ## 5. 무결성 · 검증 게이트 · 동시성
 
 ### 5.1 promote 전 검증 게이트 (실패 시 swap 안 함)
-- **정합성**: orphan(청크↔벡터, 노드↔엣지) 0, dangling ref 0(CKG `validateAndSanitize` 확장),
+- **정합성**: orphan(청크↔벡터, 노드↔엣지) 0, dangling ref 0 + CKG `ckg audit`(BuildCount vs DBCount IsParity) + parse_errors/unresolved_refs 0,
   `COUNT(*)` = 기대치(ChunkCount **재조정** — 현재 CKV의 근사 산술 버그 대체).
 - **identity**: 임베딩 checksum 일치, 스키마 버전 정합.
-- **조율**: canonical_id 매칭률 ≥90%(§3), CKG graph_sha256 pin 일치.
+- **조율**: canonical_id 매칭률 ≥90%(§3), CKG graph_digest pin 일치.
 - 게이트 통과 = 새 버전을 `current`로 승격. 실패 = 옛 버전 유지 + 알림.
 
 ### 5.2 count 정합성 (CKV 버그 수정)
@@ -175,8 +175,8 @@ CKG가 **결정적**(같은 커밋+바이너리+필터 → 같은 그래프·can
   - **(b) 무중단 — 인스턴스-레벨 blue-green** (in-process reload 아님): 새 버전을 **새 이름·포트로
     기동 → health로 identity/alignment 검증 → CKS_MCP_URL 포인터 전환 → 구 인스턴스 stop**. serve의
     다중 named-instance 지원 재사용. SLA = "전환은 세션/벤치 경계에서만, ≤15s".
-- **기동 시 alignment assert (fail-loud)**: 정합 **권위 키 = `src_commit` + `graph_sha256`**. ckg
-  manifest{src_commit, schema≥1.19, graph_sha256} ↔ ckv `sources.ckg{graph_sha256, src_commit}` 불일치
+- **기동 시 alignment assert (fail-loud)**: 정합 **권위 키 = `src_commit` + `graph_digest`**. ckg
+  manifest{src_commit, schema≥1.19, graph_digest} ↔ ckv `sources.ckg{graph_digest, src_commit}` 불일치
   → `serviceable=false` + reason(health alignment 블록). `src_root` *경로* 불일치(같은 커밋 다른 체크아웃)
   → **warning**(citation 해소 리스크). manifest 파일 기반, 새 API 불요.
 
@@ -186,7 +186,7 @@ CKG가 **결정적**(같은 커밋+바이너리+필터 → 같은 그래프·can
 
 | Phase | 내용 | repo | 리스크 |
 |---|---|---|---|
-| **P1 — 좌표·감지·버전화** | CKV manifest `sources` 원장(§2.2) + CKG `graph_sha256` 공표 + 불일치/stale 감지 + 데이터셋 버전 디렉터리(blue-green 골격) | CKV+CKG | 낮음(additive) |
+| **P1 — 좌표·감지·버전화** | CKV manifest `sources` 원장(§2.2) + CKG `graph_digest` 공표 + 불일치/stale 감지 + 데이터셋 버전 디렉터리(blue-green 골격) | CKV+CKG | 낮음(additive) |
 | **P2 — 조율 재인덱싱** | CKV reindex에 `ckgalign` 재정렬 편입 + schema 캐스케이드 자동 트리거 + 검증 게이트(§5.1) | CKV(+CKG pin) | 중 |
 | **P3 — 증분 도메인지식·PR** | 증분 PR 인제스트(cutoff 이후) + docs/flow content_hash 기반 재인덱싱 + convention 재발행 | CKV | 중 |
 | **P4 — 재개·원자성·락** | 데이터 체크포인트 원장 + reindex 원자성(swap) + count 재조정 + advisory lock + SetManifest 트랜잭션 | CKV+CKG | 중 |
@@ -201,8 +201,8 @@ CKG가 **결정적**(같은 커밋+바이너리+필터 → 같은 그래프·can
 
 - **CKV**: manifest `sources` 원장, ckgalign 좌표 기록·감지, reindex 재정렬 편입, PR/docs/flow 증분,
   count 재조정, reindex 원자성(swap), 체크포인트 원장.
-- **CKG**: manifest에 `graph_sha256` 공표, cold/incremental 원자성(temp+rename), schema-bump→cold
-  캐스케이드 신호, `validateAndSanitize` 검증 게이트 노출, per-file cache는 재사용.
+- **CKG**: manifest에 `graph_digest` 공표, cold/incremental 원자성(temp+rename), schema-bump→cold
+  캐스케이드 신호, `ckg audit`(IsParity)+parse_errors/unresolved_refs 게이트 노출, per-file cache는 재사용.
 - **CKS**: 데이터셋 버전 포인터 소비 + 재로드 프로토콜(§6), 조율 재인덱싱 오케스트레이션(순서 §3.2),
   advisory lock 소유.
 
