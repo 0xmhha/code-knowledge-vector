@@ -51,6 +51,57 @@ type Manifest struct {
 	// domain-knowledge corpus). Recorded so callers can see every source
 	// the index covers. Additive — old readers see nil.
 	DocsRoots []string `json:"docs_roots,omitempty"`
+
+	// Sources is the per-layer knowledge-cutoff ledger (reindex-migration
+	// design §2.2): what each layer was built from, so a reindex knows what
+	// is stale and CKS can detect a CKG↔CKV mismatch. Additive — old readers
+	// see nil; each sub-block is omitted when that layer was not built.
+	Sources *Sources `json:"sources,omitempty"`
+}
+
+// Sources records the origin + cutoff of each knowledge layer in the index.
+type Sources struct {
+	Code   *CodeSource   `json:"code,omitempty"`
+	CKG    *CKGSource    `json:"ckg,omitempty"`
+	PRs    *PRSource     `json:"prs,omitempty"`
+	Docs   *HashedSource `json:"docs,omitempty"`
+	Flow   *HashedSource `json:"flow,omitempty"`
+	Policy *HashedSource `json:"policy,omitempty"`
+}
+
+// CodeSource is the source-tree cutoff (mirrors the top-level SrcCommit/BuiltAt,
+// grouped for a uniform ledger).
+type CodeSource struct {
+	IndexedHead string `json:"indexed_head,omitempty"`
+	BuiltAt     string `json:"built_at,omitempty"`
+}
+
+// CKGSource anchors the CKG graph this index aligned against, for CKG↔CKV
+// mismatch detection (design §3). GraphDigest is CKG's *logical* digest
+// (sorted canonical_id + edge hash — NOT a file-byte sha, which is
+// non-deterministic under SQLite's layout). It stays empty until CKG publishes
+// it; SrcCommit + SchemaVersion are recorded immediately, so the alignment
+// assert starts on commit+schema and strengthens to +digest once available.
+type CKGSource struct {
+	GraphDigest   string `json:"graph_digest,omitempty"`
+	SrcCommit     string `json:"src_commit,omitempty"`
+	SchemaVersion string `json:"schema_version,omitempty"`
+	Path          string `json:"path,omitempty"`
+}
+
+// PRSource is the PR-corpus cutoff: the newest PR indexed, so an incremental
+// PR ingest can fetch only PRs after LastPRNumber / LastMergedAt.
+type PRSource struct {
+	Repo         string `json:"repo,omitempty"`
+	LastPRNumber int    `json:"last_pr_number,omitempty"`
+	LastMergedAt string `json:"last_merged_at,omitempty"` // RFC3339
+}
+
+// HashedSource is a corpus/config whose "did it change" is detected by a
+// content hash (docs tree, flow corpus file, policy file).
+type HashedSource struct {
+	Path        string `json:"path,omitempty"`
+	ContentHash string `json:"content_hash,omitempty"` // sha256 hex
 }
 
 // Load reads <dir>/manifest.json. Returns an ErrNotFound when the file is

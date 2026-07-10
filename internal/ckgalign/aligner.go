@@ -140,6 +140,40 @@ func columnExists(db *sql.DB, table, col string) bool {
 	return rows.Next()
 }
 
+// Coords are the pin coordinates read from a CKG graph's in-db manifest table.
+// Recorded in the CKV manifest (sources.ckg) for CKG↔CKV mismatch detection.
+// GraphDigest is CKG's logical digest — empty until CKG publishes it.
+type Coords struct {
+	SrcCommit     string
+	SchemaVersion string
+	GraphDigest   string
+}
+
+// ReadCoords opens <ckgPath>/graph.db read-only and reads the manifest
+// coordinates (src_commit, schema_version, graph_digest). Best-effort: a
+// missing manifest table or key yields empty strings, not an error, so a build
+// against an older ckg graph still records what it can.
+func ReadCoords(ckgPath string) (Coords, error) {
+	dbPath := filepath.Join(ckgPath, "graph.db")
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?mode=ro")
+	if err != nil {
+		return Coords{}, fmt.Errorf("ckgalign: open %s: %w", dbPath, err)
+	}
+	defer db.Close()
+	get := func(key string) string {
+		var v string
+		if err := db.QueryRow(`SELECT value FROM manifest WHERE key = ?`, key).Scan(&v); err != nil {
+			return ""
+		}
+		return v
+	}
+	return Coords{
+		SrcCommit:     get("src_commit"),
+		SchemaVersion: get("schema_version"),
+		GraphDigest:   get("graph_digest"),
+	}, nil
+}
+
 // readManifestSchemaVersion reads ckg's recorded cache schema version from the
 // in-db key/value `manifest` table (row key='schema_version', e.g. "1.23") and
 // returns it as (major, minor). ok is false when the table or row is absent
