@@ -1,9 +1,12 @@
 # [포인터] `ckg_node_id` 은퇴 · `canonical_id` 단일화 — CKV 작업분
 
-- 상태: Proposed
-- 작성일: 2026-07-08
+- 상태: In progress (전용 세션) — CKV가 생산자로 먼저 수행
+- 작성일: 2026-07-08 · 상태 갱신: 2026-07-10
 - **마스터 문서**: `code-knowledge-system/docs/retire-ckg-node-id.md` (전체 배경·판정·세 repo 체크리스트)
 - 관련 ADR: `docs/adr/007-canonical-id-join-key.md`
+- **Cross-repo 상태(2026-07-10)**: ckg 작업분 ✅ 마감(코드 변경 없음 — `ckg_node_id`는 ckg에
+  0건, 외부 이름). ckv(본 repo) 🔶 진행 중, cks 🔶 진행 중(ckv 다음). 아래 체크박스는 이 세션이
+  코드 검증 후 직접 체크.
 
 ## 요지
 
