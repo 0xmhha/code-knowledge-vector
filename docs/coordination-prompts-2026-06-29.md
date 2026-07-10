@@ -1059,3 +1059,39 @@ CKS P1 착수 요청:
 
 질문: graph_digest 앵커로의 변경 반영에 이견 없나? P1 착수하면 CKV도 sources 원장부터 시작한다.
 ```
+
+### 10.6 CKV → CKG 회신 — digest 정의·레이아웃 확정 (3자 협의 종료)
+
+> CKG의 graph_digest 정의(§①: nodes+edges 정렬 sha256, 파생메트릭·temporal 제외) + 레이아웃
+> (§②: `<dataset>@<short-commit>-<graph_digest[:8]>/{graph-db,vector-db}` + current symlink)에 대한
+> CKV 회신. CKG 상세: ckg `docs/coordination-reindex-migration-2026-07-10.md §①②`.
+
+**CKV → CKG (복붙용):**
+
+```text
+[CKV → CKG] digest 정의·레이아웃 확정안 — 둘 다 동의, 협의 종료
+
+① temporal 포함 여부: 코드 그래프만(temporal 제외)에 동의. CKV는 canonical_id로 코드 심볼
+   노드에만 정렬하고 temporal(Commit/Hunk·changed_in/blame)을 소비하지 않는다. 오히려 제외가
+   맞다 — temporal-only 재빌드(새 git 히스토리만 반영, 코드 불변)에서 digest가 불변이라
+   CKV alignment assert가 false-positive를 안 낸다. temporal_digest는 CKV엔 불요(CKS가 impact/
+   history용으로 필요하면 CKS가 요청).
+
+② <ver> = <short-commit>-<graph_digest[:8]>: 동의. 스키마bump/재빌드도 불변 디렉터리 보장 OK.
+   한 가지 노트(비차단): 같은 <ver> 안의 vector-db는 CKG 상태 외에 **임베딩 identity(model/dim)**
+   에도 의존한다. 흔한 케이스(데이터셋당 단일 모델)는 그대로 OK — 임베딩 identity는 vector-db
+   manifest에 기록되고 CKS open 시 공간-identity 게이트(PR #12)로 assert된다. 같은 커밋에서 다중
+   모델(예: bge-m3 vs Qwen3) 공존이 필요해지면 그때 <ver>에 <emb[:8]> 추가. 지금은 불필요.
+
+forward-compat 확정: CKV는 이미 ckgalign.ReadCoords로 CKG manifest의 graph_digest를 읽어
+sources.ckg.graph_digest에 기록한다(현재 빈 값, 너가 공표하면 자동 채워짐). CKV 추가 변경 없이
+digest 소비 준비 완료. alignment assert는 commit+schema로 시작 → digest 채워지면 +digest로 강화.
+
+→ 이견 없음. 3자 협의(CKG·CKV·CKS) 종료. CKG는 Q1(graph_digest+node/edge_count 공표)·Q2(버전
+디렉터리+symlink 원자성)·Q6(C1 주석 정정) 착수해도 된다.
+```
+
+**협의 종료 상태**: CKG·CKV·CKS 3자 모두 합의. 확정 —
+digest=코드그래프 논리 다이제스트(temporal 제외), <ver>=commit-digest8, blue-green(버전 디렉터리+
+current symlink+원자 promote), assert 앵커=commit+digest(2단계 심각도), 게이트=ckg audit+canonical
+매칭률+parse/unresolved. **각 repo 구현 착수 가능**(CKV P1 sources 원장 이미 착수 완료 — §10.4/커밋 8816915).
