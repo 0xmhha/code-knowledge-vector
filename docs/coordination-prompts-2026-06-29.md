@@ -844,3 +844,70 @@ flow_meta / enforced_at 컬럼(Phase B 영속) 위에서 동작. 모두 bounded(
   단 ② canonical_id를 step에 실어주면 cks join 재해석이 줄어드는 **선택적 개선**으로 재요청(미차단).
 - **남은 것**: T5 데이터셋 정렬(cks config를 pr-77-2 flow 인덱스로 swap) → T6 라이브 e2e 검증
   (§9-R 라이브 케이스 ep-cli-init / INV-CONSENSUS-01 / "정족수 부족"으로 대조 예정).
+
+---
+
+## 10. 재인덱싱·마이그레이션 설계 검토 요청 (CKG / CKS)
+
+> 설계 문서: `code-knowledge-vector/docs/reindex-migration-design-2026-07-10.md` (크로스-repo).
+> 두 repo의 빌드/증분 코드 전수 리뷰 기반. 아래 프롬프트를 각 세션에 붙여 검토·회신 요청.
+
+### 10.1 → CKG 세션 (복붙용)
+
+```text
+[CKV → CKG] 재인덱싱·DB마이그레이션·무중단 설계 검토 요청
+
+CKV가 크로스-repo 설계 문서를 냈다(code-knowledge-vector/docs/reindex-migration-design-2026-07-10.md).
+CKG 빌드/증분 코드를 리뷰해서 반영했고(A3 캐시·FK CASCADE·validateAndSanitize·git-aware staleness·
+cold=os.Remove 후 재빌드·partial-cache는 실질 cold fallback·schema는 cache-key 기여로 bump 시 cold 강제),
+CKG가 소관인 항목(문서 §8)에 대해 확인·결정이 필요하다.
+
+배경(설계 핵심):
+- 두 DB는 같은 소스 커밋+정합 스키마에서 만들어져야 canonical_id join이 성립.
+- 무중단을 위해 "라이브 DB in-place 변경 금지 → 새 버전 옆에 빌드 → 검증 → 원자적 swap → CKS 재로드"
+  (blue-green)를 중심 축으로 제안.
+
+확인/결정 요청:
+1) graph_sha256 공표: CKG manifest(또는 산출물 옆)에 graph.db의 sha256을 기록/공표할 수 있나?
+   CKV/CKS가 "어느 그래프에 정렬/서빙 중인지" pin하고 불일치를 감지하는 앵커다. (지금은 수동 공표만.)
+2) 원자성: cold rebuild가 os.Remove(graph.db) 후 재빌드라 비원자적이다. temp 경로 빌드 → 원자적
+   rename(또는 버전 디렉터리)으로 바꿔, 서빙 중 파일 파괴/부분상태를 없앨 수 있나?
+3) schema-bump 캐스케이드: cache SchemaVersion을 올리면 CKG cold rebuild → canonical_id 전면 변경
+   → CKV 전면 재빌드 필수. 이 캐스케이드를 소비자가 자동 감지하도록 버전을 어떻게 신호할까?
+4) 검증 게이트: promote 전 무결성 검사로 validateAndSanitize(dangling)·FK·노드/엣지 count를 외부에
+   노출(exit code나 리포트)할 수 있나? CKV canonical_id 매칭률과 함께 게이트에 쓴다.
+5) 결정성(ADR-0002): 같은 커밋+바이너리+필터 → 같은 그래프·canonical_id 보장이 유지되나?
+   (조율 재인덱싱 재현성의 전제.)
+6) partial-cache NOOP: cross-file 엣지 손실로 partial이 cold로 fallback한다. C1 reverse-ref 인덱스
+   계획이 있나? 없으면 "증분≈실질 cold"를 전제로 CKV/CKS가 설계해도 되나?
+
+질문: 위 1~6에 대한 CKG 결정/제약을 회신해 달라. 특히 (1)(2)는 P1(좌표·감지·버전화) 착수 전제다.
+```
+
+### 10.2 → CKS 세션 (복붙용)
+
+```text
+[CKV → CKS] 재인덱싱 오케스트레이션 + 무중단 서빙 전환 검토 요청
+
+CKV 설계 문서(code-knowledge-vector/docs/reindex-migration-design-2026-07-10.md) 중 CKS 소관(§6·§8):
+CKS가 두 DB를 in-process로 열어 서빙하므로(ckvclient.Real→ckv.Open, ckgclient→graph.db), 갱신 시
+서빙 안전·전환·조율 오케스트레이션이 CKS 책임이다.
+
+배경:
+- blue-green: 새 버전 디렉터리(knowledge-data/<dataset>@<ver>/{graph-db,vector-db})에 빌드 → 검증 →
+  current 포인터 원자 전환 → CKS 재로드. 라이브는 promote 전까지 무손상.
+- 조율 순서: CKG 그래프 빌드 → graph_sha256 공표 → CKV 정렬/빌드 → 검증 게이트 → 동시 promote → CKS 재로드.
+
+확인/결정 요청:
+1) 재로드 방식: 현재 CKS는 새 DB를 어떻게 집어드나? (config 경로 + cks-mcp 세션 재시작으로 알고 있음.)
+   무중단이 필요한가, 짧은 재시작 다운타임이 허용되나? (SLA)
+   → 설계는 P1=(a) config swap + restart, 필요 시 (b) current 포인터 감지 무중단 reload로 승격 제안.
+2) 데이터셋 버전 포인터: knowledge-data/<dataset>@<ver> 버전화 + current 포인터를 CKS가 소비/전환하는
+   주체가 되는 게 맞나? (advisory lock으로 조율 재인덱싱 직렬화도 CKS 소유 제안.)
+3) 조율 오케스트레이션: CKG→CKV→검증→promote 순서를 누가 구동하나? CKS가 오케스트레이터가 맞나,
+   아니면 별도 빌드 파이프라인/스크립트인가?
+4) 불일치 신호 소비: CKV/CKG가 노출할 stale/mismatch 신호(graph_sha256 불일치, schema<1.19)를 CKS가
+   서빙 전 assert해야 한다(현재 배선 전 assert 정책과 정합). 인터페이스 기대치가 있나?
+
+질문: 위 1~4 결정 + 재로드 방식(무중단 필요 여부)을 회신해 달라. (2)(3)이 오케스트레이션 소유권을 가른다.
+```
