@@ -911,3 +911,49 @@ CKS가 두 DB를 in-process로 열어 서빙하므로(ckvclient.Real→ckv.Open,
 
 질문: 위 1~4 결정 + 재로드 방식(무중단 필요 여부)을 회신해 달라. (2)(3)이 오케스트레이션 소유권을 가른다.
 ```
+
+### 10.3 CKS 회신 + CKV 확정 (2026-07-10)
+
+> CKS가 §10.2 4개에 회신(상세: `code-knowledge-system/docs/coordination-response-cks-reindex-2026-07-10.md`).
+> blue-green(불변 버전 + 검증 게이트 + 원자 promote) 수용. CKS 결정 요약:
+> ①재로드=config swap+restart(≈9~15s), 무중단 필요 시 **인스턴스-레벨 blue-green**(새 포트 기동→health
+> 검증→CKS_MCP_URL 전환→구 인스턴스 stop) — §6(b)/P5 대체 제안. ②포인터=기동 1회 resolve, lock=빌드
+> 직렬화 전용(`.build.lock` flock). ③오케스트레이터=CKS 소유, **CLI/스크립트**(full 재인덱싱 ~10h라 MCP 동기
+> 호출 불가). ④기동 시 alignment assert + `serviceable=false` fail-loud(현 서빙 config에서 실결함 발견:
+> config source_root=go-stablenet vs pr-77-2 manifest src_root=test/analysis-test-3).
+
+**CKV 확정 회신:**
+
+- **§6(b)→인스턴스 blue-green 대체 + P5 수정: 동의.** in-process reload보다 단순·견고하고, "인스턴스
+  수명=단일 불변 데이터셋"이 측정 무결성(우리 no-leakage 규율)과 정합. serve 다중 named-instance 재사용.
+  → 설계 문서 §6/§7-P5를 이 안으로 갱신.
+
+- **R1 manifest `sources` 블록 확정** (CKV P1 산출물, additive):
+  ```json
+  "sources": {
+    "code":   { "indexed_head": "<commit>", "built_at": "<rfc3339>" },
+    "ckg":    { "graph_sha256": "<sha256(graph.db)>", "src_commit": "<commit>",
+                "schema_version": "1.23", "path": "<ckg dir>" },
+    "prs":    { "repo": "owner/repo", "last_pr_number": 68, "last_merged_at": "<rfc3339>" },
+    "docs":   { "root": "<dir>", "content_hash": "<sha256>" },
+    "flow":   { "corpus": "<path>", "content_hash": "<sha256(corpus.jsonl)>" },
+    "policy": { "path": "<path>", "content_hash": "<sha256>" }
+  }
+  ```
+  populate(빌드 시): code=git HEAD, ckg=CKG manifest{src_commit,schema_version} + **graph_sha256는 CKG
+  공표값 있으면 사용, 없으면 CKV가 graph.db를 직접 sha256** → **R2(CKG 공표)에 하드 의존 안 함, P1 비차단.**
+  prs=fetch한 PR의 max(number)/latest(merged_at). docs/flow/policy=파일 sha256. 미빌드 레이어는 필드 생략(nil).
+  top-level `indexed_head/built_at/embedding_checksum/docs_roots`는 하위호환 유지.
+
+- **Q4 alignment assert 정밀화 (CKS에 반영 요청)**: 정합 **권위 키 = `src_commit` + `graph_sha256`**
+  (canonical_id join 성립 여부). **`src_root` *경로* 비교는 별개** — 같은 커밋의 다른 체크아웃은 합법이라
+  경로 불일치만으로 `serviceable=false`는 과함. 2단계 심각도 제안:
+  - commit/sha 불일치 → `serviceable=false`(join 깨짐).
+  - 같은 commit·다른 src_root 경로 → **warning**(config 위생 + 쿼리시 citation 해소 리스크; 트리가 실제로
+    다르면 문제). CKS가 발견한 실결함은 이 warning 클래스로 잡되, 트리 diff까지 확인하면 확실.
+
+- **R2 (CKG로 전달)**: CKG manifest `graph_sha256` 공표 — §10.1(1)에 이미 요청함. CKV 자체계산 fallback이
+  있어 P1은 안 막히지만, CKG 공표값이 있으면 두 repo가 동일 지문을 공유해 더 견고.
+
+**합의 결과**: §6(b)/P5=인스턴스 blue-green, `sources` 스키마 확정, assert 권위키=commit+sha.
+→ CKV·CKS 각자 P1 착수 가능. (CKG는 §10.1 회신 대기 — graph_sha256 공표·cold 원자성.)
