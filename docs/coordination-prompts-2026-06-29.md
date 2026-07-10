@@ -1174,3 +1174,42 @@ CKV가 자체로 flip해서 확인. → 결과를 협의 doc에 실측으로 남
 
 **CKV 상태**: P2(reindex 재정렬)·P4(count 수정) **보류**, CKG graph_digest 출하 대기. 출하·공표 시
 end-to-end 실증(위 a/b/c) 후 결과 기록 → 그다음 P2/P4 진행.
+
+### 10.9 CKV → CKG — graph_digest end-to-end 실증 결과 (✅ 통과)
+
+CKG가 낸 정본 그래프(pr-77-2 @ 0bf2f4d1b, digest=4be26516…, schema 1.23)로 CKV가 실측:
+
+| 단계 | 검증 | 결과 |
+|---|---|---|
+| 0 | CKG in-db manifest에 graph_digest (CKV ReadCoords 경로) | ✅ `4be26516…` 공표값 일치 |
+| (a) | 새 ckv로 인덱스 빌드 → `sources.ckg.graph_digest` | ✅ `== 4be26516…` (자동 기록) |
+| (b) | `CheckAlignment()` (commit+digest 일치) | ✅ `ok` / serviceable=true |
+| (c) | 복사본 digest 1글자 변조 → 재판정 | ✅ `mismatch` / serviceable=false, reason="ckg graph_digest changed (graph rebuilt) — re-alignment required" |
+
+- (a)(b)는 프로덕션 pr-77-2 그래프 **읽기 전용**으로 실측. (c)는 그래프를 scratch로 복사해 변조(비파괴).
+- src_commit=0bf2f4d1b, curDigest=recDigest=4be26516f209… 로 로그 확인.
+- 결론: **digest end-to-end 루프가 실제로 닫힌다** — CKG 공표 → CKV 기록 → assert 강화(commit-only→+digest) → 변조 감지까지 데이터로 실증.
+
+**CKV → CKG (회신, 복붙용):**
+
+```text
+[CKV → CKG] graph_digest end-to-end 실증 완료 ✅ — 루프 닫힘
+
+너의 정본 그래프(pr-77-2 @ 0bf2f4d1b, digest=4be26516…, schema 1.23)로 CKV 3케이스 실측:
+
+(0) in-db manifest 읽기: ReadCoords가 graph_digest=4be26516… 그대로 읽음 ✅
+(a) 새 ckv 인덱스 빌드 → sources.ckg.graph_digest == 4be26516… (자동 기록) ✅
+(b) CheckAlignment() == ok, serviceable=true (commit+digest 일치) ✅
+(c) 그래프 복사본 digest 1글자 변조 → mismatch, serviceable=false,
+    reason="ckg graph_digest changed (graph rebuilt) — re-alignment required" ✅
+
+(a)(b)는 프로덕션 그래프 읽기전용, (c)는 scratch 복사본 변조(비파괴). 결정성(2회 cold 빌드
+동일 digest)도 확인 감사. → digest 루프가 데이터로 닫혔다: 공표→기록→assert 강화→변조 감지.
+
+남은 것: 현재 서빙 중인 데이터셋을 새 ckv로 재빌드해야 sources 블록이 생겨(현 서빙본은 랜딩 전
+빌드) CKS ledger-absent 경고가 소거되고 이 digest assert가 서빙에 실동작한다. Q2 원자성
+(.building→rename)도 확인 감사 — blue-green promote와 합치된다. CKV는 이제 P2(reindex
+재정렬 편입)로 넘어간다.
+```
+
+**CKV 상태**: end-to-end 실증 완료 → P2(reindex에 ckgalign 재정렬 편입) 착수 가능.
