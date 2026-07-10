@@ -164,15 +164,21 @@ CKG가 **결정적**(같은 커밋+바이너리+필터 → 같은 그래프·can
 
 ---
 
-## 6. 서빙(CKS) 재로드 조율
+## 6. 서빙(CKS) 재로드 조율 (CKS 회신 반영, 협의 doc §10.3)
 
 - CKS는 `ckvclient.Real → ckv.Open(DataPath)`, `ckgclient → graph.db`로 **in-process 유지**.
-- 전환 프로토콜(택1):
-  - **(a) config 포인터 + 세션 재시작**: 데이터 경로를 새 버전으로 바꾸고 cks-mcp 재시작(협의 doc의
-    "config swap + restart"와 일치). 단순·안전. 짧은 재시작 다운타임.
-  - **(b) reload 시그널**: CKS가 `current` 포인터 변화를 감지/신호받아 무중단 재오픈. 무중단이나
-    구현 복잡.
-- 권고: **Phase 1은 (a)**, 무중단이 요구되면 (b)로 승격.
+  포인터(`current`)는 **기동 시 1회만 resolve**, run 중 재해석 금지(측정 무결성: "인스턴스 수명 =
+  단일 불변 데이터셋 버전"). health가 resolved 구체 버전·sha 보고.
+- 전환 프로토콜:
+  - **(a) 기본 — config swap + 세션 재시작**: 새 버전 경로로 config 갱신 후 cks-mcp 재시작(≈9~15s:
+    엔진 오픈 + intent 앵커 pre-embed). 단순·안전.
+  - **(b) 무중단 — 인스턴스-레벨 blue-green** (in-process reload 아님): 새 버전을 **새 이름·포트로
+    기동 → health로 identity/alignment 검증 → CKS_MCP_URL 포인터 전환 → 구 인스턴스 stop**. serve의
+    다중 named-instance 지원 재사용. SLA = "전환은 세션/벤치 경계에서만, ≤15s".
+- **기동 시 alignment assert (fail-loud)**: 정합 **권위 키 = `src_commit` + `graph_sha256`**. ckg
+  manifest{src_commit, schema≥1.19, graph_sha256} ↔ ckv `sources.ckg{graph_sha256, src_commit}` 불일치
+  → `serviceable=false` + reason(health alignment 블록). `src_root` *경로* 불일치(같은 커밋 다른 체크아웃)
+  → **warning**(citation 해소 리스크). manifest 파일 기반, 새 API 불요.
 
 ---
 
@@ -184,7 +190,7 @@ CKG가 **결정적**(같은 커밋+바이너리+필터 → 같은 그래프·can
 | **P2 — 조율 재인덱싱** | CKV reindex에 `ckgalign` 재정렬 편입 + schema 캐스케이드 자동 트리거 + 검증 게이트(§5.1) | CKV(+CKG pin) | 중 |
 | **P3 — 증분 도메인지식·PR** | 증분 PR 인제스트(cutoff 이후) + docs/flow content_hash 기반 재인덱싱 + convention 재발행 | CKV | 중 |
 | **P4 — 재개·원자성·락** | 데이터 체크포인트 원장 + reindex 원자성(swap) + count 재조정 + advisory lock + SetManifest 트랜잭션 | CKV+CKG | 중 |
-| **P5 — 무중단 서빙** | CKS reload 프로토콜(§6b), 보존/GC, 관측성·감사 | CKS(+CKV/CKG) | 중 |
+| **P5 — 무중단 서빙** | **인스턴스-레벨 blue-green**(새 포트 기동→health 검증→포인터 전환→구 stop, §6b), 보존/GC, 관측성·감사 | CKS(+CKV/CKG) | 중 |
 
 **P1이 최우선**: 지금은 CKG가 바뀌어도 CKV가 모르는(감지 불가) 상태라, **좌표 기록·불일치 감지**만
 있어도 "조용히 깨지는" 최악을 막는다.
