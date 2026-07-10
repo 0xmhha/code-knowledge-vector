@@ -376,12 +376,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	// PR corpus: fetch merged PRs, index as chunks, and tag source
-	// chunks with file→PR breadcrumbs.
+	// chunks with file→PR breadcrumbs. prSource captures the cutoff
+	// (newest PR indexed) for the manifest ledger / incremental ingest.
+	var prSource *manifest.PRSource
 	if o.PRFetch != nil {
 		prMetas, err := FetchMergedPRs(ctx, o.SrcRoot, *o.PRFetch)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ckv: pr-fetch warning: %v\n", err)
 		} else if len(prMetas) > 0 {
+			prSource = prCutoff(prMetas)
 			// Index PR description + commit message chunks.
 			var prChunks []types.Chunk
 			for _, meta := range prMetas {
@@ -544,6 +547,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		CKVIgnore:          o.CKVIgnore,
 		DocsRoots:          absRoots(manifestDocsRoots),
 	}
+	man.Sources = buildSourcesLedger(o, commit, builtAt, prSource)
 	if err := manifest.Save(o.OutDir, man); err != nil {
 		return nil, fmt.Errorf("save manifest.json: %w", err)
 	}
