@@ -957,3 +957,43 @@ CKS가 두 DB를 in-process로 열어 서빙하므로(ckvclient.Real→ckv.Open,
 
 **합의 결과**: §6(b)/P5=인스턴스 blue-green, `sources` 스키마 확정, assert 권위키=commit+sha.
 → CKV·CKS 각자 P1 착수 가능. (CKG는 §10.1 회신 대기 — graph_sha256 공표·cold 원자성.)
+
+### 10.4 CKG 회신 + CKV 확정 (2026-07-10) — 3자 합의 완료
+
+> CKG가 §10.1 6문항 회신(상세: ckg `docs/coordination-reindex-migration-2026-07-10.md`).
+> 요약: Q1 graph_sha256 미구현(806e03fa는 수동값) — 추가하되 **파일-바이트 sha는 SQLite 레이아웃 탓
+> 비결정적** → ADR-0002 결정성에 맞춰 **논리 다이제스트**(정렬된 node canonical_id + edge 해시)를 앵커로.
+> Q2 비원자 확인 — **버전 디렉터리(`--out-tag` 이미 있음)+symlink swap**로 개선(CKV blue-green과 합치).
+> Q3 schema 신호는 manifest.schema_version(pull) + ckgalign ≥1.19 게이트로 **이미 있음**(추가 채널 불요).
+> Q4 검증 게이트도 **이미 있음** — `ckg audit`(BuildCount vs DBCount parity, IsParity) +
+> parse_errors_count/unresolved_refs_count. Q5 결정성 유지(논리 그래프 수준). Q6 **C1 reverse-ref 이미
+> 구현**(헤더 주석 stale, 정정 예정) — 단 측정용 정본 그래프는 항상 cold, 증분은 서비스 신선도용.
+> 실제 CKG 신규/개선 = Q1·Q2·Q6.
+
+**CKV 확정 회신 (정정 수용):**
+
+- **Q1 앵커 = 논리 다이제스트 (파일 sha 폐기).** CKG 지적 타당 — 같은 논리 그래프도 파일 바이트는 다를 수
+  있어 file-sha는 legit 재빌드에 false-positive. → §2.2/§10.3의 `sources.ckg.graph_sha256`를
+  **`graph_digest`**(CKG 논리 다이제스트)로 변경. **CKV 자체 file-sha 계산 안 함**(이전 fallback 폐기).
+  - **P1 비차단 유지**: CKV는 CKG manifest의 `src_commit`+`schema_version`을 **지금 즉시 기록**(이미 읽음).
+    `graph_digest`는 CKG가 Q1 출하하면 추가(additive). 그때까지 alignment assert = **commit+schema**로 동작,
+    출하 후 **+digest**로 강화. 즉 CKG Q1에 하드 의존 없이 P1 착수 가능, digest는 graceful upgrade.
+  - 다이제스트 **정의 공유 필요**(포함 노드 집합·정렬·edge 포함 여부) → CKG가 정의를 확정해 공표.
+- **Q2 버전 디렉터리+symlink swap: 동의.** CKG `--out-tag` + symlink이 CKV blue-green(불변 버전 + 원자
+  promote)과 정확히 합치. 데이터셋 레이아웃 `knowledge-data/<dataset>@<ver>/{graph-db,vector-db}` + `current`
+  symlink 공용.
+- **Q3 schema 신호 = manifest.schema_version pull: 수용.** schema-bump 캐스케이드는 CKV가 CKG
+  schema_version 변화를 비교해 감지(별도 채널 불요). ≥1.19 게이트는 이미 구현.
+- **Q4 게이트 = ckg audit(IsParity) + parse_errors/unresolved_refs: 수용.** 설계 §5.1 검증 게이트에서
+  CKV canonical_id 매칭률과 함께 **ckg audit 결과를 promote 전 체크**로 편입. (내가 가정한
+  validateAndSanitize보다 나은 표면.)
+- **Q5 결정성(논리 수준): 수용** — Q1 다이제스트와 정합.
+- **Q6 증분 정정 수용.** C1 이미 구현 → "증분≈cold" 전제 **철회**. **서비스 신선도 = 증분(C1 포함),
+  측정/정본 그래프 = 항상 cold**. 설계 §0.1/§4.2 그에 맞춰 정정.
+
+**3자 합의 상태**: CKG·CKV·CKS 모두 회신 완료. 확정 사항 —
+① blue-green(불변 버전 디렉터리 + `current` symlink + 원자 promote), ② 앵커 = **CKG 논리 graph_digest**
+(+ src_commit + schema_version), ③ 검증 게이트 = ckg audit(parity) + canonical 매칭률 + parse/unresolved,
+④ 서빙 전환 = config swap+restart 기본 / 인스턴스 blue-green 무중단, ⑤ alignment assert 권위키 = commit+digest.
+→ **각 repo P1 착수 가능.** CKG 신규 = graph_digest·원자성·주석정정 / CKV = sources 원장·assert / CKS = 버전
+포인터·오케스트레이터 CLI·assert.
