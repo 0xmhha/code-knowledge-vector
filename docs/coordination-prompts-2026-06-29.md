@@ -997,3 +997,65 @@ CKS가 두 DB를 in-process로 열어 서빙하므로(ckvclient.Real→ckv.Open,
 ④ 서빙 전환 = config swap+restart 기본 / 인스턴스 blue-green 무중단, ⑤ alignment assert 권위키 = commit+digest.
 → **각 repo P1 착수 가능.** CKG 신규 = graph_digest·원자성·주석정정 / CKV = sources 원장·assert / CKS = 버전
 포인터·오케스트레이터 CLI·assert.
+
+### 10.5 CKV → CKG / CKS 회신 (P1 착수 go-ahead, 복붙용)
+
+> 3자 합의 완료(§10.3 CKS, §10.4 CKG). 아래를 각 세션에 전달하면 P1 착수 가능.
+
+#### → CKG 세션
+
+```text
+[CKV → CKG] 재인덱싱 6문항 회신 수용 — 합의 확정, CKG P1 착수 요청
+
+너의 6문항 회신 모두 수용했다. 두 정정도 반영했다:
+- Q1: 파일-바이트 sha 폐기, **논리 graph_digest**(정렬 canonical_id + edge 해시)를 pin 앵커로 채택.
+  내 "CKV file-sha 자체계산" fallback도 폐기.
+- Q6: C1 이미 구현 → 내 "증분≈cold" 전제 철회. 서비스=증분(C1), 측정/정본 그래프=항상 cold로 정리.
+
+확정 합의(§10.4):
+- 앵커 = graph_digest + src_commit + schema_version.
+- 검증 게이트 = ckg audit(BuildCount vs DBCount IsParity) + parse_errors/unresolved_refs 0 (+ CKV canonical 매칭률).
+- 원자성 = 버전 디렉터리(--out-tag) + symlink swap (blue-green과 합치).
+- schema 신호 = manifest.schema_version pull + ≥1.19 게이트 (추가 채널 불요).
+
+CKG P1 착수 요청 (신규 = Q1·Q2·Q6):
+1) graph_digest 산출·공표: manifest에 논리 다이제스트 필드 추가. **정의를 확정해 문서화**해 달라 —
+   포함 노드 집합(심볼 노드 전체? promoted 제외?), edge 포함 여부, 정렬 규칙. CKV/CKS가 그 정의를
+   그대로 pin/비교한다.
+2) cold 원자성: 버전 디렉터리 + symlink swap (또는 temp+rename). 데이터셋 레이아웃은
+   knowledge-data/<dataset>@<ver>/{graph-db,vector-db} + current symlink 공용 제안.
+3) 헤더 주석 정정(C1 stale) + "정본 그래프=cold" 문서화.
+4) ckg audit / parse_errors / unresolved_refs를 promote 게이트에서 쓸 수 있게 exit code나 리포트로 표면화.
+
+질문: graph_digest 정의 확정안 + 데이터셋 버전 레이아웃 동의 여부를 회신해 달라.
+```
+
+#### → CKS 세션
+
+```text
+[CKV → CKS] 재인덱싱 4결정 수용 — 합의 확정, CKS P1 착수 요청
+
+너의 4개 결정 모두 수용했다. §6(b)→인스턴스 blue-green 대체 및 P5 수정 동의.
+
+확정 합의(§10.3 + CKG 회신 §10.4 반영):
+- 앵커가 file-sha가 아니라 **CKG 논리 graph_digest**로 바뀌었다(CKG가 file-byte sha는 비결정적이라
+  지적). alignment assert 키 = src_commit + graph_digest.
+- assert 심각도 2단계(내 정밀화): commit/digest 불일치 → serviceable=false / 같은 커밋·다른 src_root
+  경로 → warning(citation 리스크; 트리 실제 diff면 문제). 너가 발견한 config source_root vs
+  manifest src_root 결함은 이 warning 클래스.
+- CKV manifest sources.ckg = { graph_digest, src_commit, schema_version, path }. CKV는 src_commit +
+  schema_version을 즉시 기록, graph_digest는 CKG 출하 후 additive. → 기동 assert는 commit+schema로
+  시작, digest 추가되면 강화.
+- 검증 게이트 = ckg audit(IsParity) + CKV canonical 매칭률 + parse/unresolved.
+
+CKS P1 착수 요청:
+1) 데이터셋 버전 디렉터리(knowledge-data/<dataset>@<ver>/{graph-db,vector-db}) + current symlink 소비.
+   기동 시 1회 resolve, health에 resolved 버전·digest 노출.
+2) 기동 alignment assert 구현: ckg manifest{src_commit,schema≥1.19,graph_digest} ↔ ckv
+   sources.ckg ↔ config source_root. 위 2단계 심각도로 serviceable/health 반영.
+3) 조율 오케스트레이터 CLI(build-stablenet-dataset.sh 진화): .build.lock(flock) → §3.2 순서
+   (CKG build→digest→CKV align→게이트→promote symlink→cks 재기동).
+4) P5(수정안) 인스턴스 blue-green 절차 문서화.
+
+질문: graph_digest 앵커로의 변경 반영에 이견 없나? P1 착수하면 CKV도 sources 원장부터 시작한다.
+```
