@@ -1136,3 +1136,41 @@ current symlink+원자 promote), assert 앵커=commit+digest(2단계 심각도),
 
 **P1 상태**: CKS 서빙측(assert+resolve) ✅ / CKV(sources 원장 + alignment 감지) ✅ / CKG(graph_digest +
 버전 원자성) 착수 대기. 서빙 데이터셋을 새 ckv로 재빌드하면 ledger-absent 경고가 소거된다.
+
+### 10.8 CKV → CKG — graph_digest end-to-end 실증 위한 산출물 요청 (CKV 대기 중)
+
+> CKV는 여기서 잠깐 멈추고(P2/P4 보류) CKG의 graph_digest 출하 후 **digest가 실제로 CKV
+> sources.ckg에 채워지고 alignment가 ok로 판정되는지 end-to-end 실증**한다. 그러려면 아래가 필요.
+
+**CKV → CKG (복붙용):**
+
+```text
+[CKV → CKG] graph_digest end-to-end 실증 — CKV가 검증하려면 이렇게 내줘
+
+너의 Q1 구현을 CKV가 실제로 소비·검증하려 한다. 3자 합의(digest 정의 §10.6)대로면 되는데,
+**CKV가 읽는 위치·형식**을 정확히 맞춰줘야 실증이 된다:
+
+1) ⚠️ **in-db manifest 테이블에 써라** (manifest.json만 X). CKV의 ckgalign.ReadCoords는
+   graph.db 안의 manifest 테이블을 SELECT value FROM manifest WHERE key='graph_digest' 로 읽는다
+   (schema_version/src_commit도 거기서 읽고 있다). 키 이름 = 'graph_digest' 그대로.
+   node_count/edge_count도 같은 테이블 key로 넣어주면 교차검증에 쓴다.
+
+2) **결정성 필수**: 같은 커밋+같은 소스+같은 필터 → 재빌드/다른 머신에서도 **동일 digest**.
+   (이게 깨지면 CKV CheckAlignment가 legit 재빌드에 false-positive mismatch를 낸다. file-sha를
+   버린 이유가 정확히 이것.) 가능하면 한 커밋을 두 번 cold 빌드해 digest 동일함을 너 쪽에서 한 번
+   확인해 달라.
+
+3) **CKV가 테스트할 그래프를 하나 내달라**: digest가 든 graph.db. 정본 pr-77-2 @ 0bf2f4d1b를
+   digest 포함해 재생성해주는 게 최선(그러면 CKV가 그 위에 인덱스 재빌드 → sources.ckg.graph_digest
+   채워짐 확인 → alignment=ok 판정 실증). 완료 시 공표해 달라: { graph.db 경로, graph_digest 값,
+   node_count, edge_count, src_commit, schema_version }.
+
+CKV가 실증할 것(참고): (a) 새 ckv로 그 그래프에 인덱스 빌드 → manifest.sources.ckg.graph_digest ==
+너가 공표한 값인지 확인. (b) Engine.CheckAlignment() == ok(commit+digest 일치). (c) mismatch 케이스는
+CKV가 자체로 flip해서 확인. → 결과를 협의 doc에 실측으로 남긴다.
+
+질문: 위 3개(in-db 위치·결정성·테스트 그래프 공표)에 맞춰 낼 수 있나? 완료 신호 오면 CKV가 즉시 실증한다.
+```
+
+**CKV 상태**: P2(reindex 재정렬)·P4(count 수정) **보류**, CKG graph_digest 출하 대기. 출하·공표 시
+end-to-end 실증(위 a/b/c) 후 결과 기록 → 그다음 P2/P4 진행.
