@@ -537,6 +537,19 @@ func (e *Engine) Manifest() manifest.Manifest {
 	return *e.man
 }
 
+// ResolvedVersion returns the concrete on-disk directory name the data path
+// resolves to, following a `current` symlink. For a blue-green dataset served
+// via <dataset>/current it reports the promoted version dir; for a plain data
+// dir it reports that dir's name. Empty when the path can't be resolved. Lets
+// health show which version is being served (reindex-migration-design §6).
+func (e *Engine) ResolvedVersion() string {
+	resolved, err := filepath.EvalSymlinks(e.outDir)
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(resolved)
+}
+
 // CheckFreshness compares the loaded manifest's IndexedHead against
 // the source tree's current git HEAD and returns ErrFreshnessStale
 // (wrapped with the diff) when they differ. Returns nil when fresh,
