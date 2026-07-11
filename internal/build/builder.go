@@ -85,12 +85,12 @@ type Options struct {
 
 	// CKGPath is the path to a CKG data directory (containing graph.db).
 	// When set, the builder loads an in-memory (file_path, start_line)
-	// index from ckg and resolves each emitted source chunk's CKGNodeID
-	// via ckgalign.Lookup — the 1:1 alignment that cks composer uses to
-	// disambiguate same-named symbols across packages. Empty disables
-	// alignment (CKGNodeID stays ""). Docs-corpus chunks are NOT aligned
-	// (ckg has no node for curated markdown). Open failures abort the
-	// build with a clear error rather than silently skipping alignment.
+	// index from ckg and resolves each emitted source chunk's CanonicalID
+	// via ckgalign.LookupEntry — the stable, import-path-qualified key cks
+	// composer uses to disambiguate same-named symbols across packages.
+	// Empty disables alignment (CanonicalID stays ""). Docs-corpus chunks
+	// are NOT aligned (ckg has no node for curated markdown). Open failures
+	// abort the build with a clear error rather than silently skipping alignment.
 	CKGPath string
 
 	// FilesFromPath is the path to a JSON file with include/exclude glob
@@ -328,22 +328,21 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if len(chunks) == 0 {
 				return
 			}
-			// CKG alignment: stamp each chunk's CKGNodeID by matching
+			// CKG alignment: stamp each chunk's CanonicalID by matching
 			// (file_path, start_line) into the in-memory ckg index.
 			// Skipped when ckgIx is nil (no --ckg) or when a chunk has
 			// no source span (StartLine == 0, e.g. file-header chunks).
-			// Lookup is called only when CKGNodeID is still empty so a
+			// Lookup is called only when CanonicalID is still empty so a
 			// future producer that already populated it (none today) is
 			// respected.
 			if ckgIx != nil {
 				for i := range chunks {
-					if chunks[i].CKGNodeID == "" && chunks[i].StartLine > 0 {
+					if chunks[i].CanonicalID == "" && chunks[i].StartLine > 0 {
 						if e := ckgIx.LookupEntry(
 							chunks[i].File, chunks[i].StartLine, chunks[i].EndLine,
 						); e != nil {
-							// copy ckg's id + canonical_id verbatim so a CKV chunk
-							// inherits the exact keys ckg resolves on.
-							chunks[i].CKGNodeID = e.ID
+							// copy ckg's canonical_id verbatim so a CKV chunk
+							// inherits the exact key ckg resolves on.
 							chunks[i].CanonicalID = e.CanonicalID
 						}
 					}
@@ -376,12 +375,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	// PR corpus: fetch merged PRs, index as chunks, and tag source
-	// chunks with file→PR breadcrumbs.
+	// chunks with file→PR breadcrumbs. prSource captures the cutoff
+	// (newest PR indexed) for the manifest ledger / incremental ingest.
+	var prSource *manifest.PRSource
 	if o.PRFetch != nil {
 		prMetas, err := FetchMergedPRs(ctx, o.SrcRoot, *o.PRFetch)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ckv: pr-fetch warning: %v\n", err)
 		} else if len(prMetas) > 0 {
+			prSource = prCutoff(prMetas)
 			// Index PR description + commit message chunks.
 			var prChunks []types.Chunk
 			for _, meta := range prMetas {
@@ -544,6 +546,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		CKVIgnore:          o.CKVIgnore,
 		DocsRoots:          absRoots(manifestDocsRoots),
 	}
+	man.Sources = buildSourcesLedger(o, commit, builtAt, prSource)
 	if err := manifest.Save(o.OutDir, man); err != nil {
 		return nil, fmt.Errorf("save manifest.json: %w", err)
 	}

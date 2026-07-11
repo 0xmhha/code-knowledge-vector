@@ -156,8 +156,11 @@ type Hit struct {
 	IsTest        bool             `json:"is_test,omitempty"`
 	Symbol        string           `json:"symbol,omitempty"`
 	SymbolKind    types.SymbolKind `json:"symbol_kind,omitempty"`
-	CKGNodeID     string           `json:"ckg_node_id,omitempty"`
-	CanonicalID   string           `json:"canonical_id,omitempty"` // ckg's import-path-qualified symbol id (ADR-0001); the stable key cks uses to FindByCanonicalID against ckg
+	// ChunkKind classifies the chunk's origin strategy (symbol,
+	// file_header, doc, invariant, convention, flow_*). Lets consumers
+	// (cks knowledge quota) route knowledge chunks without re-querying.
+	ChunkKind   types.ChunkKind `json:"chunk_kind,omitempty"`
+	CanonicalID string          `json:"canonical_id,omitempty"` // ckg's import-path-qualified symbol id (ADR-0001); the stable key cks uses to FindByCanonicalID against ckg
 	// Category and Guidance are populated by the policy loader at build
 	// time. Category labels the chunk's domain ("consensus", "state",
 	// ...); Guidance lists what the agent should also review, test, and

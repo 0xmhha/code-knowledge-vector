@@ -1,11 +1,12 @@
 // Package ckgalign builds an in-memory index from a CKG SQLite store
-// (graph.db) and resolves each CKV chunk's CKGNodeID by matching
+// (graph.db) and resolves each CKV chunk to its matching ckg node by
 // (file_path, start_line) — exact start-line preferred, then smallest
 // containing line range.
 //
-// Used by `ckv build --ckg <dir>` to populate chunks.ckg_node_id, the
-// 1:1 alignment that cks composer relies on to disambiguate same-named
-// symbols across packages (e.g. eight different `Finalize` methods).
+// Used by `ckv build --ckg <dir>` to populate chunks.canonical_id, the
+// stable import-path-qualified key that cks composer relies on to
+// disambiguate same-named symbols across packages (e.g. eight different
+// `Finalize` methods).
 //
 // One-shot use: Load() reads every alignment-candidate node row into
 // RAM (~25 MB for a 256k-node graph) and closes the DB handle before
@@ -138,6 +139,40 @@ func columnExists(db *sql.DB, table, col string) bool {
 	}
 	defer rows.Close()
 	return rows.Next()
+}
+
+// Coords are the pin coordinates read from a CKG graph's in-db manifest table.
+// Recorded in the CKV manifest (sources.ckg) for CKG↔CKV mismatch detection.
+// GraphDigest is CKG's logical digest — empty until CKG publishes it.
+type Coords struct {
+	SrcCommit     string
+	SchemaVersion string
+	GraphDigest   string
+}
+
+// ReadCoords opens <ckgPath>/graph.db read-only and reads the manifest
+// coordinates (src_commit, schema_version, graph_digest). Best-effort: a
+// missing manifest table or key yields empty strings, not an error, so a build
+// against an older ckg graph still records what it can.
+func ReadCoords(ckgPath string) (Coords, error) {
+	dbPath := filepath.Join(ckgPath, "graph.db")
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?mode=ro")
+	if err != nil {
+		return Coords{}, fmt.Errorf("ckgalign: open %s: %w", dbPath, err)
+	}
+	defer db.Close()
+	get := func(key string) string {
+		var v string
+		if err := db.QueryRow(`SELECT value FROM manifest WHERE key = ?`, key).Scan(&v); err != nil {
+			return ""
+		}
+		return v
+	}
+	return Coords{
+		SrcCommit:     get("src_commit"),
+		SchemaVersion: get("schema_version"),
+		GraphDigest:   get("graph_digest"),
+	}, nil
 }
 
 // readManifestSchemaVersion reads ckg's recorded cache schema version from the

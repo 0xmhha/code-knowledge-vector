@@ -78,7 +78,7 @@
 | §8.5 | `cks.ops.stats` | P1 | ❌-S2 | |
 | §9 | Sanitize (5 sub-section) — 전체 | P0 | ❌-S2 | plan §13 명시 |
 | §10.1 | 공통 citation 포맷 (CKG 정합) | P0 | ✅ | |
-| §10.2 | Symbol id 호환 | P0 | ⚠️ | `ckg_node_id` 필드만, 정규화 규칙 미합의 |
+| §10.2 | Symbol id 호환 | P0 | ✅ | `canonical_id`가 CKG↔CKV join 키(ADR-007). 별도 정규화 규칙 불요(B7 종결). `ckg_node_id`는 은퇴(2026-07-11) |
 | §10.3 | RRF 입력용 score 노출 | P0 | ✅ | rank+normalized score 노출 |
 | §10.4 | 공유 Working Memory 스키마 | P1 | ❌-planned | |
 | §10.5 | Single binary (CKV/CKG/CKS 통합) | P2 | ❌-CKS | plan §7 — CKS repo 책임 |

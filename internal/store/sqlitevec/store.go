@@ -9,10 +9,13 @@ package sqlitevec
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"sort"
 	"strings"
 
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -143,7 +146,6 @@ func (s *Store) initSchema(dim int) error {
 		chunk_kind      TEXT NOT NULL,
 		commit_hash     TEXT NOT NULL,
 		content_sha256  TEXT NOT NULL,
-		ckg_node_id     TEXT,
 		canonical_id    TEXT,
 		text            TEXT NOT NULL
 	)`); err != nil {
@@ -171,7 +173,6 @@ func (s *Store) initSchema(dim int) error {
 		`CREATE INDEX IF NOT EXISTS idx_chunks_file     ON chunks(file)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_lang     ON chunks(language)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_symbol   ON chunks(symbol_name)`,
-		`CREATE INDEX IF NOT EXISTS idx_chunks_ckg_node ON chunks(ckg_node_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_is_test  ON chunks(is_test)`,
 	} {
 		if _, err := s.db.Exec(idx); err != nil {
@@ -290,10 +291,10 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 	insChunk, err := tx.PrepareContext(ctx, `INSERT INTO chunks (
 		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
-		commit_hash, content_sha256, ckg_node_id, canonical_id, recent_prs,
+		commit_hash, content_sha256, canonical_id, recent_prs,
 		category, guidance, invariants, convention_stats, text,
 		flow_meta, enforced_at, provenance
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
@@ -305,7 +306,6 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		chunk_kind = excluded.chunk_kind,
 		commit_hash = excluded.commit_hash,
 		content_sha256 = excluded.content_sha256,
-		ckg_node_id = excluded.ckg_node_id,
 		canonical_id = excluded.canonical_id,
 		recent_prs = excluded.recent_prs,
 		category = excluded.category,
@@ -349,7 +349,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		if _, err := insChunk.ExecContext(ctx,
 			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
-			c.CommitHash, c.ContentSHA256, c.CKGNodeID, c.CanonicalID, prJSON,
+			c.CommitHash, c.ContentSHA256, c.CanonicalID, prJSON,
 			c.Category, guideJSON, invJSON, convJSON, c.Text,
 			flowJSON, enforcedJSON, c.Provenance,
 		); err != nil {
@@ -414,6 +414,14 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	if k <= 0 {
 		return nil, nil
 	}
+	// Kind-scoped search means "search WITHIN these kinds", not "hope the
+	// kinds appear near the top of a global KNN". Knowledge kinds
+	// (invariant/convention) are ~1% of the index, so KNN + post-filter
+	// returns zero for them essentially always. Rows of the named kinds
+	// are few enough to score exactly.
+	if len(filter.ChunkKinds) > 0 {
+		return s.searchWithinKinds(ctx, query, k, filter)
+	}
 	fetch := k
 	if !filter.IsZero() {
 		fetch = k * 3
@@ -428,7 +436,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	stmt := `SELECT
 			c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
-			c.commit_hash, c.content_sha256, c.ckg_node_id, c.canonical_id, c.recent_prs,
+			c.commit_hash, c.content_sha256, c.canonical_id, c.recent_prs,
 			c.category, c.guidance, c.invariants, c.convention_stats, c.text,
 			c.flow_meta, c.enforced_at, c.provenance,
 			v.distance
@@ -450,7 +458,6 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			isTest    int
 			symKind   sql.NullString
 			chKind    string
-			ckgID     sql.NullString
 			canonID   sql.NullString
 			prJSON    sql.NullString
 			catCol    sql.NullString
@@ -465,7 +472,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		if err := rows.Scan(
 			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 			&c.SymbolName, &symKind, &chKind,
-			&c.CommitHash, &c.ContentSHA256, &ckgID, &canonID, &prJSON,
+			&c.CommitHash, &c.ContentSHA256, &canonID, &prJSON,
 			&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
 			&flowJSON, &enfJSON, &provCol,
 			&distance,
@@ -475,7 +482,6 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		c.IsTest = isTest != 0
 		c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
 		c.ChunkKind = types.ChunkKind(chKind)
-		c.CKGNodeID = ckgID.String
 		c.CanonicalID = canonID.String
 		c.RecentPRs = unmarshalPRRefs(prJSON.String)
 		c.Category = catCol.String
@@ -512,11 +518,106 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	return out, nil
 }
 
+// searchWithinKinds is the exact-scan variant of Search for kind-scoped
+// filters: select every chunk of the named kinds, apply the remaining
+// filter fields, score each against the query vector with the same
+// metric vec0 uses (Euclidean over unit vectors, range [0,2]), and keep
+// the top k. Point-reads each embedding from chunk_vec; the named kinds
+// are assumed rare (the caller's contract for ChunkKinds).
+func (s *Store) searchWithinKinds(ctx context.Context, query []float32, k int, filter types.Filter) ([]types.Hit, error) {
+	placeholders := make([]string, len(filter.ChunkKinds))
+	args := make([]any, len(filter.ChunkKinds))
+	for i, kind := range filter.ChunkKinds {
+		placeholders[i] = "?"
+		args[i] = string(kind)
+	}
+	stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c WHERE c.chunk_kind IN (` +
+		strings.Join(placeholders, ",") + `)`
+	rows, err := s.db.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return nil, fmt.Errorf("kind scan: %w", err)
+	}
+	var chunks []types.Chunk
+	for rows.Next() {
+		c, err := scanChunk(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if !filter.Matches(c) {
+			continue
+		}
+		chunks = append(chunks, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	scored := make([]types.Hit, 0, len(chunks))
+	for _, c := range chunks {
+		var blob []byte
+		err := s.db.QueryRowContext(ctx,
+			`SELECT embedding FROM chunk_vec WHERE chunk_id = ?`, c.ID).Scan(&blob)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue // chunk without a vector cannot be scored
+		}
+		if err != nil {
+			return nil, fmt.Errorf("kind scan embedding %s: %w", c.ID, err)
+		}
+		vec, err := deserializeFloat32(blob)
+		if err != nil {
+			return nil, fmt.Errorf("kind scan embedding %s: %w", c.ID, err)
+		}
+		if len(vec) != len(query) {
+			return nil, fmt.Errorf("kind scan: embedding dim %d != query dim %d for %s", len(vec), len(query), c.ID)
+		}
+		scored = append(scored, types.Hit{
+			Chunk: c,
+			Score: types.HitScore{VectorDistance: euclidean(query, vec)},
+		})
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].Score.VectorDistance < scored[j].Score.VectorDistance
+	})
+	if len(scored) > k {
+		scored = scored[:k]
+	}
+	for i := range scored {
+		scored[i].Score.VectorRank = i + 1
+		scored[i].Score.Normalized = normalize(scored[i].Score.VectorDistance)
+	}
+	return scored, nil
+}
+
+// deserializeFloat32 decodes the little-endian float32 blob format vec0
+// stores (the inverse of sqlitevec.SerializeFloat32).
+func deserializeFloat32(blob []byte) ([]float32, error) {
+	if len(blob)%4 != 0 {
+		return nil, fmt.Errorf("embedding blob length %d not a multiple of 4", len(blob))
+	}
+	out := make([]float32, len(blob)/4)
+	for i := range out {
+		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(blob[i*4:]))
+	}
+	return out, nil
+}
+
+// euclidean is vec0's default KNN metric.
+func euclidean(a, b []float32) float64 {
+	var sum float64
+	for i := range a {
+		d := float64(a[i]) - float64(b[i])
+		sum += d * d
+	}
+	return math.Sqrt(sum)
+}
+
 // chunkSelectCols lists every metadata column on chunks. Centralized so
 // new columns added in migrations only need one SELECT update.
 const chunkSelectCols = `c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 	c.symbol_name, c.symbol_kind, c.chunk_kind,
-	c.commit_hash, c.content_sha256, c.ckg_node_id, c.canonical_id, c.recent_prs,
+	c.commit_hash, c.content_sha256, c.canonical_id, c.recent_prs,
 	c.category, c.guidance, c.invariants, c.convention_stats, c.text,
 	c.flow_meta, c.enforced_at, c.provenance`
 
@@ -531,7 +632,6 @@ func scanChunk(rs interface {
 		isTest    int
 		symKind   sql.NullString
 		chKind    string
-		ckgID     sql.NullString
 		canonID   sql.NullString
 		prJSON    sql.NullString
 		catCol    sql.NullString
@@ -545,7 +645,7 @@ func scanChunk(rs interface {
 	if err := rs.Scan(
 		&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 		&c.SymbolName, &symKind, &chKind,
-		&c.CommitHash, &c.ContentSHA256, &ckgID, &canonID, &prJSON,
+		&c.CommitHash, &c.ContentSHA256, &canonID, &prJSON,
 		&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
 		&flowJSON, &enfJSON, &provCol,
 	); err != nil {
@@ -554,7 +654,6 @@ func scanChunk(rs interface {
 	c.IsTest = isTest != 0
 	c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
 	c.ChunkKind = types.ChunkKind(chKind)
-	c.CKGNodeID = ckgID.String
 	c.CanonicalID = canonID.String
 	c.RecentPRs = unmarshalPRRefs(prJSON.String)
 	c.Category = catCol.String

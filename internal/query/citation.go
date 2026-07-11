@@ -85,12 +85,44 @@ func EnforceCitationsAt(hits []types.Hit, srcRoot, currentHead string, docsRoots
 	return keep, dropped, stale
 }
 
+// hasSyntheticCitation reports whether a chunk's File is a synthetic
+// identifier for a non-code artifact rather than a real source path:
+//
+//   - PR corpus (pr_background / pr_solution / commit_message): File is
+//     "pr/<repo>#<n>" — a PR reference, not a file.
+//   - convention: File is "<pkg>/<convention>" — a per-package summary.
+//   - flow_spine / curated invariant: describe a curated flow / rule, not a
+//     code line; they cite the corpus, not the tree.
+//
+// These chunks carry no on-disk code location, so the file-existence and
+// line-sanity checks would drop every one of them from semantic_search
+// (the citation is metadata, not a code pointer). Verifying them makes no
+// sense, so they are exempt. Code-location chunks (symbol, function_split,
+// file_header, doc, flow_step, auto-extracted invariant) are still verified —
+// a hallucinated or stale code citation is still caught.
+func hasSyntheticCitation(c types.Chunk) bool {
+	switch c.ChunkKind {
+	case types.ChunkPRBackground, types.ChunkPRSolution, types.ChunkCommitMessage,
+		types.ChunkConvention, types.ChunkFlowSpine:
+		return true
+	case types.ChunkInvariant:
+		return c.Provenance == "curated"
+	}
+	return false
+}
+
 // verifyCitation runs the cheap existence + line-sanity check. Returns
 // true if the citation is plausible; false if anything is missing. The
 // file must exist under srcRoot or under one of docsRoots (the latter
 // resolves doc/markdown corpus chunks indexed via `ckv build --docs`,
 // whose File is relative to the corpus dir, not the code srcRoot).
+// Chunks with a synthetic (non-code) citation are exempt (see
+// hasSyntheticCitation) — otherwise every PR / convention / flow-spine hit
+// would be silently dropped.
 func verifyCitation(srcRoot string, c types.Chunk, docsRoots []string) bool {
+	if hasSyntheticCitation(c) {
+		return true
+	}
 	if c.File == "" {
 		return false
 	}

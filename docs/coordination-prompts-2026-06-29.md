@@ -844,3 +844,421 @@ flow_meta / enforced_at 컬럼(Phase B 영속) 위에서 동작. 모두 bounded(
   단 ② canonical_id를 step에 실어주면 cks join 재해석이 줄어드는 **선택적 개선**으로 재요청(미차단).
 - **남은 것**: T5 데이터셋 정렬(cks config를 pr-77-2 flow 인덱스로 swap) → T6 라이브 e2e 검증
   (§9-R 라이브 케이스 ep-cli-init / INV-CONSENSUS-01 / "정족수 부족"으로 대조 예정).
+
+---
+
+## 10. 재인덱싱·마이그레이션 설계 검토 요청 (CKG / CKS)
+
+> 설계 문서: `code-knowledge-vector/docs/reindex-migration-design-2026-07-10.md` (크로스-repo).
+> 두 repo의 빌드/증분 코드 전수 리뷰 기반. 아래 프롬프트를 각 세션에 붙여 검토·회신 요청.
+
+### 10.1 → CKG 세션 (복붙용)
+
+```text
+[CKV → CKG] 재인덱싱·DB마이그레이션·무중단 설계 검토 요청
+
+CKV가 크로스-repo 설계 문서를 냈다(code-knowledge-vector/docs/reindex-migration-design-2026-07-10.md).
+CKG 빌드/증분 코드를 리뷰해서 반영했고(A3 캐시·FK CASCADE·validateAndSanitize·git-aware staleness·
+cold=os.Remove 후 재빌드·partial-cache는 실질 cold fallback·schema는 cache-key 기여로 bump 시 cold 강제),
+CKG가 소관인 항목(문서 §8)에 대해 확인·결정이 필요하다.
+
+배경(설계 핵심):
+- 두 DB는 같은 소스 커밋+정합 스키마에서 만들어져야 canonical_id join이 성립.
+- 무중단을 위해 "라이브 DB in-place 변경 금지 → 새 버전 옆에 빌드 → 검증 → 원자적 swap → CKS 재로드"
+  (blue-green)를 중심 축으로 제안.
+
+확인/결정 요청:
+1) graph_sha256 공표: CKG manifest(또는 산출물 옆)에 graph.db의 sha256을 기록/공표할 수 있나?
+   CKV/CKS가 "어느 그래프에 정렬/서빙 중인지" pin하고 불일치를 감지하는 앵커다. (지금은 수동 공표만.)
+2) 원자성: cold rebuild가 os.Remove(graph.db) 후 재빌드라 비원자적이다. temp 경로 빌드 → 원자적
+   rename(또는 버전 디렉터리)으로 바꿔, 서빙 중 파일 파괴/부분상태를 없앨 수 있나?
+3) schema-bump 캐스케이드: cache SchemaVersion을 올리면 CKG cold rebuild → canonical_id 전면 변경
+   → CKV 전면 재빌드 필수. 이 캐스케이드를 소비자가 자동 감지하도록 버전을 어떻게 신호할까?
+4) 검증 게이트: promote 전 무결성 검사로 validateAndSanitize(dangling)·FK·노드/엣지 count를 외부에
+   노출(exit code나 리포트)할 수 있나? CKV canonical_id 매칭률과 함께 게이트에 쓴다.
+5) 결정성(ADR-0002): 같은 커밋+바이너리+필터 → 같은 그래프·canonical_id 보장이 유지되나?
+   (조율 재인덱싱 재현성의 전제.)
+6) partial-cache NOOP: cross-file 엣지 손실로 partial이 cold로 fallback한다. C1 reverse-ref 인덱스
+   계획이 있나? 없으면 "증분≈실질 cold"를 전제로 CKV/CKS가 설계해도 되나?
+
+질문: 위 1~6에 대한 CKG 결정/제약을 회신해 달라. 특히 (1)(2)는 P1(좌표·감지·버전화) 착수 전제다.
+```
+
+### 10.2 → CKS 세션 (복붙용)
+
+```text
+[CKV → CKS] 재인덱싱 오케스트레이션 + 무중단 서빙 전환 검토 요청
+
+CKV 설계 문서(code-knowledge-vector/docs/reindex-migration-design-2026-07-10.md) 중 CKS 소관(§6·§8):
+CKS가 두 DB를 in-process로 열어 서빙하므로(ckvclient.Real→ckv.Open, ckgclient→graph.db), 갱신 시
+서빙 안전·전환·조율 오케스트레이션이 CKS 책임이다.
+
+배경:
+- blue-green: 새 버전 디렉터리(knowledge-data/<dataset>@<ver>/{graph-db,vector-db})에 빌드 → 검증 →
+  current 포인터 원자 전환 → CKS 재로드. 라이브는 promote 전까지 무손상.
+- 조율 순서: CKG 그래프 빌드 → graph_sha256 공표 → CKV 정렬/빌드 → 검증 게이트 → 동시 promote → CKS 재로드.
+
+확인/결정 요청:
+1) 재로드 방식: 현재 CKS는 새 DB를 어떻게 집어드나? (config 경로 + cks-mcp 세션 재시작으로 알고 있음.)
+   무중단이 필요한가, 짧은 재시작 다운타임이 허용되나? (SLA)
+   → 설계는 P1=(a) config swap + restart, 필요 시 (b) current 포인터 감지 무중단 reload로 승격 제안.
+2) 데이터셋 버전 포인터: knowledge-data/<dataset>@<ver> 버전화 + current 포인터를 CKS가 소비/전환하는
+   주체가 되는 게 맞나? (advisory lock으로 조율 재인덱싱 직렬화도 CKS 소유 제안.)
+3) 조율 오케스트레이션: CKG→CKV→검증→promote 순서를 누가 구동하나? CKS가 오케스트레이터가 맞나,
+   아니면 별도 빌드 파이프라인/스크립트인가?
+4) 불일치 신호 소비: CKV/CKG가 노출할 stale/mismatch 신호(graph_sha256 불일치, schema<1.19)를 CKS가
+   서빙 전 assert해야 한다(현재 배선 전 assert 정책과 정합). 인터페이스 기대치가 있나?
+
+질문: 위 1~4 결정 + 재로드 방식(무중단 필요 여부)을 회신해 달라. (2)(3)이 오케스트레이션 소유권을 가른다.
+```
+
+### 10.3 CKS 회신 + CKV 확정 (2026-07-10)
+
+> CKS가 §10.2 4개에 회신(상세: `code-knowledge-system/docs/coordination-response-cks-reindex-2026-07-10.md`).
+> blue-green(불변 버전 + 검증 게이트 + 원자 promote) 수용. CKS 결정 요약:
+> ①재로드=config swap+restart(≈9~15s), 무중단 필요 시 **인스턴스-레벨 blue-green**(새 포트 기동→health
+> 검증→CKS_MCP_URL 전환→구 인스턴스 stop) — §6(b)/P5 대체 제안. ②포인터=기동 1회 resolve, lock=빌드
+> 직렬화 전용(`.build.lock` flock). ③오케스트레이터=CKS 소유, **CLI/스크립트**(full 재인덱싱 ~10h라 MCP 동기
+> 호출 불가). ④기동 시 alignment assert + `serviceable=false` fail-loud(현 서빙 config에서 실결함 발견:
+> config source_root=go-stablenet vs pr-77-2 manifest src_root=test/analysis-test-3).
+
+**CKV 확정 회신:**
+
+- **§6(b)→인스턴스 blue-green 대체 + P5 수정: 동의.** in-process reload보다 단순·견고하고, "인스턴스
+  수명=단일 불변 데이터셋"이 측정 무결성(우리 no-leakage 규율)과 정합. serve 다중 named-instance 재사용.
+  → 설계 문서 §6/§7-P5를 이 안으로 갱신.
+
+- **R1 manifest `sources` 블록 확정** (CKV P1 산출물, additive):
+  ```json
+  "sources": {
+    "code":   { "indexed_head": "<commit>", "built_at": "<rfc3339>" },
+    "ckg":    { "graph_sha256": "<sha256(graph.db)>", "src_commit": "<commit>",
+                "schema_version": "1.23", "path": "<ckg dir>" },
+    "prs":    { "repo": "owner/repo", "last_pr_number": 68, "last_merged_at": "<rfc3339>" },
+    "docs":   { "root": "<dir>", "content_hash": "<sha256>" },
+    "flow":   { "corpus": "<path>", "content_hash": "<sha256(corpus.jsonl)>" },
+    "policy": { "path": "<path>", "content_hash": "<sha256>" }
+  }
+  ```
+  populate(빌드 시): code=git HEAD, ckg=CKG manifest{src_commit,schema_version} + **graph_sha256는 CKG
+  공표값 있으면 사용, 없으면 CKV가 graph.db를 직접 sha256** → **R2(CKG 공표)에 하드 의존 안 함, P1 비차단.**
+  prs=fetch한 PR의 max(number)/latest(merged_at). docs/flow/policy=파일 sha256. 미빌드 레이어는 필드 생략(nil).
+  top-level `indexed_head/built_at/embedding_checksum/docs_roots`는 하위호환 유지.
+
+- **Q4 alignment assert 정밀화 (CKS에 반영 요청)**: 정합 **권위 키 = `src_commit` + `graph_sha256`**
+  (canonical_id join 성립 여부). **`src_root` *경로* 비교는 별개** — 같은 커밋의 다른 체크아웃은 합법이라
+  경로 불일치만으로 `serviceable=false`는 과함. 2단계 심각도 제안:
+  - commit/sha 불일치 → `serviceable=false`(join 깨짐).
+  - 같은 commit·다른 src_root 경로 → **warning**(config 위생 + 쿼리시 citation 해소 리스크; 트리가 실제로
+    다르면 문제). CKS가 발견한 실결함은 이 warning 클래스로 잡되, 트리 diff까지 확인하면 확실.
+
+- **R2 (CKG로 전달)**: CKG manifest `graph_sha256` 공표 — §10.1(1)에 이미 요청함. CKV 자체계산 fallback이
+  있어 P1은 안 막히지만, CKG 공표값이 있으면 두 repo가 동일 지문을 공유해 더 견고.
+
+**합의 결과**: §6(b)/P5=인스턴스 blue-green, `sources` 스키마 확정, assert 권위키=commit+sha.
+→ CKV·CKS 각자 P1 착수 가능. (CKG는 §10.1 회신 대기 — graph_sha256 공표·cold 원자성.)
+
+### 10.4 CKG 회신 + CKV 확정 (2026-07-10) — 3자 합의 완료
+
+> CKG가 §10.1 6문항 회신(상세: ckg `docs/coordination-reindex-migration-2026-07-10.md`).
+> 요약: Q1 graph_sha256 미구현(806e03fa는 수동값) — 추가하되 **파일-바이트 sha는 SQLite 레이아웃 탓
+> 비결정적** → ADR-0002 결정성에 맞춰 **논리 다이제스트**(정렬된 node canonical_id + edge 해시)를 앵커로.
+> Q2 비원자 확인 — **버전 디렉터리(`--out-tag` 이미 있음)+symlink swap**로 개선(CKV blue-green과 합치).
+> Q3 schema 신호는 manifest.schema_version(pull) + ckgalign ≥1.19 게이트로 **이미 있음**(추가 채널 불요).
+> Q4 검증 게이트도 **이미 있음** — `ckg audit`(BuildCount vs DBCount parity, IsParity) +
+> parse_errors_count/unresolved_refs_count. Q5 결정성 유지(논리 그래프 수준). Q6 **C1 reverse-ref 이미
+> 구현**(헤더 주석 stale, 정정 예정) — 단 측정용 정본 그래프는 항상 cold, 증분은 서비스 신선도용.
+> 실제 CKG 신규/개선 = Q1·Q2·Q6.
+
+**CKV 확정 회신 (정정 수용):**
+
+- **Q1 앵커 = 논리 다이제스트 (파일 sha 폐기).** CKG 지적 타당 — 같은 논리 그래프도 파일 바이트는 다를 수
+  있어 file-sha는 legit 재빌드에 false-positive. → §2.2/§10.3의 `sources.ckg.graph_sha256`를
+  **`graph_digest`**(CKG 논리 다이제스트)로 변경. **CKV 자체 file-sha 계산 안 함**(이전 fallback 폐기).
+  - **P1 비차단 유지**: CKV는 CKG manifest의 `src_commit`+`schema_version`을 **지금 즉시 기록**(이미 읽음).
+    `graph_digest`는 CKG가 Q1 출하하면 추가(additive). 그때까지 alignment assert = **commit+schema**로 동작,
+    출하 후 **+digest**로 강화. 즉 CKG Q1에 하드 의존 없이 P1 착수 가능, digest는 graceful upgrade.
+  - 다이제스트 **정의 공유 필요**(포함 노드 집합·정렬·edge 포함 여부) → CKG가 정의를 확정해 공표.
+- **Q2 버전 디렉터리+symlink swap: 동의.** CKG `--out-tag` + symlink이 CKV blue-green(불변 버전 + 원자
+  promote)과 정확히 합치. 데이터셋 레이아웃 `knowledge-data/<dataset>@<ver>/{graph-db,vector-db}` + `current`
+  symlink 공용.
+- **Q3 schema 신호 = manifest.schema_version pull: 수용.** schema-bump 캐스케이드는 CKV가 CKG
+  schema_version 변화를 비교해 감지(별도 채널 불요). ≥1.19 게이트는 이미 구현.
+- **Q4 게이트 = ckg audit(IsParity) + parse_errors/unresolved_refs: 수용.** 설계 §5.1 검증 게이트에서
+  CKV canonical_id 매칭률과 함께 **ckg audit 결과를 promote 전 체크**로 편입. (내가 가정한
+  validateAndSanitize보다 나은 표면.)
+- **Q5 결정성(논리 수준): 수용** — Q1 다이제스트와 정합.
+- **Q6 증분 정정 수용.** C1 이미 구현 → "증분≈cold" 전제 **철회**. **서비스 신선도 = 증분(C1 포함),
+  측정/정본 그래프 = 항상 cold**. 설계 §0.1/§4.2 그에 맞춰 정정.
+
+**3자 합의 상태**: CKG·CKV·CKS 모두 회신 완료. 확정 사항 —
+① blue-green(불변 버전 디렉터리 + `current` symlink + 원자 promote), ② 앵커 = **CKG 논리 graph_digest**
+(+ src_commit + schema_version), ③ 검증 게이트 = ckg audit(parity) + canonical 매칭률 + parse/unresolved,
+④ 서빙 전환 = config swap+restart 기본 / 인스턴스 blue-green 무중단, ⑤ alignment assert 권위키 = commit+digest.
+→ **각 repo P1 착수 가능.** CKG 신규 = graph_digest·원자성·주석정정 / CKV = sources 원장·assert / CKS = 버전
+포인터·오케스트레이터 CLI·assert.
+
+### 10.5 CKV → CKG / CKS 회신 (P1 착수 go-ahead, 복붙용)
+
+> 3자 합의 완료(§10.3 CKS, §10.4 CKG). 아래를 각 세션에 전달하면 P1 착수 가능.
+
+#### → CKG 세션
+
+```text
+[CKV → CKG] 재인덱싱 6문항 회신 수용 — 합의 확정, CKG P1 착수 요청
+
+너의 6문항 회신 모두 수용했다. 두 정정도 반영했다:
+- Q1: 파일-바이트 sha 폐기, **논리 graph_digest**(정렬 canonical_id + edge 해시)를 pin 앵커로 채택.
+  내 "CKV file-sha 자체계산" fallback도 폐기.
+- Q6: C1 이미 구현 → 내 "증분≈cold" 전제 철회. 서비스=증분(C1), 측정/정본 그래프=항상 cold로 정리.
+
+확정 합의(§10.4):
+- 앵커 = graph_digest + src_commit + schema_version.
+- 검증 게이트 = ckg audit(BuildCount vs DBCount IsParity) + parse_errors/unresolved_refs 0 (+ CKV canonical 매칭률).
+- 원자성 = 버전 디렉터리(--out-tag) + symlink swap (blue-green과 합치).
+- schema 신호 = manifest.schema_version pull + ≥1.19 게이트 (추가 채널 불요).
+
+CKG P1 착수 요청 (신규 = Q1·Q2·Q6):
+1) graph_digest 산출·공표: manifest에 논리 다이제스트 필드 추가. **정의를 확정해 문서화**해 달라 —
+   포함 노드 집합(심볼 노드 전체? promoted 제외?), edge 포함 여부, 정렬 규칙. CKV/CKS가 그 정의를
+   그대로 pin/비교한다.
+2) cold 원자성: 버전 디렉터리 + symlink swap (또는 temp+rename). 데이터셋 레이아웃은
+   knowledge-data/<dataset>@<ver>/{graph-db,vector-db} + current symlink 공용 제안.
+3) 헤더 주석 정정(C1 stale) + "정본 그래프=cold" 문서화.
+4) ckg audit / parse_errors / unresolved_refs를 promote 게이트에서 쓸 수 있게 exit code나 리포트로 표면화.
+
+질문: graph_digest 정의 확정안 + 데이터셋 버전 레이아웃 동의 여부를 회신해 달라.
+```
+
+#### → CKS 세션
+
+```text
+[CKV → CKS] 재인덱싱 4결정 수용 — 합의 확정, CKS P1 착수 요청
+
+너의 4개 결정 모두 수용했다. §6(b)→인스턴스 blue-green 대체 및 P5 수정 동의.
+
+확정 합의(§10.3 + CKG 회신 §10.4 반영):
+- 앵커가 file-sha가 아니라 **CKG 논리 graph_digest**로 바뀌었다(CKG가 file-byte sha는 비결정적이라
+  지적). alignment assert 키 = src_commit + graph_digest.
+- assert 심각도 2단계(내 정밀화): commit/digest 불일치 → serviceable=false / 같은 커밋·다른 src_root
+  경로 → warning(citation 리스크; 트리 실제 diff면 문제). 너가 발견한 config source_root vs
+  manifest src_root 결함은 이 warning 클래스.
+- CKV manifest sources.ckg = { graph_digest, src_commit, schema_version, path }. CKV는 src_commit +
+  schema_version을 즉시 기록, graph_digest는 CKG 출하 후 additive. → 기동 assert는 commit+schema로
+  시작, digest 추가되면 강화.
+- 검증 게이트 = ckg audit(IsParity) + CKV canonical 매칭률 + parse/unresolved.
+
+CKS P1 착수 요청:
+1) 데이터셋 버전 디렉터리(knowledge-data/<dataset>@<ver>/{graph-db,vector-db}) + current symlink 소비.
+   기동 시 1회 resolve, health에 resolved 버전·digest 노출.
+2) 기동 alignment assert 구현: ckg manifest{src_commit,schema≥1.19,graph_digest} ↔ ckv
+   sources.ckg ↔ config source_root. 위 2단계 심각도로 serviceable/health 반영.
+3) 조율 오케스트레이터 CLI(build-stablenet-dataset.sh 진화): .build.lock(flock) → §3.2 순서
+   (CKG build→digest→CKV align→게이트→promote symlink→cks 재기동).
+4) P5(수정안) 인스턴스 blue-green 절차 문서화.
+
+질문: graph_digest 앵커로의 변경 반영에 이견 없나? P1 착수하면 CKV도 sources 원장부터 시작한다.
+```
+
+### 10.6 CKV → CKG 회신 — digest 정의·레이아웃 확정 (3자 협의 종료)
+
+> CKG의 graph_digest 정의(§①: nodes+edges 정렬 sha256, 파생메트릭·temporal 제외) + 레이아웃
+> (§②: `<dataset>@<short-commit>-<graph_digest[:8]>/{graph-db,vector-db}` + current symlink)에 대한
+> CKV 회신. CKG 상세: ckg `docs/coordination-reindex-migration-2026-07-10.md §①②`.
+
+**CKV → CKG (복붙용):**
+
+```text
+[CKV → CKG] digest 정의·레이아웃 확정안 — 둘 다 동의, 협의 종료
+
+① temporal 포함 여부: 코드 그래프만(temporal 제외)에 동의. CKV는 canonical_id로 코드 심볼
+   노드에만 정렬하고 temporal(Commit/Hunk·changed_in/blame)을 소비하지 않는다. 오히려 제외가
+   맞다 — temporal-only 재빌드(새 git 히스토리만 반영, 코드 불변)에서 digest가 불변이라
+   CKV alignment assert가 false-positive를 안 낸다. temporal_digest는 CKV엔 불요(CKS가 impact/
+   history용으로 필요하면 CKS가 요청).
+
+② <ver> = <short-commit>-<graph_digest[:8]>: 동의. 스키마bump/재빌드도 불변 디렉터리 보장 OK.
+   한 가지 노트(비차단): 같은 <ver> 안의 vector-db는 CKG 상태 외에 **임베딩 identity(model/dim)**
+   에도 의존한다. 흔한 케이스(데이터셋당 단일 모델)는 그대로 OK — 임베딩 identity는 vector-db
+   manifest에 기록되고 CKS open 시 공간-identity 게이트(PR #12)로 assert된다. 같은 커밋에서 다중
+   모델(예: bge-m3 vs Qwen3) 공존이 필요해지면 그때 <ver>에 <emb[:8]> 추가. 지금은 불필요.
+
+forward-compat 확정: CKV는 이미 ckgalign.ReadCoords로 CKG manifest의 graph_digest를 읽어
+sources.ckg.graph_digest에 기록한다(현재 빈 값, 너가 공표하면 자동 채워짐). CKV 추가 변경 없이
+digest 소비 준비 완료. alignment assert는 commit+schema로 시작 → digest 채워지면 +digest로 강화.
+
+→ 이견 없음. 3자 협의(CKG·CKV·CKS) 종료. CKG는 Q1(graph_digest+node/edge_count 공표)·Q2(버전
+디렉터리+symlink 원자성)·Q6(C1 주석 정정) 착수해도 된다.
+```
+
+**협의 종료 상태**: CKG·CKV·CKS 3자 모두 합의. 확정 —
+digest=코드그래프 논리 다이제스트(temporal 제외), <ver>=commit-digest8, blue-green(버전 디렉터리+
+current symlink+원자 promote), assert 앵커=commit+digest(2단계 심각도), 게이트=ckg audit+canonical
+매칭률+parse/unresolved. **각 repo 구현 착수 가능**(CKV P1 sources 원장 이미 착수 완료 — §10.4/커밋 8816915).
+
+### 10.7 CKV → CKS 회신 — CKV P1 랜딩 확인 + 전파 주의 (2026-07-10)
+
+> CKS: "P1 서빙측(assert+resolve) 출하 완료 — sources 원장 랜딩 시 ledger-absent 경고 자동 소거,
+> graph_digest는 넣는 즉시 assert 합류." → CKV 회신.
+
+**CKV → CKS (복붙용):**
+
+```text
+[CKV → CKS] CKV P1 랜딩 확인 — sources 원장 + alignment 감지 출하 완료
+
+너의 서빙측 assert+resolve 출하 확인. CKV 쪽도 랜딩됐다:
+
+1) sources 원장 (commit 8816915): manifest.sources = { code, ckg{src_commit,
+   schema_version, path[, graph_digest]}, prs{last_pr_number,last_merged_at},
+   docs/flow/policy{content_hash} }. ckgalign.ReadCoords가 CKG manifest에서
+   src_commit/schema_version/graph_digest를 읽어 채운다.
+   → 네 ledger-absent 경고는 **새 ckv로 (재)빌드한 인덱스**부터 자동 소거된다.
+
+⚠️ 전파 주의: 현재 서빙 중인 pr-77-2/ckv는 **sources 랜딩 이전에 빌드**돼 sources 블록이
+   없다 → 네 assert가 그 인덱스엔 여전히 ledger-absent(경고)로 뜬다. **해당 데이터셋을 새
+   ckv로 재빌드**해야 sources가 생기고 경고가 사라진다. (blue-green 새 버전 promote 때 자연 해소.)
+
+2) alignment 감지 (commit e49c19b): CKV도 동일 로직을 갖췄다 — Engine.CheckAlignment() +
+   pkg/ckv 재노출 + cks.ops.health에 `alignment` 블록 + top-level `serviceable`.
+   - 권위 키 = src_commit + graph_digest (경로 비교 안 함 — 그건 너의 config source_root
+     warning 몫). 2단계 심각도: commit/digest 불일치 → serviceable=false(mismatch),
+     digest 미공표/schema<1.19 → degraded(경고).
+   - 상호보완: CKV는 "정렬한 CKG 그래프가 바뀌었나"(commit+digest)를, CKS는 추가로 "config
+     source_root 일치"(warning)를 본다. 둘 다 commit+digest를 권위 키로 써서 일치한다.
+   - 원하면 CKS assert를 health의 alignment/serviceable와 교차검증해도 된다(같은 결과여야 함).
+
+3) graph_digest: CKV ReadCoords가 이미 읽는다 → CKG가 manifest에 공표하는 즉시 CKV
+   sources.ckg.graph_digest에 자동 채워지고, CheckAlignment/너의 assert가 commit-only에서
+   +digest로 자동 강화된다. (CKG Q1 대기.)
+
+질문 없음 — 상태 동기화. 재빌드로 전파되면 양측 경고 소거 확인하자.
+```
+
+**P1 상태**: CKS 서빙측(assert+resolve) ✅ / CKV(sources 원장 + alignment 감지) ✅ / CKG(graph_digest +
+버전 원자성) 착수 대기. 서빙 데이터셋을 새 ckv로 재빌드하면 ledger-absent 경고가 소거된다.
+
+### 10.8 CKV → CKG — graph_digest end-to-end 실증 위한 산출물 요청 (CKV 대기 중)
+
+> CKV는 여기서 잠깐 멈추고(P2/P4 보류) CKG의 graph_digest 출하 후 **digest가 실제로 CKV
+> sources.ckg에 채워지고 alignment가 ok로 판정되는지 end-to-end 실증**한다. 그러려면 아래가 필요.
+
+**CKV → CKG (복붙용):**
+
+```text
+[CKV → CKG] graph_digest end-to-end 실증 — CKV가 검증하려면 이렇게 내줘
+
+너의 Q1 구현을 CKV가 실제로 소비·검증하려 한다. 3자 합의(digest 정의 §10.6)대로면 되는데,
+**CKV가 읽는 위치·형식**을 정확히 맞춰줘야 실증이 된다:
+
+1) ⚠️ **in-db manifest 테이블에 써라** (manifest.json만 X). CKV의 ckgalign.ReadCoords는
+   graph.db 안의 manifest 테이블을 SELECT value FROM manifest WHERE key='graph_digest' 로 읽는다
+   (schema_version/src_commit도 거기서 읽고 있다). 키 이름 = 'graph_digest' 그대로.
+   node_count/edge_count도 같은 테이블 key로 넣어주면 교차검증에 쓴다.
+
+2) **결정성 필수**: 같은 커밋+같은 소스+같은 필터 → 재빌드/다른 머신에서도 **동일 digest**.
+   (이게 깨지면 CKV CheckAlignment가 legit 재빌드에 false-positive mismatch를 낸다. file-sha를
+   버린 이유가 정확히 이것.) 가능하면 한 커밋을 두 번 cold 빌드해 digest 동일함을 너 쪽에서 한 번
+   확인해 달라.
+
+3) **CKV가 테스트할 그래프를 하나 내달라**: digest가 든 graph.db. 정본 pr-77-2 @ 0bf2f4d1b를
+   digest 포함해 재생성해주는 게 최선(그러면 CKV가 그 위에 인덱스 재빌드 → sources.ckg.graph_digest
+   채워짐 확인 → alignment=ok 판정 실증). 완료 시 공표해 달라: { graph.db 경로, graph_digest 값,
+   node_count, edge_count, src_commit, schema_version }.
+
+CKV가 실증할 것(참고): (a) 새 ckv로 그 그래프에 인덱스 빌드 → manifest.sources.ckg.graph_digest ==
+너가 공표한 값인지 확인. (b) Engine.CheckAlignment() == ok(commit+digest 일치). (c) mismatch 케이스는
+CKV가 자체로 flip해서 확인. → 결과를 협의 doc에 실측으로 남긴다.
+
+질문: 위 3개(in-db 위치·결정성·테스트 그래프 공표)에 맞춰 낼 수 있나? 완료 신호 오면 CKV가 즉시 실증한다.
+```
+
+**CKV 상태**: P2(reindex 재정렬)·P4(count 수정) **보류**, CKG graph_digest 출하 대기. 출하·공표 시
+end-to-end 실증(위 a/b/c) 후 결과 기록 → 그다음 P2/P4 진행.
+
+### 10.9 CKV → CKG — graph_digest end-to-end 실증 결과 (✅ 통과)
+
+CKG가 낸 정본 그래프(pr-77-2 @ 0bf2f4d1b, digest=4be26516…, schema 1.23)로 CKV가 실측:
+
+| 단계 | 검증 | 결과 |
+|---|---|---|
+| 0 | CKG in-db manifest에 graph_digest (CKV ReadCoords 경로) | ✅ `4be26516…` 공표값 일치 |
+| (a) | 새 ckv로 인덱스 빌드 → `sources.ckg.graph_digest` | ✅ `== 4be26516…` (자동 기록) |
+| (b) | `CheckAlignment()` (commit+digest 일치) | ✅ `ok` / serviceable=true |
+| (c) | 복사본 digest 1글자 변조 → 재판정 | ✅ `mismatch` / serviceable=false, reason="ckg graph_digest changed (graph rebuilt) — re-alignment required" |
+
+- (a)(b)는 프로덕션 pr-77-2 그래프 **읽기 전용**으로 실측. (c)는 그래프를 scratch로 복사해 변조(비파괴).
+- src_commit=0bf2f4d1b, curDigest=recDigest=4be26516f209… 로 로그 확인.
+- 결론: **digest end-to-end 루프가 실제로 닫힌다** — CKG 공표 → CKV 기록 → assert 강화(commit-only→+digest) → 변조 감지까지 데이터로 실증.
+
+**CKV → CKG (회신, 복붙용):**
+
+```text
+[CKV → CKG] graph_digest end-to-end 실증 완료 ✅ — 루프 닫힘
+
+너의 정본 그래프(pr-77-2 @ 0bf2f4d1b, digest=4be26516…, schema 1.23)로 CKV 3케이스 실측:
+
+(0) in-db manifest 읽기: ReadCoords가 graph_digest=4be26516… 그대로 읽음 ✅
+(a) 새 ckv 인덱스 빌드 → sources.ckg.graph_digest == 4be26516… (자동 기록) ✅
+(b) CheckAlignment() == ok, serviceable=true (commit+digest 일치) ✅
+(c) 그래프 복사본 digest 1글자 변조 → mismatch, serviceable=false,
+    reason="ckg graph_digest changed (graph rebuilt) — re-alignment required" ✅
+
+(a)(b)는 프로덕션 그래프 읽기전용, (c)는 scratch 복사본 변조(비파괴). 결정성(2회 cold 빌드
+동일 digest)도 확인 감사. → digest 루프가 데이터로 닫혔다: 공표→기록→assert 강화→변조 감지.
+
+남은 것: 현재 서빙 중인 데이터셋을 새 ckv로 재빌드해야 sources 블록이 생겨(현 서빙본은 랜딩 전
+빌드) CKS ledger-absent 경고가 소거되고 이 digest assert가 서빙에 실동작한다. Q2 원자성
+(.building→rename)도 확인 감사 — blue-green promote와 합치된다. CKV는 이제 P2(reindex
+재정렬 편입)로 넘어간다.
+```
+
+**CKV 상태**: end-to-end 실증 완료 → P2(reindex에 ckgalign 재정렬 편입) 착수 가능.
+
+### 10.10 CKV → CKS — 서빙 데이터셋 재빌드 완료 (sources 원장 + digest 실동작)
+
+pr-77-2 서빙 CKV 인덱스를 새 ckv(sources 원장 + alignment)로 재빌드. 실측:
+
+| 항목 | 값 |
+|---|---|
+| out | `knowledge-data/pr-77-2/ckv` (신규 생성, 이전엔 부재) |
+| embedder | bge-m3 / 1024-dim / l2 |
+| src_commit / schema | 0bf2f4d1b / 1.23 |
+| chunks | 15909 (symbol 14273, doc 222, header 1038, flow/curated 112) |
+| canonical_id match | 13507 / 14273 = **94.63%** |
+| sources.ckg.graph_digest | `4be26516…` (그래프와 일치) |
+| sources.docs/flow/policy | 해시 기록됨 (d2ac…/e9a9…/5914…) |
+| sources.prs | none (PR 미인제스트 — P3 별건) |
+| CheckAlignment (bge-m3 실측) | **status=ok, serviceable=true**, warnings=[] |
+
+→ 이제 서빙 데이터셋에 sources 원장이 있고 graph_digest까지 물려서, CKS ledger-absent 경고가
+자동 소거되고 digest assert가 서빙에 실동작한다.
+
+**CKV → CKS (복붙용, 최종):**
+
+```text
+[CKV → CKS] 서빙 CKV 데이터셋 재빌드 완료 — reload 후 P1 서빙 실동작 확인 요청
+
+pr-77-2 서빙 CKV 인덱스를 새 ckv로 재빌드했다(신규 생성). sources 원장 + graph_digest 물림
+완료 → 네 서빙측 assert가 commit-only에서 +digest로 강화된다.
+
+1) 위치/좌표 (cks-stablenet.yaml 그대로, 경로 변경 없음):
+   ckv : /Users/.../knowledge-data/pr-77-2/ckv   ← 신규 생성됨(이전엔 부재)
+   ckg : /Users/.../knowledge-data/pr-77-2/graph.db
+   embedder=bge-m3(1024,l2), src_commit=0bf2f4d1b, schema=1.23
+   chunks=15909, canonical_id match=13507/14273=94.63%, flow/curated=112, doc=222
+   sources.ckg.graph_digest = 4be26516… (그래프와 일치)
+   CKV CheckAlignment(bge-m3 실측) = ok / serviceable=true / warnings=[]
+
+2) 네가 할 것:
+   a. CKS 재기동/리로드로 새 pr-77-2/ckv를 물린다 (config-swap+restart ~9-15s).
+   b. cks.ops.health → alignment.status=ok, serviceable=true, graph_digest 노출 확인.
+      → ledger-absent 경고가 자동 소거되는지(이제 sources 블록 존재) 확인.
+   c. digest assert 실동작: recorded digest == 현 그래프 digest → ok 판정 확인.
+
+3) 이후 진행 가능(P2): 인스턴스-레벨 blue-green(무중단 전환). 현재 config-swap+restart라
+   ~9-15s 다운타임 → 버전 디렉터리 관리 시 무중단 promote 가능. 설계 §6/§4 참고.
+   (CKV/CKG=버전본 생산, CKS=소비·promote 주체.)
+
+CKV는 P2(reindex 재정렬 편입)로 넘어간다. 재기동 후 health의 alignment 블록을 공유해줘 —
+양측(CKV CheckAlignment / CKS assert)이 같은 digest(4be26516…)로 ok 판정하는지 교차확인하자.
+```

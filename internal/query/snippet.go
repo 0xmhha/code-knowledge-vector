@@ -133,7 +133,7 @@ func toResponseHit(h types.Hit, snippet string) Hit {
 		IsTest:        c.IsTest,
 		Symbol:        c.SymbolName,
 		SymbolKind:    c.SymbolKind,
-		CKGNodeID:     c.CKGNodeID,
+		ChunkKind:     c.ChunkKind,
 		CanonicalID:   c.CanonicalID,
 		Category:      c.Category,
 		Guidance:      c.Guidance,

@@ -94,7 +94,21 @@ type (
 	FlowNeighbor         = query.FlowNeighbor
 	BranchMatch          = query.BranchMatch
 	InvariantEnforcement = query.InvariantEnforcement
+
+	// AlignmentReport is the CKG↔CKV alignment status (design §3.1).
+	AlignmentReport = query.AlignmentReport
 )
+
+// CheckAlignment compares the CKG coordinates this index aligned against
+// (manifest sources.ckg) with the CKG graph currently on disk, so a stale or
+// mismatched alignment surfaces instead of returning wrong canonical_id joins.
+// Returns a not_aligned report when the index was built without --ckg.
+func (e *Engine) CheckAlignment() AlignmentReport {
+	if e == nil || e.inner == nil {
+		return AlignmentReport{Status: query.AlignmentNotAligned}
+	}
+	return e.inner.CheckAlignment()
+}
 
 // DensityTier names the 3-tier snippet ladder. Set on every Hit so
 // callers know which compression level the engine rendered at, and

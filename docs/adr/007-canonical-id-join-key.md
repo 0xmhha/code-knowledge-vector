@@ -101,3 +101,17 @@ CKG node carry the same canonical_id, with both caveats (≥1.19 gate,
   `schema_version >= 1.19` before pointing at a graph (needs CKG manifest
   format).
 - Pending shared work: integration fixture (CKV + CKG).
+- 2026-07-11: **`ckg_node_id` retired** as a follow-up to this decision.
+  Since canonical_id is *the* join key (above), the positional CKG node ID
+  was a dead field on `chunks` — never read as a lookup key by any of the
+  three repos. Removed from the shared surface: `types.Chunk.CKGNodeID`,
+  the `chunks.ckg_node_id` column + `idx_chunks_ckg_node` index, the query
+  result field, and the builder stamp (`internal/build` now copies only
+  `e.CanonicalID` from the aligned node). The `internal/ckgalign` matching
+  ladder is unchanged — it still returns the matched node (`Entry.ID`) as
+  the internal mechanism that *discovers* the node whose canonical_id is
+  copied; only the persisted `ckg_node_id` is gone. Migration: removed from
+  the inline `CREATE TABLE`/index; existing DBs carry an inert unused column
+  until the next fresh rebuild (no in-place `DROP COLUMN`, per
+  `reindex-migration-design-2026-07-10.md` §4.2). Gate:
+  `grep -rn "ckg_node_id\|CKGNodeID"` over `*.go` → 0.

@@ -9,6 +9,11 @@ PR #1~#6까지만 다뤄, 그 이후 머지된 #7~#15와 **CKG/CKV/CKS/coding-ag
 > 다수가 CKG/CKS/coding-agent와 경계를 공유 → 4세션 협의로 **핵심 결정 7건 합의 완료**
 > (커밋 핀, schema 게이트, parity 분리, flow Phase 2, 차원=실측후결정, 비전 가드레일).
 > 상세 협의 기록은 [`coordination-prompts-2026-06-29.md`](./coordination-prompts-2026-06-29.md).
+>
+> **갱신 2026-07-10:** 크로스레포 reindex/마이그레이션 **P1 3자 완료** — CKV(sources 원장 +
+> alignment 감지) · CKS(서빙 assert+resolve) · CKG(graph_digest 공표 + 버전 원자성). digest
+> end-to-end 실증(협의 doc §10.9) + **서빙 데이터셋 재빌드**(§10.10, `pr-77-2/ckv`,
+> bge-m3 15,909청크, canonical 94.63%, CheckAlignment=ok). 남은 CKV 작업은 §4.0 참조.
 
 ---
 
@@ -141,6 +146,31 @@ ckv build --src <go-stablenet> --out <data> \
 ---
 
 ## 4. 남은 작업 리스트 (협의 반영, 우선순위별)
+
+### 4.0 reindex/마이그레이션 P1 이후 남은 CKV 작업 (2026-07-10 갱신)
+
+설계 = [`reindex-migration-design-2026-07-10.md`](./reindex-migration-design-2026-07-10.md).
+**P1은 3자 완료·실증됨** (아래 [x]). 남은 것은 우선순위 순:
+
+- [x] **P1 CKV — sources 원장** (commit `8816915`) — manifest.sources = code/ckg{src_commit,
+  schema_version, graph_digest, path}/prs/docs/flow/policy. 층별 knowledge-cutoff 원장.
+- [x] **P1 CKV — alignment 감지** (commit `e49c19b`) — `Engine.CheckAlignment()` (ok/degraded/
+  mismatch/not_aligned, 권위 키=src_commit+graph_digest) → `cks.ops.health`에 alignment+serviceable 노출.
+- [x] **graph_digest end-to-end 실증** (2026-07-10, 협의 doc §10.9) — CKG 정본 그래프
+  (digest `4be26516…`)로 (a) sources 자동기록 (b) CheckAlignment=ok (c) digest 변조→mismatch 실측.
+- [x] **서빙 데이터셋 재빌드** (2026-07-10, 협의 doc §10.10) — `knowledge-data/pr-77-2/ckv`
+  신규 생성(bge-m3 15,909청크, canonical 13,507/14,273=94.63%, flow/curated 112). sources 원장 +
+  graph_digest 물림 → CKS ledger-absent 경고 소거 + digest assert 서빙 실동작. CheckAlignment(bge-m3)=ok.
+- [ ] **CKS 재기동 결과 수신** — §10.10 프롬프트 전달됨. 재기동 후 `cks.ops.health` alignment 블록
+  공유받아 양측(CKV CheckAlignment / CKS assert) 동일 digest ok 교차확인.
+- [ ] **P2 — reindex 재정렬 편입** (CKV 단독) — `ckv reindex`에 ckgalign 재정렬을 편입해
+  감지된 mismatch를 자동 해소(현재는 감지만). 설계 §3.
+- [ ] **P3 — 증분 PR 인제스트** (CKV 단독) — `sources.prs.last_pr_number` cutoff로 이후 PR만
+  fetch·인덱스(중복 방지). 현 서빙본 `sources.prs=none`(PR 미인제스트). 설계 §2.
+- [ ] **P4 — ChunkCount 재조정** (CKV 단독, 소규모) — reindex의 `ChunkCount += Total-(삭제+수정)`
+  파일수 근사 드리프트를 실제 `COUNT(*)`로 교정. 설계 §5.
+- [ ] **버전 디렉터리(blue-green) 스켈레톤** — `<dataset>@<commit>-<digest[:8]>/{graph-db,vector-db}`
+  + `current` symlink + 원자 promote. 오케스트레이션 주관=CKS, CKV는 버전본 생산·소비. 설계 §4/§6.
 
 ### A. 즉시 착수 가능 (의존성 없음)
 - [x] **ckgalign 게이트 ≥1.19** (결정 2) — 완료 (commits `5ee66f8` population probe, `35326e5`

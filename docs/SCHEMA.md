@@ -46,7 +46,7 @@ metadata for CKG cross-tool alignment.
 | `ChunkKind` | `chunk_kind` | `ChunkKind` | see enum below |
 | `CommitHash` | `commit_hash` | string | git HEAD at indexing time |
 | `ContentSHA256` | `content_sha256` | string | `sha256(Text)` — drives `ID` |
-| `CKGNodeID` | `ckg_node_id` | string | 1:1 with CKG node when symbol-aligned |
+| `CanonicalID` | `canonical_id` | string | ckg's import-path-qualified symbol id (ADR-0001), inherited from the aligned ckg node; the stable CKG↔CKV join key (ADR-007). Empty for non-symbol / unaligned chunks |
 | `Text` | `text` | string | raw chunk source (for re-embedding / display) |
 
 ### `SymbolKind` (enum)
@@ -211,13 +211,12 @@ CREATE TABLE chunks (
     chunk_kind      TEXT NOT NULL,
     commit_hash     TEXT NOT NULL,
     content_sha256  TEXT NOT NULL,
-    ckg_node_id     TEXT,
+    canonical_id    TEXT,
     text            TEXT NOT NULL
 );
 CREATE INDEX idx_chunks_file     ON chunks(file);
 CREATE INDEX idx_chunks_lang     ON chunks(language);
 CREATE INDEX idx_chunks_symbol   ON chunks(symbol_name);
-CREATE INDEX idx_chunks_ckg_node ON chunks(ckg_node_id);
 CREATE INDEX idx_chunks_is_test  ON chunks(is_test);
 
 -- Vectors (sqlite-vec). Dimension baked into DDL.
@@ -290,7 +289,11 @@ The `schema_version` field follows breaking-vs-additive convention:
 Examples that did *not* bump 1.0:
 - `is_test` added to `chunks` (additive; default false matches old
   rows).
-- `ckg_node_id` added (additive; nullable column).
+- `ckg_node_id` added, then **retired 2026-07-11** (ADR-007) — the
+  positional CKG node id was a dead field never read as a lookup key;
+  `canonical_id` is the sole CKG↔CKV join key. Removal did not bump 1.0:
+  no reader consumed the column, so dropping it breaks nothing. Existing
+  DBs carry an inert unused column until the next fresh rebuild.
 - `ContentSHA256` exposed as a `Chunk` JSON field (the column was
   always there; only the Go struct widened).
 

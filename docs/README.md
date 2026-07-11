@@ -13,7 +13,8 @@
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 패키지 구조·빌드/쿼리 파이프라인 |
 | [`SCHEMA.md`](./SCHEMA.md) | 온디스크/인메모리 계약 (스키마 SoT) |
 | [`mcp-tools.md`](./mcp-tools.md) | 15개 MCP 도구 입출력 사양 |
-| [`backlog.md`](./backlog.md) | 작업 추적 inventory (구현 상태 기준) |
+| [`remaining.md`](./remaining.md) | **잔여 작업 단일 SoT** (코드검증본) |
+| [`backlog.md`](./backlog.md) | 2026-05 세대 inventory (stale — `remaining.md` 참조) |
 | [`featurelist.md`](./featurelist.md) | 기능 목록 + 우선순위 |
 | [`use-cases.md`](./use-cases.md) | UC-V1~V15 사용 시나리오·범위 |
 | [`eval-metrics.md`](./eval-metrics.md) | `ckv eval` 지표 정의 |
@@ -21,8 +22,9 @@
 | [`embedder-integration.md`](./embedder-integration.md) | 임베더 통합 가이드 |
 | [`d1-installation-guide.md`](./d1-installation-guide.md) | bge-large + ONNX 설치 가이드 |
 
-> 주의: `featurelist`/`use-cases`/`eval-metrics`는 `backlog`/SoT 핸드오프와
-> 일부 상태가 어긋나 있다(드리프트). 구현 상태의 기준은 `backlog.md`와 현행 핸드오프다.
+> 주의: `featurelist`/`use-cases`/`eval-metrics`는 SoT 핸드오프와 일부 상태가
+> 어긋나 있다(드리프트). 잔여 작업의 기준은 [`remaining.md`](./remaining.md), 서사·배경은
+> 현행 핸드오프(§4)다. `backlog.md`는 2026-05 세대라 아카이브성으로만 참조한다.
 
 ## 스냅샷 (특정 시점에 동결된 계획/설계 — 역사 기록)
 

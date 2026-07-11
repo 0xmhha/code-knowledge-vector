@@ -15,12 +15,17 @@ type Filter struct {
 	PathGlob    string       `json:"path,omitempty"`
 	SymbolKinds []SymbolKind `json:"symbol_kinds,omitempty"`
 	CommitHash  string       `json:"commit_hash,omitempty"`
+	// ChunkKinds, when non-empty, restricts to chunks produced by these
+	// chunking strategies (e.g. "invariant", "convention", "doc"). Lets a
+	// caller retrieve knowledge chunks directly instead of hoping they
+	// outrank 14k code chunks in a generic query.
+	ChunkKinds []ChunkKind `json:"chunk_kinds,omitempty"`
 }
 
 // IsZero reports whether the filter would match every chunk. Used by store
 // implementations to skip the post-filter step entirely on the hot path.
 func (f Filter) IsZero() bool {
-	return f.Language == "" && f.PathGlob == "" && len(f.SymbolKinds) == 0 && f.CommitHash == ""
+	return f.Language == "" && f.PathGlob == "" && len(f.SymbolKinds) == 0 && f.CommitHash == "" && len(f.ChunkKinds) == 0
 }
 
 // Matches reports whether c satisfies every set field of f. Implemented
@@ -42,6 +47,9 @@ func (f Filter) Matches(c Chunk) bool {
 		}
 	}
 	if len(f.SymbolKinds) > 0 && !slices.Contains(f.SymbolKinds, c.SymbolKind) {
+		return false
+	}
+	if len(f.ChunkKinds) > 0 && !slices.Contains(f.ChunkKinds, c.ChunkKind) {
 		return false
 	}
 	return true

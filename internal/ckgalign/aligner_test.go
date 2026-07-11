@@ -419,3 +419,31 @@ func TestParseMajorMinor(t *testing.T) {
 		}
 	}
 }
+
+// TestReadCoords reads the CKG pin coordinates from a graph's in-db manifest
+// table (src_commit / schema_version / graph_digest), tolerating missing keys.
+func TestReadCoords(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite3", filepath.Join(dir, "graph.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.Exec(`
+CREATE TABLE manifest (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT INTO manifest VALUES ('src_commit','abc123'),('schema_version','1.23');
+`); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed: %v", err)
+	}
+	_ = db.Close()
+	c, err := ReadCoords(dir)
+	if err != nil {
+		t.Fatalf("ReadCoords: %v", err)
+	}
+	if c.SrcCommit != "abc123" || c.SchemaVersion != "1.23" {
+		t.Errorf("coords = %+v", c)
+	}
+	if c.GraphDigest != "" {
+		t.Errorf("graph_digest should be empty (not published): %q", c.GraphDigest)
+	}
+}
