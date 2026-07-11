@@ -40,7 +40,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&globalFlags.modelName, "model-name", "",
 		"model name (for ollama: default bge-m3, also qwen3-embedding:0.6b|4b; for bgeonnx: overrides default)")
 	cmd.PersistentFlags().IntVar(&globalFlags.embedDim, "embed-dim", 0,
-		"MRL-truncate ollama embeddings to this dimension (0 = model native; e.g. qwen3-embedding:4b 2560→1024)")
+		"MRL-truncate ollama embeddings to this dimension (0 = model native; must be a supported dim — qwen3:4b 512|1024|2560, qwen3:0.6b 256|512|1024)")
 	cmd.PersistentFlags().StringVar(&globalFlags.logLevel, "log-level", "",
 		"slog minimum level: debug | info | warn | error (default info; falls back to $CKV_LOG_LEVEL)")
 	cmd.PersistentFlags().StringVar(&globalFlags.profile, "profile", "",
