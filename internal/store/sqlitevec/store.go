@@ -951,8 +951,12 @@ func (s *Store) Validate(ctx context.Context) (Validation, error) {
 		{&v.Vectors, `SELECT COUNT(*) FROM chunk_vec`},
 		{&v.OrphanChunks, `SELECT COUNT(*) FROM chunks WHERE id NOT IN (SELECT chunk_id FROM chunk_vec)`},
 		{&v.OrphanVectors, `SELECT COUNT(*) FROM chunk_vec WHERE chunk_id NOT IN (SELECT id FROM chunks)`},
-		{&v.SymbolChunks, `SELECT COUNT(*) FROM chunks WHERE symbol_name != '' AND start_line > 0`},
-		{&v.CanonicalChunks, `SELECT COUNT(*) FROM chunks WHERE canonical_id != '' AND symbol_name != '' AND start_line > 0`},
+		// Canonical coverage is measured over CODE-symbol chunks only
+		// (symbol / function_split). PR, doc, invariant, convention, and flow
+		// chunks carry no ckg node by design, so counting them would drag the
+		// rate down after a PR/docs ingest (P3).
+		{&v.SymbolChunks, `SELECT COUNT(*) FROM chunks WHERE chunk_kind IN ('symbol','function_split') AND start_line > 0`},
+		{&v.CanonicalChunks, `SELECT COUNT(*) FROM chunks WHERE canonical_id != '' AND chunk_kind IN ('symbol','function_split') AND start_line > 0`},
 	} {
 		if err := s.db.QueryRowContext(ctx, probe.sql).Scan(probe.dst); err != nil {
 			return v, fmt.Errorf("validate %q: %w", probe.sql, err)

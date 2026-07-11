@@ -12,6 +12,7 @@ import (
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
+	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 )
 
@@ -325,5 +326,75 @@ func TestReindex_RefusesOnSchemaBump(t *testing.T) {
 	})
 	if !errors.Is(err, ErrSchemaCascade) {
 		t.Fatalf("expected ErrSchemaCascade on CKG schema bump, got %v", err)
+	}
+}
+
+func fileChunkCount(t *testing.T, st *sqlitevec.Store, file string) int {
+	t.Helper()
+	c, err := st.LookupByFileOrdered(context.Background(), file)
+	if err != nil {
+		t.Fatalf("lookup %s: %v", file, err)
+	}
+	return len(c)
+}
+
+// TestIngestPRs_DedupsAndIndexes is the P3a guard: incremental PR ingest must
+// index only PRs newer than the recorded cutoff (dedup by number), advance the
+// cutoff, and tag matching source chunks with PR breadcrumbs. gh access lives
+// in FetchMergedPRs (untested here); this exercises the pure ingest core with
+// injected PRMeta.
+func TestIngestPRs_DedupsAndIndexes(t *testing.T) {
+	src := resolveTestdataSample(t)
+	out := t.TempDir()
+	if _, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		Now:      func() time.Time { return time.Unix(0, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	st, err := sqlitevec.Open(filepath.Join(out, "vector.db"), mock.Default().Dimension())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	metas := []prdoc.PRMeta{
+		{Repo: "o/r", PRNumber: 5, Title: "old pr", Body: "## Background\nold background\n",
+			CommitMessages: []string{"old: change"}, MergedAt: time.Unix(100, 0).UTC()},
+		{Repo: "o/r", PRNumber: 10, Title: "new pr", Body: "## Background\nnew bg\n## Solution\nnew sol\n",
+			ChangedFiles: []string{"server.go"}, CommitMessages: []string{"new: change"}, MergedAt: time.Unix(200, 0).UTC()},
+	}
+
+	// sinceNumber = 5 → PR #5 is skipped (dedup), PR #10 is ingested.
+	cutoff, n, err := ingestPRs(context.Background(), st, mock.Default(), 32, resolveEmbedTextFn(true), metas, 5)
+	if err != nil {
+		t.Fatalf("ingestPRs: %v", err)
+	}
+	if n == 0 {
+		t.Fatalf("expected PR chunks indexed, got 0")
+	}
+	if cutoff == nil || cutoff.LastPRNumber != 10 {
+		t.Fatalf("cutoff = %+v, want LastPRNumber=10", cutoff)
+	}
+	if got := fileChunkCount(t, st, "pr/o/r#5"); got != 0 {
+		t.Fatalf("PR #5 should be skipped (dedup), got %d chunks", got)
+	}
+	if got := fileChunkCount(t, st, "pr/o/r#10"); got == 0 {
+		t.Fatalf("PR #10 should be indexed, got 0 chunks")
+	}
+	prs, err := st.LookupPRsByFile(context.Background(), "server.go")
+	if err != nil {
+		t.Fatalf("lookup prs: %v", err)
+	}
+	found := false
+	for _, p := range prs {
+		if p.Number == 10 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("server.go not tagged with PR #10: %+v", prs)
 	}
 }

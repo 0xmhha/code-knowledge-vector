@@ -18,6 +18,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
+	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
 	"github.com/0xmhha/code-knowledge-vector/internal/policy"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
@@ -81,6 +82,12 @@ type ReindexOptions struct {
 	// through the policy loader so category/guidance stay current with
 	// the yaml even when only some files change.
 	PolicyPath string
+
+	// PRFetch, when non-nil, enables incremental PR-corpus ingest: reindex
+	// fetches merged PRs after the manifest's recorded cutoff
+	// (sources.prs.last_pr_number / last_merged_at) and indexes only the new
+	// ones. Nil leaves the PR corpus untouched (the common code-only reindex).
+	PRFetch *PRFetchOptions
 }
 
 // ReindexResult is what Reindex returns to the caller.
@@ -107,6 +114,9 @@ type ReindexResult struct {
 	// Validation is the post-reindex integrity report (§5.1): authoritative
 	// counts, orphan detection, and canonical coverage.
 	Validation sqlitevec.Validation
+	// PRsIndexed is the number of PR-corpus chunks added by an incremental PR
+	// ingest this run (0 when PRFetch is nil or no new PRs were found).
+	PRsIndexed int
 }
 
 // Reindex re-embeds only the files that changed between the manifest's
@@ -369,6 +379,48 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		languageCounts[lang] += chunk.Summarize(chunks).Total
 	}
 
+	// P3 — incremental PR ingest: when PR fetching is enabled, fetch merged
+	// PRs after the recorded cutoff and index only the new ones (dedup by
+	// number), then advance the cutoff. gh access is best-effort — a fetch
+	// failure warns and leaves the PR corpus unchanged rather than failing the
+	// code reindex. Runs before validation so the new PR chunks are counted.
+	if o.PRFetch != nil {
+		sinceNumber := 0
+		fetchOpts := *o.PRFetch
+		if man.Sources != nil && man.Sources.PRs != nil {
+			sinceNumber = man.Sources.PRs.LastPRNumber
+			if fetchOpts.Since.IsZero() && man.Sources.PRs.LastMergedAt != "" {
+				if ts, e := time.Parse(time.RFC3339, man.Sources.PRs.LastMergedAt); e == nil {
+					fetchOpts.Since = ts
+				}
+			}
+		}
+		metas, ferr := FetchMergedPRs(ctx, o.SrcRoot, fetchOpts)
+		if ferr != nil {
+			fmt.Fprintf(os.Stderr, "ckv: pr-fetch warning: %v\n", ferr)
+		} else if cutoff, n, ierr := ingestPRs(ctx, store, o.Embedder, o.BatchSize, embedTextFn, metas, sinceNumber); ierr != nil {
+			return nil, fmt.Errorf("reindex pr ingest: %w", ierr)
+		} else if cutoff != nil {
+			if man.Sources == nil {
+				man.Sources = &manifest.Sources{}
+			}
+			if man.Sources.PRs == nil {
+				man.Sources.PRs = cutoff
+			} else {
+				man.Sources.PRs.LastPRNumber = cutoff.LastPRNumber
+				man.Sources.PRs.LastMergedAt = cutoff.LastMergedAt
+				if man.Sources.PRs.Repo == "" {
+					man.Sources.PRs.Repo = cutoff.Repo
+				}
+			}
+			result.PRsIndexed = n
+			if o.ProgressOut != nil {
+				fmt.Fprintf(o.ProgressOut, "ckv: incremental PR ingest: %d new PR chunks (cutoff #%d)\n",
+					n, cutoff.LastPRNumber)
+			}
+		}
+	}
+
 	// Step 3: refresh manifest. Even with zero changes we update
 	// BuiltAt so freshness reflects the most recent verification pass.
 	builtAt := o.Now().UTC().Format(time.RFC3339)
@@ -479,6 +531,38 @@ func realignAllCanonical(ctx context.Context, store *sqlitevec.Store, ix *ckgali
 		}
 	}
 	return store.RealignCanonical(ctx, updates)
+}
+
+// ingestPRs indexes PR-corpus chunks for the merged PRs in metas whose number
+// is newer than sinceNumber (dedup against the recorded cutoff), tags matching
+// source chunks with PR breadcrumbs, and returns the advanced cutoff plus the
+// number of PR chunks indexed. gh access lives in the caller (FetchMergedPRs);
+// this pure ingest+dedup step is unit-testable without gh.
+func ingestPRs(ctx context.Context, store *sqlitevec.Store, emb types.Embedder, batch int, embedTextFn func(types.Chunk) string, metas []prdoc.PRMeta, sinceNumber int) (*manifest.PRSource, int, error) {
+	var fresh []prdoc.PRMeta
+	for _, m := range metas {
+		if m.PRNumber > sinceNumber {
+			fresh = append(fresh, m)
+		}
+	}
+	if len(fresh) == 0 {
+		return nil, 0, nil
+	}
+	var prChunks []types.Chunk
+	for _, m := range fresh {
+		prChunks = append(prChunks, prdoc.Parse(m)...)
+	}
+	if len(prChunks) > 0 {
+		if err := embedAndUpsert(ctx, store, emb, prChunks, batch, nil, embedTextFn); err != nil {
+			return nil, 0, fmt.Errorf("embed/upsert PR chunks: %w", err)
+		}
+	}
+	if filePRs := buildFilePRMap(fresh); len(filePRs) > 0 {
+		if _, err := tagSourceChunksWithPRs(ctx, store, filePRs); err != nil {
+			return nil, 0, fmt.Errorf("tag source chunks with PRs: %w", err)
+		}
+	}
+	return prCutoff(fresh), len(prChunks), nil
 }
 
 // changeSet partitions paths by what the index should do with them.

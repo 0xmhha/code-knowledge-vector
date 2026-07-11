@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,13 +15,16 @@ import (
 )
 
 type reindexOpts struct {
-	src     string
-	out     string
-	since   string
-	files   []string
-	exclude []string
-	policy  string
-	jsonOut bool
+	src       string
+	out       string
+	since     string
+	files     []string
+	exclude   []string
+	policy    string
+	jsonOut   bool
+	includePR bool
+	prSince   string
+	prRepo    string
 }
 
 func newReindexCmd() *cobra.Command {
@@ -55,6 +59,9 @@ Examples:
 	f.StringSliceVar(&opts.exclude, "exclude", nil, "extra ignore patterns (repeatable; e.g. --exclude='vendor/**')")
 	f.StringVar(&opts.policy, "policy", "", "path to policy yaml (must match the build's policy; categorizes chunks by path)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
+	f.BoolVar(&opts.includePR, "include-pr-history", false, "incrementally fetch merged PRs via gh CLI and index only those newer than the recorded cutoff")
+	f.StringVar(&opts.prSince, "pr-since", "", "only PRs merged after this date (YYYY-MM-DD); requires --include-pr-history (default: manifest cutoff)")
+	f.StringVar(&opts.prRepo, "pr-repo", "", "GitHub repo (owner/repo) for PR fetch; auto-detected from git remote if empty")
 
 	return cmd
 }
@@ -78,7 +85,7 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 	fp := newFootprint(opts.out, "")
 	defer fp.Close()
 
-	res, err := build.Reindex(ctx, build.ReindexOptions{
+	reindexOptions := build.ReindexOptions{
 		SrcRoot:                 opts.src,
 		OutDir:                  opts.out,
 		Embedder:                emb,
@@ -89,7 +96,19 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 		ProgressOut:             os.Stderr,
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
 		PolicyPath:              opts.policy,
-	})
+	}
+	if opts.includePR {
+		prFetch := &build.PRFetchOptions{Repo: opts.prRepo}
+		if opts.prSince != "" {
+			t, perr := time.Parse("2006-01-02", opts.prSince)
+			if perr != nil {
+				return fmt.Errorf("--pr-since: invalid date %q (expected YYYY-MM-DD)", opts.prSince)
+			}
+			prFetch.Since = t
+		}
+		reindexOptions.PRFetch = prFetch
+	}
+	res, err := build.Reindex(ctx, reindexOptions)
 	if err != nil {
 		// Surface the two domain errors with operator-friendly hints.
 		if errors.Is(err, build.ErrNoManifest) {
@@ -98,6 +117,10 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 		}
 		if errors.Is(err, build.ErrEmbedderMismatch) {
 			return fmt.Errorf("%w\n  hint: use the same --embedder that built the index, or run `ckv build` to replace it",
+				err)
+		}
+		if errors.Is(err, build.ErrSchemaCascade) {
+			return fmt.Errorf("%w\n  hint: the CKG graph's schema changed; run `ckv build` to rebuild the index against the new graph",
 				err)
 		}
 		return err
@@ -110,6 +133,9 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 		res.FilesProcessed, res.FilesAdded, res.FilesModified, res.FilesDeleted, res.FilesSkipped)
 	fmt.Printf("ckv: chunks %d (%d symbol, %d doc, %d header, %d truncated)\n",
 		res.Chunks.Total, res.Chunks.Symbol, res.Chunks.Doc, res.Chunks.FileHeader, res.Chunks.Truncated)
+	if res.PRsIndexed > 0 {
+		fmt.Printf("ckv: incremental PR ingest → %d new PR chunks\n", res.PRsIndexed)
+	}
 	fmt.Printf("ckv: %s → %s at %s\n", res.PrevHead, res.NewHead, res.BuiltAt)
 	return nil
 }

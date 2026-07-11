@@ -47,8 +47,9 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
   - [x] **P2b-1 — graph_digest mismatch 전체 재정렬** — 같은 커밋에 그래프만 재생성(digest 변경)되면 git diff가 비어도 전체 청크의 `canonical_id`를 새 그래프로 재정렬(벡터 미변경, join 키만). `store.RealignCanonical` + `realignAllCanonical`. `CanonicalAvailable` 게이트(빈 그래프가 좋은 키를 지우지 않음), 비어있지 않은 값만 갱신. 새 digest를 manifest에 기록(다음 reindex no-op). 테스트 `TestReindex_RealignsOnGraphDigestChange`(regen 후 OLD→NEW).
   - [x] **P2b-2 — 검증 게이트(§5.1) + count 재조정(§5.2, P4-count 흡수)** — reindex 종료 시 `store.Validate`: `ChunkCount`를 실측 `COUNT(*)`로 재조정(근사 드리프트 버그 제거), orphan(청크↔벡터) 0 강제(위반 시 fail-loud), canonical 커버리지 계산(ckg-aligned인데 <90%면 warn). `ReindexResult.Validation`로 노출. 테스트 `TestReindex_ReconcilesChunkCount`(56 드리프트→50 실측), `TestReindex_ValidationReport`(orphan 0 / chunks==vectors / canonical>0).
   - [x] **P2b-3 — schema 캐스케이드 자동 트리거** — 기록된 vs 현재 CKG `schema_version` 불일치 시 부분 reindex를 **거부**(`ErrSchemaCascade`)하고 `ckv build` 전면 재빌드 유도(`ErrEmbedderMismatch`와 동일 패턴). 테스트 `TestReindex_RefusesOnSchemaBump`(1.22→1.23).
-- [ ] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — `sources.prs.last_pr_number` cutoff로 이후 PR만 fetch + docs/flow `content_hash` 기반 재인덱싱. 현 서빙본 `sources.prs=none`.
-  - 근거: `LastPRNumber`는 `internal/manifest/manifest.go:96` 필드만 존재, `reindex.go` 미사용.
+- [~] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — 진행 중.
+  - [x] **P3a — 증분 PR 인제스트** — `reindex --include-pr-history`가 `sources.prs.{last_pr_number,last_merged_at}` cutoff 이후 PR만 fetch(gh, `FetchMergedPRs`)해 number>cutoff만 인덱스(dedup)·source 청크 태깅·cutoff 갱신. 코어 `ingestPRs`(gh 불요, 주입식 테스트 `TestIngestPRs_DedupsAndIndexes`). 부수: `Validate`의 canonical rate 분모를 code-symbol 종류(`symbol`/`function_split`)로 한정(PR/doc 청크가 rate 왜곡 방지).
+  - [ ] **P3b — docs/flow content_hash 재인덱싱** — `sources.docs/flow.content_hash` 변경 감지 시 해당 레이어만 재파싱·재임베딩(현재 reindex는 코드만).
 - [ ] **P4 — 재개·원자성·락** (§7-P4, §4.4/§5.3) — 데이터 체크포인트 원장 + reindex 원자성(swap) + advisory lock + SetManifest 트랜잭션.
 
 ## 3. 외부·협의 대기 (§7-P5 무중단 서빙)
