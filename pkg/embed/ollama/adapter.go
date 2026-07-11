@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"time"
@@ -45,6 +46,7 @@ type Adapter struct {
 	endpoint  string
 	modelName string
 	dim       int
+	targetDim int // >0 → truncate each embedding to this many dims (MRL)
 	maxInput  int
 	client    *http.Client
 }
@@ -54,6 +56,12 @@ type Options struct {
 	Endpoint  string        // Ollama API URL (default: http://localhost:11434)
 	ModelName string        // model name as known to Ollama (e.g. "bge-m3")
 	Timeout   time.Duration // per-request timeout (default: DefaultTimeout); <=0 uses the default
+	// TargetDim, when >0 and smaller than the model's native dimension,
+	// truncates every embedding to its first TargetDim components and
+	// re-normalizes to unit length (Matryoshka Representation Learning). Used
+	// by Qwen3-Embedding, which is MRL-trained, to trade a little precision for
+	// a smaller vector (storage + search cost). 0 keeps the native dimension.
+	TargetDim int
 }
 
 // Open creates an Ollama adapter and verifies connectivity by
@@ -94,7 +102,21 @@ func Open(opts Options) (*Adapter, error) {
 	if len(vecs) == 0 || len(vecs[0]) == 0 {
 		return nil, fmt.Errorf("ollama: model %q returned empty embedding", opts.ModelName)
 	}
-	a.dim = len(vecs[0])
+	nativeDim := len(vecs[0])
+	a.dim = nativeDim
+
+	// MRL truncation: the probe above ran with targetDim unset (native), so
+	// nativeDim is authoritative for validation. Enabling it here makes every
+	// subsequent Embed truncate + renormalize, and reports the reduced
+	// dimension via Dimension()/Identity().
+	if opts.TargetDim > 0 {
+		if opts.TargetDim > nativeDim {
+			return nil, fmt.Errorf("ollama: target dim %d exceeds model %q native dim %d",
+				opts.TargetDim, opts.ModelName, nativeDim)
+		}
+		a.targetDim = opts.TargetDim
+		a.dim = opts.TargetDim
+	}
 
 	return a, nil
 }
@@ -189,7 +211,36 @@ func (a *Adapter) Embed(ctx context.Context, batch []string) ([][]float32, error
 			len(result.Embeddings), len(batch), url)
 	}
 
+	if a.targetDim > 0 {
+		for i := range result.Embeddings {
+			result.Embeddings[i] = truncateNormalize(result.Embeddings[i], a.targetDim)
+		}
+	}
+
 	return result.Embeddings, nil
+}
+
+// truncateNormalize returns the first dim components of v, re-normalized to
+// unit L2 length. Qwen3-Embedding is trained with Matryoshka Representation
+// Learning, so a prefix of the full vector is itself a valid lower-dimensional
+// embedding once renormalized. dim <= 0 or dim >= len(v) returns v unchanged.
+func truncateNormalize(v []float32, dim int) []float32 {
+	if dim <= 0 || dim >= len(v) {
+		return v
+	}
+	out := make([]float32, dim)
+	var sum float64
+	for i := 0; i < dim; i++ {
+		out[i] = v[i]
+		sum += float64(v[i]) * float64(v[i])
+	}
+	if sum > 0 {
+		inv := float32(1.0 / math.Sqrt(sum))
+		for i := range out {
+			out[i] *= inv
+		}
+	}
+	return out
 }
 
 type embedRequest struct {
