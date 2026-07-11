@@ -51,10 +51,10 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
   - [x] **P3a — 증분 PR 인제스트** — `reindex --include-pr-history`가 `sources.prs.{last_pr_number,last_merged_at}` cutoff 이후 PR만 fetch(gh, `FetchMergedPRs`)해 number>cutoff만 인덱스(dedup)·source 청크 태깅·cutoff 갱신. 코어 `ingestPRs`(gh 불요, 주입식 테스트 `TestIngestPRs_DedupsAndIndexes`). 부수: `Validate`의 canonical rate 분모를 code-symbol 종류(`symbol`/`function_split`)로 한정(PR/doc 청크가 rate 왜곡 방지).
   - [x] **P3b-flow — flow corpus content_hash 재인덱싱** — `sources.flow.content_hash` 변경 감지 시 flow 레이어를 통째로 교체(`store.DeleteFlowChunks` → `flowcorpus.Load` → 재임베딩, 제거된 레코드도 정리). content_hash 갱신. 테스트 `TestReindex_ReindexesFlowOnContentChange`(마커 레코드 추가 후 반영 확인).
   - [ ] **P3b-docs — docs-roots content_hash 재인덱싱** — `sources.docs.content_hash` 변경 시 curated docs 레이어(`chunk_kind=doc` AND `category=domain`) 교체·재walk. (in-tree markdown은 이미 코드 diff 경로가 처리.)
-- [~] **P4 — 재개·원자성·락** (§7-P4, §4.4/§5.3) — 진행 중.
+- [x] **P4 — 재개·원자성·락** (§7-P4, §4.4/§5.3) — 완료(P4a/P4b/P4c).
   - [x] **P4a — advisory lock** — `acquireDatasetLock`(`<out>/.ckv.lock` flock, non-blocking) — 동시 build/reindex 직렬화(§5.3), 크래시 시 자동 해제. Run/Reindex 진입 시 획득, 점유 시 `ErrLocked`. 테스트 `TestAcquireDatasetLock_*`·`TestRun_RefusesWhenLocked`.
   - [x] **P4b — 원자성 + SetManifest 트랜잭션** — 조사 결과 대부분 이미 원자적: `manifest.Save`는 temp+rename(원자적), reindex는 manifest-last 순서라 크래시 시 재실행으로 자기치유(멱등). 실질 갭은 in-DB `setManifestKVs`가 키별 auto-commit이던 것 → **단일 트랜잭션**으로 원자화(all-or-nothing, §4.4). 커버: `TestStatsReflectsManifest`. (전체 all-or-nothing 스왑은 §4.1 blue-green=P5 소관.)
-  - [ ] **P4c — 데이터 체크포인트 원장** — per-file fingerprint 원장으로 "중단 지점부터 재개"(CKG cache_key 대응). 현재 재개 없음.
+  - [x] **P4c — 데이터 체크포인트 원장** — reindex가 `<out>/.ckv-reindex.ckpt`(append-log: head + `sha\trel`)에 완료 파일을 기록 → 중단된 run이 재실행 시 content-sha 일치 파일을 skip(`FilesResumed`). 완료 시 원장 삭제, 다른 head는 stale로 폐기. 테스트 `TestResumeCheckpoint_*`·`TestReindex_ResumeSkipsCheckpointedFile`.
 
 ## 3. 외부·협의 대기 (§7-P5 무중단 서빙)
 
