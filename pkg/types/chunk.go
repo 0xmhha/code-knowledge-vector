@@ -193,7 +193,6 @@ type Chunk struct {
 	ChunkKind       ChunkKind             `json:"chunk_kind"`
 	CommitHash      string                `json:"commit_hash"`
 	ContentSHA256   string                `json:"content_sha256"`
-	CKGNodeID       string                `json:"ckg_node_id,omitempty"`      // 1:1 alignment when CKG path is provided
 	CanonicalID     string                `json:"canonical_id,omitempty"`     // ckg's import-path-qualified symbol id (ADR-0001), copied verbatim from the aligned ckg node; the stable key cks uses to FindByCanonicalID against ckg
 	RecentPRs       []PRRef               `json:"recent_prs,omitempty"`       // PRs that touched this chunk's file
 	Category        string                `json:"category,omitempty"`         // policy category: consensus|state|crypto|p2p|... (empty = unclassified)

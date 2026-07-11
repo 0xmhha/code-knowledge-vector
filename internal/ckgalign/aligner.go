@@ -1,11 +1,12 @@
 // Package ckgalign builds an in-memory index from a CKG SQLite store
-// (graph.db) and resolves each CKV chunk's CKGNodeID by matching
+// (graph.db) and resolves each CKV chunk to its matching ckg node by
 // (file_path, start_line) — exact start-line preferred, then smallest
 // containing line range.
 //
-// Used by `ckv build --ckg <dir>` to populate chunks.ckg_node_id, the
-// 1:1 alignment that cks composer relies on to disambiguate same-named
-// symbols across packages (e.g. eight different `Finalize` methods).
+// Used by `ckv build --ckg <dir>` to populate chunks.canonical_id, the
+// stable import-path-qualified key that cks composer relies on to
+// disambiguate same-named symbols across packages (e.g. eight different
+// `Finalize` methods).
 //
 // One-shot use: Load() reads every alignment-candidate node row into
 // RAM (~25 MB for a 256k-node graph) and closes the DB handle before

@@ -146,7 +146,6 @@ func (s *Store) initSchema(dim int) error {
 		chunk_kind      TEXT NOT NULL,
 		commit_hash     TEXT NOT NULL,
 		content_sha256  TEXT NOT NULL,
-		ckg_node_id     TEXT,
 		canonical_id    TEXT,
 		text            TEXT NOT NULL
 	)`); err != nil {
@@ -174,7 +173,6 @@ func (s *Store) initSchema(dim int) error {
 		`CREATE INDEX IF NOT EXISTS idx_chunks_file     ON chunks(file)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_lang     ON chunks(language)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_symbol   ON chunks(symbol_name)`,
-		`CREATE INDEX IF NOT EXISTS idx_chunks_ckg_node ON chunks(ckg_node_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_is_test  ON chunks(is_test)`,
 	} {
 		if _, err := s.db.Exec(idx); err != nil {
@@ -293,10 +291,10 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 	insChunk, err := tx.PrepareContext(ctx, `INSERT INTO chunks (
 		id, file, start_line, end_line, language, is_test,
 		symbol_name, symbol_kind, chunk_kind,
-		commit_hash, content_sha256, ckg_node_id, canonical_id, recent_prs,
+		commit_hash, content_sha256, canonical_id, recent_prs,
 		category, guidance, invariants, convention_stats, text,
 		flow_meta, enforced_at, provenance
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		file = excluded.file,
 		start_line = excluded.start_line,
@@ -308,7 +306,6 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		chunk_kind = excluded.chunk_kind,
 		commit_hash = excluded.commit_hash,
 		content_sha256 = excluded.content_sha256,
-		ckg_node_id = excluded.ckg_node_id,
 		canonical_id = excluded.canonical_id,
 		recent_prs = excluded.recent_prs,
 		category = excluded.category,
@@ -352,7 +349,7 @@ func (s *Store) Upsert(ctx context.Context, chunks []types.Chunk, embeddings [][
 		if _, err := insChunk.ExecContext(ctx,
 			c.ID, c.File, c.StartLine, c.EndLine, c.Language, boolToInt(c.IsTest),
 			c.SymbolName, string(c.SymbolKind), string(c.ChunkKind),
-			c.CommitHash, c.ContentSHA256, c.CKGNodeID, c.CanonicalID, prJSON,
+			c.CommitHash, c.ContentSHA256, c.CanonicalID, prJSON,
 			c.Category, guideJSON, invJSON, convJSON, c.Text,
 			flowJSON, enforcedJSON, c.Provenance,
 		); err != nil {
@@ -439,7 +436,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 	stmt := `SELECT
 			c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 			c.symbol_name, c.symbol_kind, c.chunk_kind,
-			c.commit_hash, c.content_sha256, c.ckg_node_id, c.canonical_id, c.recent_prs,
+			c.commit_hash, c.content_sha256, c.canonical_id, c.recent_prs,
 			c.category, c.guidance, c.invariants, c.convention_stats, c.text,
 			c.flow_meta, c.enforced_at, c.provenance,
 			v.distance
@@ -461,7 +458,6 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 			isTest    int
 			symKind   sql.NullString
 			chKind    string
-			ckgID     sql.NullString
 			canonID   sql.NullString
 			prJSON    sql.NullString
 			catCol    sql.NullString
@@ -476,7 +472,7 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		if err := rows.Scan(
 			&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 			&c.SymbolName, &symKind, &chKind,
-			&c.CommitHash, &c.ContentSHA256, &ckgID, &canonID, &prJSON,
+			&c.CommitHash, &c.ContentSHA256, &canonID, &prJSON,
 			&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
 			&flowJSON, &enfJSON, &provCol,
 			&distance,
@@ -486,7 +482,6 @@ func (s *Store) Search(ctx context.Context, query []float32, k int, filter types
 		c.IsTest = isTest != 0
 		c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
 		c.ChunkKind = types.ChunkKind(chKind)
-		c.CKGNodeID = ckgID.String
 		c.CanonicalID = canonID.String
 		c.RecentPRs = unmarshalPRRefs(prJSON.String)
 		c.Category = catCol.String
@@ -622,7 +617,7 @@ func euclidean(a, b []float32) float64 {
 // new columns added in migrations only need one SELECT update.
 const chunkSelectCols = `c.id, c.file, c.start_line, c.end_line, c.language, c.is_test,
 	c.symbol_name, c.symbol_kind, c.chunk_kind,
-	c.commit_hash, c.content_sha256, c.ckg_node_id, c.canonical_id, c.recent_prs,
+	c.commit_hash, c.content_sha256, c.canonical_id, c.recent_prs,
 	c.category, c.guidance, c.invariants, c.convention_stats, c.text,
 	c.flow_meta, c.enforced_at, c.provenance`
 
@@ -637,7 +632,6 @@ func scanChunk(rs interface {
 		isTest    int
 		symKind   sql.NullString
 		chKind    string
-		ckgID     sql.NullString
 		canonID   sql.NullString
 		prJSON    sql.NullString
 		catCol    sql.NullString
@@ -651,7 +645,7 @@ func scanChunk(rs interface {
 	if err := rs.Scan(
 		&c.ID, &c.File, &c.StartLine, &c.EndLine, &c.Language, &isTest,
 		&c.SymbolName, &symKind, &chKind,
-		&c.CommitHash, &c.ContentSHA256, &ckgID, &canonID, &prJSON,
+		&c.CommitHash, &c.ContentSHA256, &canonID, &prJSON,
 		&catCol, &guideJSON, &invJSON, &convJSON, &c.Text,
 		&flowJSON, &enfJSON, &provCol,
 	); err != nil {
@@ -660,7 +654,6 @@ func scanChunk(rs interface {
 	c.IsTest = isTest != 0
 	c.SymbolKind = types.SymbolKind(strings.TrimSpace(symKind.String))
 	c.ChunkKind = types.ChunkKind(chKind)
-	c.CKGNodeID = ckgID.String
 	c.CanonicalID = canonID.String
 	c.RecentPRs = unmarshalPRRefs(prJSON.String)
 	c.Category = catCol.String

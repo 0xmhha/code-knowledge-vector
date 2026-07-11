@@ -134,7 +134,6 @@ func toResponseHit(h types.Hit, snippet string) Hit {
 		Symbol:        c.SymbolName,
 		SymbolKind:    c.SymbolKind,
 		ChunkKind:     c.ChunkKind,
-		CKGNodeID:     c.CKGNodeID,
 		CanonicalID:   c.CanonicalID,
 		Category:      c.Category,
 		Guidance:      c.Guidance,

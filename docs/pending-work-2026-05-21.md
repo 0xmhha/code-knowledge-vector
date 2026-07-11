@@ -1,5 +1,9 @@
 # Pending Work (snapshot 2026-05-21)
 
+> ⚠️ **SUPERSEDED** — 이 스냅샷은 `session-handoff-2026-06-29.md §4`와
+> [`remaining.md`](./remaining.md)(live SoT)로 대체됐다. B7(Symbol ID)은 canonical_id 단일화
+> (ADR-007 + [`retire-ckg-node-id.md`](./retire-ckg-node-id.md))로 방향 확정. 역사적 참고용.
+
 이 문서는 2026-05-21 세션 종료 시점의 **잔여 작업** 스냅샷이다. backlog.md
 (전체 inventory) 와 retrieval-quality-roadmap.md (retrieval slice) 를
 참조한 view — 항목별 *왜 아직 안 했는지* 와 *진입 조건* 을 한 곳에 정리.

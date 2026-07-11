@@ -1,32 +1,77 @@
-전달할 CKS 프롬프트 (확정본, 복붙용)
+# CKV 잔여 작업 (통합 목록 · 단일 SoT)
 
-[CKV → CKS] 서빙 CKV 데이터셋 재빌드 완료 — reload 후 P1 서빙 실동작 확인 요청
+> **역할**: CKV의 *실행 가능한 잔여 작업*을 코드검증본으로 모은 단일 진입점.
+> **작성**: 2026-07-11 (코드 대조: 브랜치 `docs/retire-ckg-node-id`, HEAD `d546d95`)
+> **관계**:
+> - 배경·협의·결정 근거 → [`session-handoff-2026-06-29.md §4`](./session-handoff-2026-06-29.md) (서사 SoT)
+> - reindex 설계 → [`reindex-migration-design-2026-07-10.md`](./reindex-migration-design-2026-07-10.md)
+> - 브랜치 주제 체크리스트 → [`retire-ckg-node-id.md`](./retire-ckg-node-id.md)
+> - 4세션 협의 원문 → [`coordination-prompts-2026-06-29.md`](./coordination-prompts-2026-06-29.md)
+> - 2026-05 세대 인벤토리(대부분 종결) → [`backlog.md`](./backlog.md) · [`pending-work-2026-05-21.md`](./pending-work-2026-05-21.md) (**stale**)
+>
+> 각 항목의 `근거`는 2026-07-11 `grep`/코드 확인 결과다. 완료 시 해당 줄을 `[x]`로 바꾸고 커밋 해시를 병기한다.
 
-pr-77-2 서빙 CKV 인덱스를 새 ckv로 재빌드했다(신규 생성). sources 원장 + graph_digest 물림
-완료 → 네 서빙측 assert가 commit-only에서 +digest로 강화된다.
+---
 
-1) 위치/좌표 (cks-stablenet.yaml 그대로, 경로 변경 없음):
-   ckv : /Users/.../knowledge-data/pr-77-2/ckv   ← 신규 생성됨(이전엔 부재)
-   ckg : /Users/.../knowledge-data/pr-77-2/graph.db
-   embedder=bge-m3(1024,l2), src_commit=0bf2f4d1b, schema=1.23
-   chunks=15909, canonical_id match=13507/14273=94.63%, flow/curated=112, doc=222
-   sources.ckg.graph_digest = 4be26516… (그래프와 일치)
-   CKV CheckAlignment(bge-m3 실측) = ok / serviceable=true / warnings=[]
+## 0. 추천 실행 순서 (reindex-design §7 + roadmap §12 통합)
 
-2) 네가 할 것:
-   a. CKS 재기동/리로드로 새 pr-77-2/ckv를 물린다 (config-swap+restart ~9-15s).
-   b. cks.ops.health → alignment.status=ok, serviceable=true, graph_digest 노출 확인.
-      → ledger-absent 경고가 자동 소거되는지(이제 sources 블록 존재) 확인.
-   c. digest assert 실동작: recorded digest == 현 그래프 digest → ok 판정 확인.
+섹션은 주제별이고, 실제 착수 순서는 아래 교차 우선순위를 따른다.
 
-3) 이후 진행 가능(P2): 인스턴스-레벨 blue-green(무중단 전환). 현재 config-swap+restart라
-   ~9-15s 다운타임 → 버전 디렉터리 관리 시 무중단 promote 가능. 설계 §6/§4 참고.
-   (CKV/CKG=버전본 생산, CKS=소비·promote 주체.)
+1. **`ckg_node_id` 은퇴** (§1) — 브랜치 미완결 종료, 최우선.
+2. **P2 조율 재인덱싱** (§2) — §0.2 gap1 "조용히 stale" 방지, freshness 정합성 리스크.
+3. **P4-count 실측 교정** (§2) — 소규모, §5.1 게이트 정확도 선결.
+4. **P3 증분 PR·docs 인제스트** (§2) — 서빙본 `prs=none` 해소.
+5. **Qwen3 A/B → 차원 결정** (§4, reindex-B) — 북극성(정밀 회수) 핵심, CKV 주관.
+6. **P5 무중단 서빙 / CKS 교차확인** (§3) — 오케스트레이션=CKS 의존.
+7. **품질·인프라 잔여** (§5) — D.2 prefix·multi-gran·sliding 실측·B10, throughput/측정 대기.
 
-CKV는 P2(reindex 재정렬 편입)로 넘어간다. 재기동 후 health의 alignment 블록을 공유해줘 —
-양측(CKV CheckAlignment / CKS assert)이 같은 digest(4be26516…)로 ok 판정하는지 교차확인하자.
+---
 
-이 프롬프트를 CKS에 전달하시면, CKS는 재기동 → health 확인 → 경고 소거·digest assert 실동작 검증으로 진행할 수 있습니다.
+## 1. 즉시 착수 — `ckg_node_id` 은퇴 (브랜치 주제)
 
-3자 P1 루프가 실운영 데이터셋에 반영됐습니다. CKS 재기동 결과를 공유해 주시면 양측 교차확인하고, CKV는 예정대로 P2(reindex 재정렬 편입) 로 넘어가겠습니다.
+전체 8단계 체크리스트는 [`retire-ckg-node-id.md`](./retire-ckg-node-id.md). **CKV 코드 완료 (2026-07-11, 미커밋)** — cks 이관 대기.
 
+- [x] 코드 20개소(comment 6 + 코드 14)에서 `CKGNodeID`·`ckg_node_id` 제거
+- [x] 완료 게이트: `grep -rn "ckg_node_id\|CKGNodeID"` *.go → **0건** · build ok · test green(coreml 제외)
+- 근거(2026-07-11): `pkg/types/chunk.go:196`, `internal/store/sqlitevec/store.go:149,177,296,311,355,442,489,625,663`, `internal/query/engine.go:163`, `internal/query/snippet.go:137`, `internal/build/builder.go:88,91,331,335,340,346`, `internal/ckgalign/aligner.go:2,6`(주석)
+- **마이그레이션 = inline `CREATE TABLE`/인덱스에서 제거 + fresh 재빌드**(설계 정합). reindex-design §4.2("서빙 DB in-place 변경 금지")·§4.3(expand-contract) 원칙상 Open 시 self-heal `DROP COLUMN`은 **채택 안 함** — 기존 DB의 죽은 컬럼은 무해하고 서빙본은 새 버전으로 재빌드·swap된다. schema_version 범프는 불필요(죽은 컬럼 contract는 어떤 reader도 깨지 않음).
+- 체크리스트 **item 3(`ckgalign.Entry.ID`/`LookupEntry` ID 제거) 제외**: 게이트 grep과 무관하고 aligner 테스트 ~17건을 깨뜨림. `Entry.ID`는 정렬 *메커니즘*(node-id ladder 관찰값)이지 은퇴 대상 저장 필드가 아님. builder는 `LookupEntry.CanonicalID`만 계속 스탬프. → 별도 선택 정리로 이관.
+- `canonical_id` 커버리지 백필은 **독립 과제**(선행조건 아님).
+
+## 2. reindex/마이그레이션 잔여 (reindex-design §7 phase 기준)
+
+P1(sources 원장 + alignment 감지)은 3자 완료·실증됨(handoff §4.0). 아래는 설계 §7의 공식 phase 순서.
+reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 canonical_id 조용히 stale" 방지)이라 명시.
+
+- [ ] **P2 — 조율 재인덱싱** (§7-P2, §3) — `ckv reindex`에 `ckgalign` 재정렬 편입 + schema 캐스케이드 자동 트리거 + 검증 게이트(§5.1). 감지→자동해소 완성.
+  - 근거: `internal/build/reindex.go`에 `ckgalign`/`CheckAlignment` 참조 0건.
+- [ ] **P4-count(선착) — ChunkCount 실측 교정** (§5.2, 소규모) — 근사 드리프트를 `COUNT(*)`로 교정. §5.1 검증 게이트 정확도 선결이라 P3보다 앞당김.
+  - 근거: `internal/build/reindex.go:308` `man.ChunkCount += result.Chunks.Total - (result.FilesDeleted + result.FilesModified)`.
+- [ ] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — `sources.prs.last_pr_number` cutoff로 이후 PR만 fetch + docs/flow `content_hash` 기반 재인덱싱. 현 서빙본 `sources.prs=none`.
+  - 근거: `LastPRNumber`는 `internal/manifest/manifest.go:96` 필드만 존재, `reindex.go` 미사용.
+- [ ] **P4 — 재개·원자성·락** (§7-P4, §4.4/§5.3) — 데이터 체크포인트 원장 + reindex 원자성(swap) + advisory lock + SetManifest 트랜잭션.
+
+## 3. 외부·협의 대기 (§7-P5 무중단 서빙)
+
+- [ ] **CKS 재기동 결과 수신** — `pr-77-2/ckv` reload 후 `cks.ops.health` alignment 블록 공유받아 양측(CKV `CheckAlignment` / CKS assert) 동일 digest(`4be26516…`) ok 교차확인. 프롬프트: `coordination-prompts §10.10`.
+- [ ] **P5 blue-green 무중단 서빙** (§4/§6) — 버전 디렉터리 `<dataset>@<commit>-<digest[:8]>/{graph-db,vector-db}` + `current` 포인터 + 원자 promote + 인스턴스-레벨 blue-green. 오케스트레이션 주관=CKS, CKV는 버전본 생산·소비.
+
+## 4. 임베딩 모델 교체 (reindex-B)
+
+- [ ] **Qwen3 A/B PoC** — `testdata/queries.yaml`·`why-queries.yaml`. 1024-truncate vs full-dim 정밀도 실측 → **차원 결정**(협의 결정6, CKV 주관, 측정 전 확정 금지).
+- [ ] Qwen3 어댑터 — query-prefix(`Instruct:`) 흡수 + MRL truncate 경로 + `knownDims` 합의.
+
+## 5. backlog 잔여 (2026-05 세대 중 미종결)
+
+- [ ] **B10** parser fuzz/property 테스트 (5개 파서, 독립 인프라).
+- [ ] **A2** `ckv model fetch` CLI (`hf` 의존 제거) / **A3** linux CI matrix / **A4** bge-code-v1 Qwen2 어댑터.
+- [ ] **#7** LLM contextual prefix (Phase D.2) — bgeonnx throughput buffer 회복 후.
+- [ ] **PRR-1** full PR regression — throughput 보류(현 0.74 c/s).
+- [ ] **flow Phase C→F** — file:line 정렬 강화 → 빌드 오케스트레이션(일부 `build-knowledge.sh`로 해소) → 평가. CKS 표면 노출(Phase D 마지막)은 CKS 소관.
+- [ ] **ADR 승격(F)** — canonical_id join / 임베딩 모델·차원(측정 후) / flow 시그니처. R1/R2 가드레일을 Consequences에 측정 근거와 함께 명시.
+
+## 6. 종결·정정 확인
+
+- `backlog.md` B1~B9·E·F(CKV-1~7)·G(PRR-2~5)·C10, handoff §4.A2 등은 종결(✅). 상세는 각 문서 변경 이력.
+- `backlog.md`·`pending-work-2026-05-21.md`는 본 문서로 supersede(내용 삭제 아님, live 잔여는 여기서 추적).
+- handoff §5 문서 드리프트 정정(ADR-006 Rejected, mcp-tools 플래그 보강, coreml Makefile 제외)은 미해결 상태로 잔존 시 여기 편입.
