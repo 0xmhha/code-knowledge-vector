@@ -62,7 +62,9 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 
 - [x] **Qwen3 A/B PoC — 차원 실측 완료 (2026-07-12)** — `qwen3-embedding:4b` full-2560 vs truncate-1024, `testdata/queries.yaml` N=50. **1024-truncate 권장**: recall@1 0.86/0.88·MRR 0.902/0.913(손실 ~1-2%p), 저장 2.47× 절감. 기록·결정: [`qwen3-dimension-ab-2026-07-12.md`](./qwen3-dimension-ab-2026-07-12.md).
 - [x] **MRL truncate 경로** — `ollama.Options.TargetDim`(`truncateNormalize`) + CLI `--embed-dim`. 테스트 `TestTruncateNormalize`.
-- [ ] **대형 코퍼스 재확인 → ADR 승격** — N=50 방향성만. go-stablenet 정본에서 재확인 후 차원 락(ADR-002 후속).
+- [x] **대형 코퍼스 재확인 (2026-07-12)** — go-stablenet 83파일/1015청크(20×)에서 full-2560 vs 1024-truncate: top-1 일치 8/10, top-5 overlap 0.81, ground-truth 3쿼리 순위 동일, 저장 ÷2.1. **1024-truncate 권장 확증**. 기록: `qwen3-dimension-ab-2026-07-12.md §6`. 부수: `ckv build --batch N` 추가.
+- [ ] **ADR 승격 (차원 락)** — 재확인 완료로 ADR-002 후속 승격 가능. (정본 pr-77-2/`0bf2f4d1b` 부재로 근사 코퍼스 사용 — 정본 환경 여유 시 재검 권장.)
+- [ ] **embed 경로 견고화** — 개별 대형 청크(>~20-40KB)가 ollama qwen3를 크래시(배치 무관). 재시도/skip-and-warn 또는 정본 머신(bge-m3 안정)에서 빌드. 별도 과제.
 - [ ] **Instruct query-prefix** — `Embedder`가 query/passage 미구분. 프리픽스 주입은 인터페이스 확장 필요(별도 품질 레버). `knownDims` 표준화 포함.
 - [ ] **qwen3-embedding:0.6b(native 1024) 비교** — 모델 크기 축(본 A/B는 차원 축만 판정).
 
