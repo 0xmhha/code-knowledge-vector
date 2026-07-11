@@ -20,7 +20,7 @@ func (s *EmbedService) Run(ctx context.Context, text string) ([]float32, error) 
 	if s.emb == nil {
 		return nil, errors.New("embed: no embedder configured")
 	}
-	vecs, err := s.emb.Embed(ctx, []string{text})
+	vecs, err := embedQueryBatch(ctx, s.emb, []string{text})
 	if err != nil {
 		return nil, fmt.Errorf("embed: %w", err)
 	}
@@ -28,6 +28,17 @@ func (s *EmbedService) Run(ctx context.Context, text string) ([]float32, error) 
 		return nil, errors.New("embed: embedder returned no vector")
 	}
 	return vecs[0], nil
+}
+
+// embedQueryBatch embeds query texts, using the embedder's query-specific path
+// (types.QueryEmbedder.EmbedQuery — e.g. Qwen3's "Instruct:" prefix) when the
+// embedder implements it, and falling back to Embed for symmetric models with
+// no query/passage asymmetry.
+func embedQueryBatch(ctx context.Context, emb types.Embedder, texts []string) ([][]float32, error) {
+	if qe, ok := emb.(types.QueryEmbedder); ok {
+		return qe.EmbedQuery(ctx, texts)
+	}
+	return emb.Embed(ctx, texts)
 }
 
 // RunContext populates sc.QueryVec from sc.EmbedIntent.

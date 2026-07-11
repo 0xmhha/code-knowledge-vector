@@ -152,3 +152,18 @@ func TestPositionIDsExtraInput(t *testing.T) {
 		}
 	}
 }
+
+func TestQueryInstruct(t *testing.T) {
+	if QueryInstruct("qwen3-embedding:4b") == "" {
+		t.Errorf("qwen3-embedding:4b should carry a query instruct")
+	}
+	if QueryInstruct("qwen3-embedding:0.6b") == "" {
+		t.Errorf("qwen3-embedding:0.6b should carry a query instruct")
+	}
+	if got := QueryInstruct("bge-large-en-v1.5"); got != "" {
+		t.Errorf("symmetric bge model should have no query instruct, got %q", got)
+	}
+	if got := QueryInstruct("nonexistent-model"); got != "" {
+		t.Errorf("unknown model should return empty, got %q", got)
+	}
+}

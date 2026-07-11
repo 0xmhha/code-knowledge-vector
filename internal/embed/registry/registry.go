@@ -82,6 +82,12 @@ type ModelConfig struct {
 	MaxInput  int    // max input tokens (sequences longer get truncated)
 	Normalize string // "l2" or ""
 
+	// QueryInstruct is the task description used to build an asymmetric model's
+	// query-side prompt ("Instruct: {QueryInstruct}\nQuery: {q}", Qwen3). Empty
+	// for symmetric models (bge-*), which embed queries and passages the same
+	// way — those get no query prefix.
+	QueryInstruct string
+
 	// File layout (relative to model directory)
 	OnnxFile      string // e.g. "onnx/model.onnx"
 	TokenizerFile string // e.g. "tokenizer.json"
@@ -184,19 +190,37 @@ var models = map[string]ModelConfig{
 	// reject them. The ollama adapter reads Dim/MaxInput from here so the
 	// truncation budget matches the model's 32k context window.
 	"qwen3-embedding:0.6b": {
-		Name:      "qwen3-embedding:0.6b",
-		Dim:       1024,
-		MaxInput:  32768,
-		Normalize: "l2",
-		Pooling:   PoolingLastToken,
+		Name:          "qwen3-embedding:0.6b",
+		Dim:           1024,
+		MaxInput:      32768,
+		Normalize:     "l2",
+		Pooling:       PoolingLastToken,
+		QueryInstruct: qwen3CodeInstruct,
 	},
 	"qwen3-embedding:4b": {
-		Name:      "qwen3-embedding:4b",
-		Dim:       2560,
-		MaxInput:  32768,
-		Normalize: "l2",
-		Pooling:   PoolingLastToken,
+		Name:          "qwen3-embedding:4b",
+		Dim:           2560,
+		MaxInput:      32768,
+		Normalize:     "l2",
+		Pooling:       PoolingLastToken,
+		QueryInstruct: qwen3CodeInstruct,
 	},
+}
+
+// qwen3CodeInstruct is the query-side task description for Qwen3-Embedding on a
+// code corpus. Qwen3 prepends "Instruct: {task}\nQuery: {q}" to queries only;
+// passages are embedded raw. The task nudges the query embedding toward
+// code-retrieval intent.
+const qwen3CodeInstruct = "Given a natural-language question about a codebase, retrieve the most relevant code."
+
+// QueryInstruct returns a model's query-side task instruction, or "" when the
+// model embeds queries and passages symmetrically (no query prefix). Unknown
+// models return "".
+func QueryInstruct(modelName string) string {
+	if cfg, err := Lookup(modelName); err == nil {
+		return cfg.QueryInstruct
+	}
+	return ""
 }
 
 // Lookup returns the config for the named model, or an error listing

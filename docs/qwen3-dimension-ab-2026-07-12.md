@@ -56,10 +56,21 @@ recall@1 −2%p는 실측상 작고, 대형 코퍼스(1M LOC)에서 2.5× 저장
 
 ## 5. 분리된 후속 (본 결정과 독립)
 
-- **Instruct query-prefix** — Qwen3-Embedding은 쿼리에 `Instruct: <task>\nQuery:` 프리픽스를
-  권장하나, 현 `Embedder.Embed`는 query/passage를 구분하지 않는다(문서=무프리픽스). 프리픽스
-  주입은 인터페이스 확장이 필요한 별도 품질 레버. `remaining.md` 참조.
+- **Instruct query-prefix** — ✅ 구현·측정 완료(2026-07-12, §7).
 - **knownDims 합의** — 허용 truncate 차원 집합(예: 512/1024/2560) 표준화.
+
+## 7. Instruct query-prefix (2026-07-12)
+
+§5의 분리 레버를 구현했다. Qwen3-Embedding은 쿼리에만 `Instruct: {task}\nQuery: {q}` 프리픽스를
+권장한다(passage는 raw).
+
+- **구현**: 옵션 `types.QueryEmbedder` 인터페이스(비대칭 모델용) + 레지스트리 `ModelConfig.QueryInstruct`
+  (qwen3 엔트리만 설정, bge-*는 빈값) + ollama `EmbedQuery`(qwen3 쿼리 래핑, 그 외 = `Embed`). query.Engine의
+  쿼리 임베딩 경로(`EmbedService.Run`/explain)가 `QueryEmbedder` 구현 시 `EmbedQuery`로 라우팅. 인덱스(passage)
+  재빌드 불요 — query-side만. `CKV_DISABLE_QUERY_PREFIX=1`로 opt-out(A/B·디버그).
+- **측정**(gs-full 인덱스, semantic-validation 10쿼리, prefix on/off): recall@10 **3/10 → 4/10**
+  (chaincmd.go MISS→rank 8 회복, handler 2→1, 나머지 동일, 회귀 없음). 프리픽스는 이득/중립.
+- 남은 것: `knownDims` 표준화, qwen3 0.6b vs 4b-1024 비교(모델 크기 축).
 
 ## 6. 대형 코퍼스 재확인 (2026-07-12, N=50 후속)
 

@@ -64,7 +64,7 @@ func (e *Engine) ExplainMatch(ctx context.Context, chunkID, intent string) (*Exp
 	// vector via Search-with-filter, compute cosine distance directly.
 	// We use Search with k=1 + commit-hash filter to fetch one row;
 	// this also exposes the chunk's distance to the intent vector.
-	intentVecs, err := e.emb.Embed(ctx, []string{intent})
+	intentVecs, err := embedQueryBatch(ctx, e.emb, []string{intent})
 	if err != nil {
 		return nil, err
 	}
