@@ -18,11 +18,11 @@
 섹션은 주제별이고, 실제 착수 순서는 아래 교차 우선순위를 따른다.
 
 1. ✅ **`ckg_node_id` 은퇴** (§1) — main 반영(PR #17).
-2. ✅ **P2 조율 재인덱싱** (§2) — P2a/P2b-1/P2b-2/P2b-3 완료(count 재조정=P4-count 흡수). PR 대기.
-3. **P3 증분 PR·docs 인제스트** (§2) — 서빙본 `prs=none` 해소. ← 다음 최우선.
-4. **Qwen3 A/B → 차원 결정** (§4, reindex-B) — 북극성(정밀 회수) 핵심, CKV 주관.
-5. **P5 무중단 서빙 / CKS 교차확인** (§3) — 오케스트레이션=CKS 의존.
-6. **품질·인프라 잔여** (§5) — D.2 prefix·multi-gran·sliding 실측·B10, throughput/측정 대기.
+2. ✅ **P2 조율 재인덱싱** (§2) — P2a/P2b-1/P2b-2/P2b-3, main 반영(PR #18).
+3. ✅ **P3a 증분 PR + P3b-flow** (§2) — main 반영(PR #18). P3b-docs만 잔여(저가치).
+4. ✅ **Qwen3 A/B → 차원 결정** (§4) — 1024-truncate 권장(측정 완료). 대형 코퍼스 재확인 후 ADR 락 잔여.
+5. **P4 재개·원자성·락** (§2) / **P5 무중단 서빙·CKS 교차확인** (§3) — 오케스트레이션=CKS 의존.
+6. **품질·인프라 잔여** (§5) — Instruct prefix·D.2 prefix·multi-gran·sliding 실측·B10, throughput/측정 대기.
 
 ---
 
@@ -60,8 +60,11 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 
 ## 4. 임베딩 모델 교체 (reindex-B)
 
-- [ ] **Qwen3 A/B PoC** — `testdata/queries.yaml`·`why-queries.yaml`. 1024-truncate vs full-dim 정밀도 실측 → **차원 결정**(협의 결정6, CKV 주관, 측정 전 확정 금지).
-- [ ] Qwen3 어댑터 — query-prefix(`Instruct:`) 흡수 + MRL truncate 경로 + `knownDims` 합의.
+- [x] **Qwen3 A/B PoC — 차원 실측 완료 (2026-07-12)** — `qwen3-embedding:4b` full-2560 vs truncate-1024, `testdata/queries.yaml` N=50. **1024-truncate 권장**: recall@1 0.86/0.88·MRR 0.902/0.913(손실 ~1-2%p), 저장 2.47× 절감. 기록·결정: [`qwen3-dimension-ab-2026-07-12.md`](./qwen3-dimension-ab-2026-07-12.md).
+- [x] **MRL truncate 경로** — `ollama.Options.TargetDim`(`truncateNormalize`) + CLI `--embed-dim`. 테스트 `TestTruncateNormalize`.
+- [ ] **대형 코퍼스 재확인 → ADR 승격** — N=50 방향성만. go-stablenet 정본에서 재확인 후 차원 락(ADR-002 후속).
+- [ ] **Instruct query-prefix** — `Embedder`가 query/passage 미구분. 프리픽스 주입은 인터페이스 확장 필요(별도 품질 레버). `knownDims` 표준화 포함.
+- [ ] **qwen3-embedding:0.6b(native 1024) 비교** — 모델 크기 축(본 A/B는 차원 축만 판정).
 
 ## 5. backlog 잔여 (2026-05 세대 중 미종결)
 
