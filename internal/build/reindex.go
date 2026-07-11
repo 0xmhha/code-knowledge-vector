@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
+	"github.com/0xmhha/code-knowledge-vector/internal/ckgalign"
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
@@ -203,6 +204,29 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		return nil, fmt.Errorf("policy: %w", err)
 	}
 
+	// CKG re-alignment (P2a): re-run ckgalign against the same graph this
+	// index was built against — recorded in manifest.Sources.CKG.Path — so
+	// re-embedded chunks keep their canonical_id join key. Without this,
+	// reindexed files silently lose canonical_id (reindex-migration-design
+	// §0.2 gap1). Best-effort: a recorded-but-unloadable graph warns and
+	// continues rather than blocking a routine reindex on ckg availability;
+	// the digest assert at Open/health (P1) owns fail-loud for a genuinely
+	// mismatched graph.
+	var ckgIx *ckgalign.Index
+	if man.Sources != nil && man.Sources.CKG != nil && man.Sources.CKG.Path != "" {
+		ix, alignErr := ckgalign.Load(man.Sources.CKG.Path)
+		if alignErr != nil {
+			fmt.Fprintf(os.Stderr, "ckv: warning: reindex could not load ckg graph at %s (%v); "+
+				"re-embedded chunks lose canonical_id until the next aligned build\n",
+				man.Sources.CKG.Path, alignErr)
+			fp.Emit("reindex.ckg_align_unavailable", "ckg_path", man.Sources.CKG.Path, "err", alignErr.Error())
+		} else {
+			ckgIx = ix
+			fp.Emit("reindex.ckg_align_loaded", "ckg_path", man.Sources.CKG.Path,
+				"entries", ix.EntryCount(), "canonical_available", ix.CanonicalAvailable())
+		}
+	}
+
 	result := &ReindexResult{
 		PrevHead: prevHead,
 		NewHead:  newHead,
@@ -279,6 +303,7 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		if len(chunks) == 0 {
 			continue
 		}
+		stampCanonicalIDs(ckgIx, chunks)
 		pol.Apply(chunks)
 		if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, nil, embedTextFn); err != nil {
 			return nil, fmt.Errorf("embed/upsert %s: %w", rel, err)
@@ -331,6 +356,24 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		"new_head", newHead,
 	)
 	return result, nil
+}
+
+// stampCanonicalIDs copies canonical_id from the aligned ckg node onto each
+// source chunk that has a real source span and no canonical_id yet. Mirrors
+// the build-path alignment (internal/build/builder.go) so a reindex keeps the
+// CKG↔CKV join key on re-embedded chunks. No-op when ix is nil (index built
+// without --ckg, or the recorded graph was unloadable).
+func stampCanonicalIDs(ix *ckgalign.Index, chunks []types.Chunk) {
+	if ix == nil {
+		return
+	}
+	for i := range chunks {
+		if chunks[i].CanonicalID == "" && chunks[i].StartLine > 0 {
+			if e := ix.LookupEntry(chunks[i].File, chunks[i].StartLine, chunks[i].EndLine); e != nil {
+				chunks[i].CanonicalID = e.CanonicalID
+			}
+		}
+	}
 }
 
 // changeSet partitions paths by what the index should do with them.

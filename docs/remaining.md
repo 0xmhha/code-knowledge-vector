@@ -43,8 +43,9 @@
 P1(sources 원장 + alignment 감지)은 3자 완료·실증됨(handoff §4.0). 아래는 설계 §7의 공식 phase 순서.
 reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 canonical_id 조용히 stale" 방지)이라 명시.
 
-- [ ] **P2 — 조율 재인덱싱** (§7-P2, §3) — `ckv reindex`에 `ckgalign` 재정렬 편입 + schema 캐스케이드 자동 트리거 + 검증 게이트(§5.1). 감지→자동해소 완성.
-  - 근거: `internal/build/reindex.go`에 `ckgalign`/`CheckAlignment` 참조 0건.
+- [~] **P2 — 조율 재인덱싱** (§7-P2, §3) — 진행 중(브랜치 `feat/reindex-realign`).
+  - [x] **P2a — canonical_id 재정렬 편입** — reindex가 `manifest.Sources.CKG.Path`에서 `ckgalign.Load` → 재임베딩 청크에 `canonical_id` 재스탬프(빌드 경로 미러링). 미로드 시 warn-and-continue(fail-loud는 P1 Open/health digest assert). 테스트 `TestReindex_PreservesCanonicalAlignment`(재정렬 전 0/7 → 후 유지).
+  - [ ] **P2b** — graph_digest mismatch 시 전체 재정렬 + schema 캐스케이드 자동 트리거 + 검증 게이트(§5.1: orphan 0 / canonical ≥90% / `COUNT(*)`).
 - [ ] **P4-count(선착) — ChunkCount 실측 교정** (§5.2, 소규모) — 근사 드리프트를 `COUNT(*)`로 교정. §5.1 검증 게이트 정확도 선결이라 P3보다 앞당김.
   - 근거: `internal/build/reindex.go:308` `man.ChunkCount += result.Chunks.Total - (result.FilesDeleted + result.FilesModified)`.
 - [ ] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — `sources.prs.last_pr_number` cutoff로 이후 PR만 fetch + docs/flow `content_hash` 기반 재인덱싱. 현 서빙본 `sources.prs=none`.
