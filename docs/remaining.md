@@ -64,7 +64,7 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 - [x] **MRL truncate 경로** — `ollama.Options.TargetDim`(`truncateNormalize`) + CLI `--embed-dim`. 테스트 `TestTruncateNormalize`.
 - [x] **대형 코퍼스 재확인 (2026-07-12)** — go-stablenet 83파일/1015청크(20×)에서 full-2560 vs 1024-truncate: top-1 일치 8/10, top-5 overlap 0.81, ground-truth 3쿼리 순위 동일, 저장 ÷2.1. **1024-truncate 권장 확증**. 기록: `qwen3-dimension-ab-2026-07-12.md §6`. 부수: `ckv build --batch N` 추가.
 - [x] **ADR 승격 (차원 락) — `adr/008-qwen3-embedding-1024-dim.md` (Accepted, 2026-07-12)** — qwen3-embedding:4b @ 1024-truncate 확정. 정본 재검은 Consequences에 캐비엇으로 명시.
-- [ ] **embed 경로 견고화** — 개별 대형 청크(>~20-40KB)가 ollama qwen3를 크래시(배치 무관). 재시도/skip-and-warn 또는 정본 머신(bge-m3 안정)에서 빌드. 별도 과제.
+- [x] **embed 경로 견고화 (2026-07-12)** — `embedAndUpsert`가 `embedResilient`로 배치 실패 시 이분 분할 재시도 + 단일 청크 실패는 skip-and-warn(벡터 쌍 유지). systemic 장애는 tiny probe로 구분해 전파(빈 인덱스 방지). ctx 취소는 전파. 검증: qwen3-4b로 blockchain.go 포함 코퍼스 빌드가 abort 대신 완료(53파일 592청크, 크래시 청크만 skip). 테스트 `TestEmbedResilient_{SkipsPoisonChunk,PropagatesCtxError}`.
 - [ ] **Instruct query-prefix** — `Embedder`가 query/passage 미구분. 프리픽스 주입은 인터페이스 확장 필요(별도 품질 레버). `knownDims` 표준화 포함.
 - [ ] **qwen3-embedding:0.6b(native 1024) 비교** — 모델 크기 축(본 A/B는 차원 축만 판정).
 
