@@ -59,7 +59,10 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 ## 3. 외부·협의 대기 (§7-P5 무중단 서빙)
 
 - [ ] **CKS 재기동 결과 수신** — `pr-77-2/ckv` reload 후 `cks.ops.health` alignment 블록 공유받아 양측(CKV `CheckAlignment` / CKS assert) 동일 digest(`4be26516…`) ok 교차확인. 프롬프트: `coordination-prompts §10.10`.
-- [ ] **P5 blue-green 무중단 서빙** (§4/§6) — 버전 디렉터리 `<dataset>@<commit>-<digest[:8]>/{graph-db,vector-db}` + `current` 포인터 + 원자 promote + 인스턴스-레벨 blue-green. 오케스트레이션 주관=CKS, CKV는 버전본 생산·소비.
+- [~] **P5 blue-green 무중단 서빙** (§4/§6) — CKV-side 슬라이스 완료, 오케스트레이션은 CKS.
+  - [x] **`ckv promote` (원자 promote 프리미티브)** — `build.PromoteVersion(dataset, version)`: 검증 게이트(§5.1, manifest + orphan 0) 통과 후 `<dataset>/current` 심링크를 temp+rename으로 원자 스왑. 실패 시 current 미이동. CLI `ckv promote --dataset --version`. 테스트 `TestPromoteVersion_AtomicSwapAndGate`.
+  - [x] **health 버전 보고** (§6) — `Engine.ResolvedVersion()`(데이터 경로 심링크 resolve → 버전 디렉터리명) → `cks.ops.health.resolved_version`.
+  - [ ] **CKS 소관**: 버전 네이밍/디렉터리 레이아웃, 언제 promote할지, 인스턴스-레벨 blue-green 전환, 보존/GC, 조율 재인덱싱 오케스트레이션.
 
 ## 4. 임베딩 모델 교체 (reindex-B)
 

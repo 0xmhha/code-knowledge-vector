@@ -441,15 +441,16 @@ func (s *Server) handleHealth(_ context.Context, _ mcpgo.CallToolRequest) (*mcpg
 	// "degraded — embedder=stub" without reverse-engineering the
 	// embedding_model string.
 	payload := map[string]any{
-		"server":          ServerName,
-		"server_version":  ServerVersion,
-		"embedding_model": man.EmbeddingModel,
-		"embedding_dim":   man.EmbeddingDim,
-		"indexed_head":    man.IndexedHead,
-		"chunk_count":     man.ChunkCount,
-		"built_at":        man.BuiltAt,
-		"src_root":        man.SrcRoot,
-		"embedder":        embInfo,
+		"server":           ServerName,
+		"server_version":   ServerVersion,
+		"embedding_model":  man.EmbeddingModel,
+		"embedding_dim":    man.EmbeddingDim,
+		"indexed_head":     man.IndexedHead,
+		"chunk_count":      man.ChunkCount,
+		"built_at":         man.BuiltAt,
+		"src_root":         man.SrcRoot,
+		"resolved_version": s.engine.ResolvedVersion(),
+		"embedder":         embInfo,
 		"index": map[string]any{
 			"chunk_count":   man.ChunkCount,
 			"last_built_at": man.BuiltAt,
