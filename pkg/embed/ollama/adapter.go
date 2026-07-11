@@ -43,12 +43,13 @@ const DefaultMaxInputTokens = 8192
 
 // Adapter implements types.Embedder via Ollama's /api/embed endpoint.
 type Adapter struct {
-	endpoint  string
-	modelName string
-	dim       int
-	targetDim int // >0 → truncate each embedding to this many dims (MRL)
-	maxInput  int
-	client    *http.Client
+	endpoint      string
+	modelName     string
+	dim           int
+	targetDim     int    // >0 → truncate each embedding to this many dims (MRL)
+	queryInstruct string // non-empty → wrap queries in this Qwen3 instruct prompt
+	maxInput      int
+	client        *http.Client
 }
 
 // Options configures the Ollama adapter.
@@ -83,11 +84,16 @@ func Open(opts Options) (*Adapter, error) {
 		timeout = DefaultTimeout
 	}
 
+	queryInstruct := registry.QueryInstruct(opts.ModelName)
+	if os.Getenv("CKV_DISABLE_QUERY_PREFIX") == "1" {
+		queryInstruct = "" // opt out of the asymmetric query prompt (A/B, debugging)
+	}
 	a := &Adapter{
-		endpoint:  endpoint,
-		modelName: opts.ModelName,
-		maxInput:  resolveMaxInput(opts.ModelName),
-		client:    &http.Client{Timeout: timeout},
+		endpoint:      endpoint,
+		modelName:     opts.ModelName,
+		queryInstruct: queryInstruct,
+		maxInput:      resolveMaxInput(opts.ModelName),
+		client:        &http.Client{Timeout: timeout},
 	}
 
 	// Probe: embed a short string to discover the dimension. Bound it with a
@@ -218,6 +224,28 @@ func (a *Adapter) Embed(ctx context.Context, batch []string) ([][]float32, error
 	}
 
 	return result.Embeddings, nil
+}
+
+// EmbedQuery embeds retrieval queries. For an asymmetric model (Qwen3, which
+// carries a QueryInstruct in the registry) it wraps each query in the model's
+// instruct prompt before embedding; symmetric models (bge-*) fall through to
+// Embed unchanged. Passages always go through Embed. Implements
+// types.QueryEmbedder.
+func (a *Adapter) EmbedQuery(ctx context.Context, queries []string) ([][]float32, error) {
+	if a.queryInstruct == "" || len(queries) == 0 {
+		return a.Embed(ctx, queries)
+	}
+	wrapped := make([]string, len(queries))
+	for i, q := range queries {
+		wrapped[i] = qwen3QueryText(a.queryInstruct, q)
+	}
+	return a.Embed(ctx, wrapped)
+}
+
+// qwen3QueryText builds Qwen3-Embedding's query prompt:
+// "Instruct: {task}\nQuery: {query}". Applied to queries only.
+func qwen3QueryText(instruct, query string) string {
+	return "Instruct: " + instruct + "\nQuery: " + query
 }
 
 // truncateNormalize returns the first dim components of v, re-normalized to

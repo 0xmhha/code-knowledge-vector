@@ -57,3 +57,15 @@ type Embedder interface {
 	MaxInputTokens() int
 	Embed(ctx context.Context, batch []string) ([][]float32, error)
 }
+
+// QueryEmbedder is an optional Embedder capability for asymmetric models —
+// models whose query representation differs from their passage representation.
+// Retrieval code type-asserts an Embedder to QueryEmbedder and calls EmbedQuery
+// for the query side; embedders with no query/passage asymmetry simply do not
+// implement it and the caller falls back to Embed. Qwen3-Embedding is the
+// motivating case: it recommends a query-side "Instruct:" prompt while passages
+// are embedded raw. Passages continue to go through Embed.
+type QueryEmbedder interface {
+	Embedder
+	EmbedQuery(ctx context.Context, queries []string) ([][]float32, error)
+}
