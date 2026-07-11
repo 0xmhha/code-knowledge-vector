@@ -10,6 +10,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/mock"
+	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 )
 
@@ -195,5 +196,95 @@ func TestReindex_RealignsOnGraphDigestChange(t *testing.T) {
 
 	if got := serverCanonical(t, out); got != "sample.NewServer.NEW" {
 		t.Fatalf("after graph regen + reindex, canonical = %q, want sample.NewServer.NEW — P2b full re-align missing", got)
+	}
+}
+
+// TestReindex_ReconcilesChunkCount is the P2b-2 count guard: the old manifest
+// ChunkCount arithmetic (+= Total-(deleted+modified)) drifts because a
+// re-embedded file is deleted then re-inserted with the same chunks — the net
+// count is unchanged while the arithmetic adds Total-1. reindex must set
+// ChunkCount to the authoritative SELECT COUNT(*).
+func TestReindex_ReconcilesChunkCount(t *testing.T) {
+	src := resolveTestdataSample(t)
+	out := t.TempDir()
+	if _, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		Now:      func() time.Time { return time.Unix(0, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	if _, err := Reindex(context.Background(), ReindexOptions{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		Files:    []string{"server.go"},
+		Now:      func() time.Time { return time.Unix(100, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+
+	man, err := manifest.Load(out)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	st, err := sqlitevec.Open(filepath.Join(out, "vector.db"), mock.Default().Dimension())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+	stats, err := st.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if man.ChunkCount != stats.ChunkCount {
+		t.Fatalf("manifest ChunkCount=%d != store COUNT(*)=%d — reconciliation missing (P2b-2)",
+			man.ChunkCount, stats.ChunkCount)
+	}
+}
+
+// TestReindex_ValidationReport checks the P2b-2 integrity report: reindex
+// returns authoritative counts with no orphans and, against a graph with an
+// aligned node, non-zero canonical coverage.
+func TestReindex_ValidationReport(t *testing.T) {
+	src := resolveTestdataSample(t)
+	ckg := writeCKGWithNode(t)
+	out := t.TempDir()
+	if _, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		CKGPath:  ckg,
+		Now:      func() time.Time { return time.Unix(0, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	res, err := Reindex(context.Background(), ReindexOptions{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		Files:    []string{"server.go"},
+		Now:      func() time.Time { return time.Unix(100, 0).UTC() },
+	})
+	if err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+
+	v := res.Validation
+	if v.Chunks == 0 {
+		t.Fatalf("validation reported 0 chunks")
+	}
+	if !v.OK() {
+		t.Fatalf("integrity: %d orphan chunks, %d orphan vectors", v.OrphanChunks, v.OrphanVectors)
+	}
+	if v.Chunks != v.Vectors {
+		t.Fatalf("every chunk must have a vector: chunks=%d vectors=%d", v.Chunks, v.Vectors)
+	}
+	if v.SymbolChunks == 0 {
+		t.Fatalf("expected symbol chunks in testdata/sample")
+	}
+	if v.CanonicalChunks == 0 {
+		t.Fatalf("expected >=1 canonical chunk (server.go NewServer aligned), got 0")
 	}
 }

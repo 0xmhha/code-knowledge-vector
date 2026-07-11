@@ -915,6 +915,52 @@ func (s *Store) Stats(ctx context.Context) (types.Stats, error) {
 	return st, rows.Err()
 }
 
+// Validation is the post-reindex integrity report (reindex-migration-design
+// §5.1): authoritative counts + orphan detection + canonical coverage.
+type Validation struct {
+	Chunks          int // SELECT COUNT(*) FROM chunks — the authoritative count
+	Vectors         int // SELECT COUNT(*) FROM chunk_vec
+	OrphanChunks    int // chunks with no matching vector
+	OrphanVectors   int // vectors with no matching chunk
+	SymbolChunks    int // chunks with a symbol_name and a real span (alignable)
+	CanonicalChunks int // SymbolChunks carrying a non-empty canonical_id
+}
+
+// OK reports the hard integrity invariant: every chunk has a vector and every
+// vector has a chunk (no orphans on either side).
+func (v Validation) OK() bool { return v.OrphanChunks == 0 && v.OrphanVectors == 0 }
+
+// CanonicalRate is the fraction of alignable (symbol) chunks that carry a
+// canonical_id join key. 1.0 when there are no symbol chunks.
+func (v Validation) CanonicalRate() float64 {
+	if v.SymbolChunks == 0 {
+		return 1
+	}
+	return float64(v.CanonicalChunks) / float64(v.SymbolChunks)
+}
+
+// Validate computes the integrity report from small aggregate queries — cheap
+// enough to run at the end of every reindex.
+func (s *Store) Validate(ctx context.Context) (Validation, error) {
+	var v Validation
+	for _, probe := range []struct {
+		dst *int
+		sql string
+	}{
+		{&v.Chunks, `SELECT COUNT(*) FROM chunks`},
+		{&v.Vectors, `SELECT COUNT(*) FROM chunk_vec`},
+		{&v.OrphanChunks, `SELECT COUNT(*) FROM chunks WHERE id NOT IN (SELECT chunk_id FROM chunk_vec)`},
+		{&v.OrphanVectors, `SELECT COUNT(*) FROM chunk_vec WHERE chunk_id NOT IN (SELECT id FROM chunks)`},
+		{&v.SymbolChunks, `SELECT COUNT(*) FROM chunks WHERE symbol_name != '' AND start_line > 0`},
+		{&v.CanonicalChunks, `SELECT COUNT(*) FROM chunks WHERE canonical_id != '' AND symbol_name != '' AND start_line > 0`},
+	} {
+		if err := s.db.QueryRowContext(ctx, probe.sql).Scan(probe.dst); err != nil {
+			return v, fmt.Errorf("validate %q: %w", probe.sql, err)
+		}
+	}
+	return v, nil
+}
+
 // Close releases the underlying *sql.DB handle. Idempotent.
 func (s *Store) Close() error {
 	if s.db == nil {

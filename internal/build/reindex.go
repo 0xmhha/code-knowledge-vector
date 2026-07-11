@@ -97,6 +97,9 @@ type ReindexResult struct {
 	NewHead  string
 	BuiltAt  string
 	DBPath   string
+	// Validation is the post-reindex integrity report (§5.1): authoritative
+	// counts, orphan detection, and canonical coverage.
+	Validation sqlitevec.Validation
 }
 
 // Reindex re-embeds only the files that changed between the manifest's
@@ -354,10 +357,32 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 	man.SrcCommit = newHead
 	man.IndexedHead = newHead
 	man.Languages = languageCounts
-	// ChunkCount in the manifest is best-effort: we don't recompute it
-	// from a SELECT COUNT after every reindex (expensive on large DBs).
-	// Callers who need an authoritative count should query the store.
-	man.ChunkCount += result.Chunks.Total - (result.FilesDeleted + result.FilesModified)
+
+	// P2b-2 — validation gate (reindex-migration-design §5.1): reconcile
+	// ChunkCount to the authoritative COUNT(*) (replacing the drift-prone
+	// arithmetic that mistook a re-embedded file's chunk total for a net
+	// delta) and surface store integrity. Orphan chunks/vectors are a hard
+	// integrity violation → fail loud. Low canonical coverage against a
+	// populated graph is a warning: the graph, not this index, owns whether a
+	// join key exists.
+	val, verr := store.Validate(ctx)
+	if verr != nil {
+		return nil, fmt.Errorf("reindex validate: %w", verr)
+	}
+	if !val.OK() {
+		return nil, fmt.Errorf("reindex integrity check failed: %d orphan chunks, %d orphan vectors",
+			val.OrphanChunks, val.OrphanVectors)
+	}
+	man.ChunkCount = val.Chunks
+	result.Validation = val
+	fp.Emit("reindex.validated",
+		"chunks", val.Chunks, "vectors", val.Vectors,
+		"orphan_chunks", val.OrphanChunks, "orphan_vectors", val.OrphanVectors,
+		"symbol_chunks", val.SymbolChunks, "canonical_rate", val.CanonicalRate())
+	if ckgIx != nil && ckgIx.CanonicalAvailable() && val.SymbolChunks > 0 && val.CanonicalRate() < 0.90 {
+		fmt.Fprintf(os.Stderr, "ckv: warning: canonical_id coverage %.1f%% below 90%% after reindex (ckg-aligned)\n",
+			val.CanonicalRate()*100)
+	}
 
 	if err := store.SetManifest(ctx, map[string]string{
 		"embedding_model":     o.Embedder.Name(),
