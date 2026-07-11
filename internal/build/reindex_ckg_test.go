@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -109,9 +110,10 @@ func TestReindex_PreservesCanonicalAlignment(t *testing.T) {
 
 // writeCKGGraph writes (or overwrites) a ckg graph.db at dir with one node for
 // server.go:15 carrying the given canonical_id, plus manifest pin coords
-// including graph_digest. Overwriting with a new (digest, canonical) simulates
-// a CKG graph regeneration under the same source commit.
-func writeCKGGraph(t *testing.T, dir, digest, canonical string) {
+// (schema_version + graph_digest). Overwriting with a new (digest, canonical,
+// schema) simulates a CKG graph regeneration / schema bump under the same
+// source commit.
+func writeCKGGraph(t *testing.T, dir, digest, canonical, schema string) {
 	t.Helper()
 	db, err := sql.Open("sqlite3", filepath.Join(dir, "graph.db"))
 	if err != nil {
@@ -124,7 +126,7 @@ DROP TABLE IF EXISTS manifest;
 CREATE TABLE nodes (id TEXT PRIMARY KEY, qualified_name TEXT NOT NULL,
   file_path TEXT NOT NULL, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, canonical_id TEXT);
 CREATE TABLE manifest (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-INSERT INTO manifest VALUES ('src_commit','seedcommit'),('schema_version','1.23'),('graph_digest','` + digest + `');
+INSERT INTO manifest VALUES ('src_commit','seedcommit'),('schema_version','` + schema + `'),('graph_digest','` + digest + `');
 INSERT INTO nodes VALUES ('n1','NewServer','server.go',15,20,'` + canonical + `');
 `); err != nil {
 		t.Fatal(err)
@@ -161,7 +163,7 @@ func serverCanonical(t *testing.T, outDir string) string {
 func TestReindex_RealignsOnGraphDigestChange(t *testing.T) {
 	src := resolveTestdataSample(t)
 	ckgDir := t.TempDir()
-	writeCKGGraph(t, ckgDir, "digestA", "sample.NewServer.OLD")
+	writeCKGGraph(t, ckgDir, "digestA", "sample.NewServer.OLD", "1.23")
 	out := t.TempDir()
 
 	if _, err := Run(context.Background(), Options{
@@ -177,8 +179,9 @@ func TestReindex_RealignsOnGraphDigestChange(t *testing.T) {
 		t.Fatalf("seed canonical = %q, want sample.NewServer.OLD", got)
 	}
 
-	// Regenerate the graph in place: new digest + new canonical, same commit.
-	writeCKGGraph(t, ckgDir, "digestB", "sample.NewServer.NEW")
+	// Regenerate the graph in place: new digest + new canonical, same commit
+	// and schema.
+	writeCKGGraph(t, ckgDir, "digestB", "sample.NewServer.NEW", "1.23")
 
 	// Reindex with no source change. prev == new HEAD → empty git diff, so
 	// only the graph-digest-mismatch full re-align can update canonical_id.
@@ -286,5 +289,41 @@ func TestReindex_ValidationReport(t *testing.T) {
 	}
 	if v.CanonicalChunks == 0 {
 		t.Fatalf("expected >=1 canonical chunk (server.go NewServer aligned), got 0")
+	}
+}
+
+// TestReindex_RefusesOnSchemaBump is the P2b-3 guard: a CKG cache schema bump
+// (recorded vs current schema_version) cold-rebuilds the graph and can change
+// canonical_id semantics wholesale, so a partial reindex — even with
+// re-alignment — is unsafe. reindex must refuse with ErrSchemaCascade and
+// direct the caller to a full build (reindex-migration-design §3.2).
+func TestReindex_RefusesOnSchemaBump(t *testing.T) {
+	src := resolveTestdataSample(t)
+	ckgDir := t.TempDir()
+	writeCKGGraph(t, ckgDir, "digestA", "sample.NewServer", "1.22")
+	out := t.TempDir()
+	if _, err := Run(context.Background(), Options{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		CKGPath:  ckgDir,
+		Now:      func() time.Time { return time.Unix(0, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+
+	// CKG cache schema bump: 1.22 → 1.23 (with a new digest, as a cold rebuild
+	// would produce).
+	writeCKGGraph(t, ckgDir, "digestB", "sample.NewServer", "1.23")
+
+	_, err := Reindex(context.Background(), ReindexOptions{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		Files:    []string{"server.go"},
+		Now:      func() time.Time { return time.Unix(100, 0).UTC() },
+	})
+	if !errors.Is(err, ErrSchemaCascade) {
+		t.Fatalf("expected ErrSchemaCascade on CKG schema bump, got %v", err)
 	}
 }

@@ -18,8 +18,8 @@
 섹션은 주제별이고, 실제 착수 순서는 아래 교차 우선순위를 따른다.
 
 1. ✅ **`ckg_node_id` 은퇴** (§1) — main 반영(PR #17).
-2. **P2 조율 재인덱싱** (§2) — P2a/P2b-1/P2b-2 ✅(count 재조정=P4-count 흡수), **P2b-3(schema 캐스케이드)만 잔여**.
-3. **P3 증분 PR·docs 인제스트** (§2) — 서빙본 `prs=none` 해소.
+2. ✅ **P2 조율 재인덱싱** (§2) — P2a/P2b-1/P2b-2/P2b-3 완료(count 재조정=P4-count 흡수). PR 대기.
+3. **P3 증분 PR·docs 인제스트** (§2) — 서빙본 `prs=none` 해소. ← 다음 최우선.
 4. **Qwen3 A/B → 차원 결정** (§4, reindex-B) — 북극성(정밀 회수) 핵심, CKV 주관.
 5. **P5 무중단 서빙 / CKS 교차확인** (§3) — 오케스트레이션=CKS 의존.
 6. **품질·인프라 잔여** (§5) — D.2 prefix·multi-gran·sliding 실측·B10, throughput/측정 대기.
@@ -42,11 +42,11 @@
 P1(sources 원장 + alignment 감지)은 3자 완료·실증됨(handoff §4.0). 아래는 설계 §7의 공식 phase 순서.
 reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 canonical_id 조용히 stale" 방지)이라 명시.
 
-- [~] **P2 — 조율 재인덱싱** (§7-P2, §3) — 진행 중(브랜치 `feat/reindex-realign`).
+- [x] **P2 — 조율 재인덱싱** (§7-P2, §3) — 완료(브랜치 `feat/reindex-realign`, main 위 4커밋). P2a+P2b-1/2/3.
   - [x] **P2a — canonical_id 재정렬 편입** — reindex가 `manifest.Sources.CKG.Path`에서 `ckgalign.Load` → 재임베딩 청크에 `canonical_id` 재스탬프(빌드 경로 미러링). 미로드 시 warn-and-continue(fail-loud는 P1 Open/health digest assert). 테스트 `TestReindex_PreservesCanonicalAlignment`(재정렬 전 0/7 → 후 유지).
   - [x] **P2b-1 — graph_digest mismatch 전체 재정렬** — 같은 커밋에 그래프만 재생성(digest 변경)되면 git diff가 비어도 전체 청크의 `canonical_id`를 새 그래프로 재정렬(벡터 미변경, join 키만). `store.RealignCanonical` + `realignAllCanonical`. `CanonicalAvailable` 게이트(빈 그래프가 좋은 키를 지우지 않음), 비어있지 않은 값만 갱신. 새 digest를 manifest에 기록(다음 reindex no-op). 테스트 `TestReindex_RealignsOnGraphDigestChange`(regen 후 OLD→NEW).
   - [x] **P2b-2 — 검증 게이트(§5.1) + count 재조정(§5.2, P4-count 흡수)** — reindex 종료 시 `store.Validate`: `ChunkCount`를 실측 `COUNT(*)`로 재조정(근사 드리프트 버그 제거), orphan(청크↔벡터) 0 강제(위반 시 fail-loud), canonical 커버리지 계산(ckg-aligned인데 <90%면 warn). `ReindexResult.Validation`로 노출. 테스트 `TestReindex_ReconcilesChunkCount`(56 드리프트→50 실측), `TestReindex_ValidationReport`(orphan 0 / chunks==vectors / canonical>0).
-  - [ ] **P2b-3 — schema 캐스케이드 자동 트리거** — CKG cache schema bump(예 1.22→1.23) 감지 시 재정렬이 아닌 **전면 재빌드** 필요 신호(§3.2).
+  - [x] **P2b-3 — schema 캐스케이드 자동 트리거** — 기록된 vs 현재 CKG `schema_version` 불일치 시 부분 reindex를 **거부**(`ErrSchemaCascade`)하고 `ckv build` 전면 재빌드 유도(`ErrEmbedderMismatch`와 동일 패턴). 테스트 `TestReindex_RefusesOnSchemaBump`(1.22→1.23).
 - [ ] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — `sources.prs.last_pr_number` cutoff로 이후 PR만 fetch + docs/flow `content_hash` 기반 재인덱싱. 현 서빙본 `sources.prs=none`.
   - 근거: `LastPRNumber`는 `internal/manifest/manifest.go:96` 필드만 존재, `reindex.go` 미사용.
 - [ ] **P4 — 재개·원자성·락** (§7-P4, §4.4/§5.3) — 데이터 체크포인트 원장 + reindex 원자성(swap) + advisory lock + SetManifest 트랜잭션.

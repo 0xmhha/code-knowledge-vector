@@ -36,6 +36,13 @@ var ErrNoManifest = errors.New("reindex: no manifest at OutDir — run `ckv buil
 // full `ckv build` to replace the index.
 var ErrEmbedderMismatch = errors.New("reindex: embedder identity does not match manifest")
 
+// ErrSchemaCascade signals the recorded CKG schema_version differs from the
+// graph's current schema_version. A CKG cache schema bump cold-rebuilds the
+// graph and can change canonical_id semantics wholesale, so a partial reindex
+// (even with re-alignment) is unsafe — the caller must run a full `ckv build`
+// (reindex-migration-design §3.2).
+var ErrSchemaCascade = errors.New("reindex: CKG schema_version changed — run `ckv build` for a full rebuild")
+
 // ReindexOptions configures a partial rebuild. SrcRoot, OutDir, and
 // Embedder are required; everything else has a documented default.
 type ReindexOptions struct {
@@ -230,28 +237,42 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		}
 	}
 
-	// P2b — graph regeneration: if the aligned CKG graph changed under the
-	// same source commit (its logical digest differs from what this index
-	// recorded), the git diff is empty but canonical_id may be stale across
-	// the whole index. Re-align every chunk against the new graph (no
-	// re-embed — only the join key changes) and record the new digest so the
-	// next reindex is a no-op. Gated on CanonicalAvailable so an unpopulated
-	// graph never wipes good join keys (ADR-007).
-	if ckgIx != nil && ckgIx.CanonicalAvailable() && man.Sources != nil && man.Sources.CKG != nil {
-		recorded := man.Sources.CKG.GraphDigest
+	// The aligned CKG graph's current coordinates (schema + digest), read once
+	// for the schema-cascade (P2b-3) and graph-regeneration (P2b-1) checks.
+	if man.Sources != nil && man.Sources.CKG != nil && man.Sources.CKG.Path != "" {
 		if coords, cerr := ckgalign.ReadCoords(man.Sources.CKG.Path); cerr == nil {
-			current := coords.GraphDigest
-			if recorded != "" && current != "" && recorded != current {
-				n, rerr := realignAllCanonical(ctx, store, ckgIx)
-				if rerr != nil {
-					return nil, fmt.Errorf("reindex canonical realign: %w", rerr)
-				}
-				man.Sources.CKG.GraphDigest = current
-				fp.Emit("reindex.canonical_realigned",
-					"recorded_digest", recorded, "current_digest", current, "chunks_realigned", n)
-				if o.ProgressOut != nil {
-					fmt.Fprintf(o.ProgressOut, "ckv: ckg graph regenerated (digest %s→%s); re-aligned %d chunks\n",
-						recorded, current, n)
+			// P2b-3 — schema cascade: a CKG cache schema bump (recorded vs
+			// current schema_version) cold-rebuilds the graph and can change
+			// canonical_id semantics wholesale. Re-alignment is not enough;
+			// refuse the partial reindex and direct the caller to a full
+			// `ckv build` (reindex-migration-design §3.2).
+			if rec := man.Sources.CKG.SchemaVersion; rec != "" && coords.SchemaVersion != "" && coords.SchemaVersion != rec {
+				return nil, fmt.Errorf("%w: recorded=%s current=%s", ErrSchemaCascade, rec, coords.SchemaVersion)
+			}
+
+			// P2b-1 — graph regeneration: if the graph changed under the same
+			// source commit (its logical digest differs from what this index
+			// recorded), the git diff is empty but canonical_id may be stale
+			// across the whole index. Re-align every chunk against the new
+			// graph (no re-embed — only the join key changes) and record the
+			// new digest so the next reindex is a no-op. Gated on
+			// CanonicalAvailable so an unpopulated graph never wipes good join
+			// keys (ADR-007).
+			if ckgIx != nil && ckgIx.CanonicalAvailable() {
+				recorded := man.Sources.CKG.GraphDigest
+				current := coords.GraphDigest
+				if recorded != "" && current != "" && recorded != current {
+					n, rerr := realignAllCanonical(ctx, store, ckgIx)
+					if rerr != nil {
+						return nil, fmt.Errorf("reindex canonical realign: %w", rerr)
+					}
+					man.Sources.CKG.GraphDigest = current
+					fp.Emit("reindex.canonical_realigned",
+						"recorded_digest", recorded, "current_digest", current, "chunks_realigned", n)
+					if o.ProgressOut != nil {
+						fmt.Fprintf(o.ProgressOut, "ckv: ckg graph regenerated (digest %s→%s); re-aligned %d chunks\n",
+							recorded, current, n)
+					}
 				}
 			}
 		}
