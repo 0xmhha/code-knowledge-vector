@@ -193,7 +193,7 @@ func (s *Store) initSchema(dim int) error {
 
 	// Stamp dim + schema version on first init.
 	if storedDim == 0 {
-		if err := s.setManifestKVs(map[string]string{
+		if err := s.setManifestKVs(context.Background(), map[string]string{
 			"schema_version": SchemaVersion,
 			"embedding_dim":  fmt.Sprintf("%d", dim),
 		}); err != nil {
@@ -250,26 +250,35 @@ func (s *Store) getStoredDim() (int, error) {
 	return n, nil
 }
 
-func (s *Store) setManifestKVs(kv map[string]string) error {
-	stmt, err := s.db.Prepare(`INSERT INTO manifest (key, value) VALUES (?, ?)
+// setManifestKVs upserts the given key/value pairs in a single transaction, so
+// a crash mid-write never leaves the in-DB manifest half-updated (some keys
+// advanced, others stale). All-or-nothing (reindex-migration-design §4.4).
+func (s *Store) setManifestKVs(ctx context.Context, kv map[string]string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO manifest (key, value) VALUES (?, ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for k, v := range kv {
-		if _, err := stmt.Exec(k, v); err != nil {
+		if _, err := stmt.ExecContext(ctx, k, v); err != nil {
 			return fmt.Errorf("write manifest[%s]: %w", k, err)
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
-// SetManifest persists arbitrary identity keys (embedding_model, etc).
-// Called by the indexer after a successful build so the DB carries its
-// own copy of the manifest in addition to the JSON sidecar.
-func (s *Store) SetManifest(_ context.Context, kv map[string]string) error {
-	return s.setManifestKVs(kv)
+// SetManifest persists arbitrary identity keys (embedding_model, etc) in one
+// transaction. Called by the indexer after a successful build so the DB carries
+// its own copy of the manifest in addition to the JSON sidecar.
+func (s *Store) SetManifest(ctx context.Context, kv map[string]string) error {
+	return s.setManifestKVs(ctx, kv)
 }
 
 // Upsert inserts or replaces chunks + their embeddings. Vectors and

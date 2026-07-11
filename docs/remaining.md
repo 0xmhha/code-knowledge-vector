@@ -53,7 +53,7 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
   - [ ] **P3b-docs — docs-roots content_hash 재인덱싱** — `sources.docs.content_hash` 변경 시 curated docs 레이어(`chunk_kind=doc` AND `category=domain`) 교체·재walk. (in-tree markdown은 이미 코드 diff 경로가 처리.)
 - [~] **P4 — 재개·원자성·락** (§7-P4, §4.4/§5.3) — 진행 중.
   - [x] **P4a — advisory lock** — `acquireDatasetLock`(`<out>/.ckv.lock` flock, non-blocking) — 동시 build/reindex 직렬화(§5.3), 크래시 시 자동 해제. Run/Reindex 진입 시 획득, 점유 시 `ErrLocked`. 테스트 `TestAcquireDatasetLock_*`·`TestRun_RefusesWhenLocked`.
-  - [ ] **P4b — 원자성 + SetManifest 트랜잭션** — reindex 부분쓰기 무손상(temp+rename 또는 §4.1 버전 swap) + manifest 쓰기 원자화.
+  - [x] **P4b — 원자성 + SetManifest 트랜잭션** — 조사 결과 대부분 이미 원자적: `manifest.Save`는 temp+rename(원자적), reindex는 manifest-last 순서라 크래시 시 재실행으로 자기치유(멱등). 실질 갭은 in-DB `setManifestKVs`가 키별 auto-commit이던 것 → **단일 트랜잭션**으로 원자화(all-or-nothing, §4.4). 커버: `TestStatsReflectsManifest`. (전체 all-or-nothing 스왑은 §4.1 blue-green=P5 소관.)
   - [ ] **P4c — 데이터 체크포인트 원장** — per-file fingerprint 원장으로 "중단 지점부터 재개"(CKG cache_key 대응). 현재 재개 없음.
 
 ## 3. 외부·협의 대기 (§7-P5 무중단 서빙)
