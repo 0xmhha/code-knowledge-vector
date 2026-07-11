@@ -24,6 +24,7 @@ type buildOpts struct {
 	policy     string
 	docs       []string
 	flowCorpus string
+	batchSize  int
 	jsonOut    bool
 
 	includePR bool
@@ -59,6 +60,7 @@ Re-running on a populated --out updates chunks in place (Upsert).`,
 	f.StringSliceVar(&opts.docs, "docs", nil, "additional markdown corpus dirs to embed in the same index (repeatable; chunks tagged Category=domain; e.g. --docs=generated/domain-corpus/go-stablenet)")
 	f.StringVar(&opts.flowCorpus, "flow-corpus", "", "path to a curated flow corpus JSONL (corpus.jsonl) to embed as flow_step/flow_spine/curated-invariant chunks (schema: <go-stablenet>/.claude/docs/corpus/SCHEMA.md)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
+	f.IntVar(&opts.batchSize, "batch", 0, "embedding batch size (0 = default 32); lower it (e.g. 4) when an embedder rejects large batches of big chunks")
 	f.BoolVar(&opts.includePR, "include-pr-history", false, "fetch merged PRs via gh CLI and index descriptions + commit messages")
 	f.StringVar(&opts.prSince, "pr-since", "", "only PRs merged after this date (YYYY-MM-DD); requires --include-pr-history")
 	f.StringVar(&opts.prRepo, "pr-repo", "", "GitHub repo (owner/repo) for PR fetch; auto-detected from git remote if empty")
@@ -103,6 +105,7 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 		DocsRoots:               opts.docs,
 		FlowCorpus:              opts.flowCorpus,
 		CKGPath:                 opts.ckgPath,
+		BatchSize:               opts.batchSize,
 	}
 	if opts.includePR {
 		prFetch := &build.PRFetchOptions{Repo: opts.prRepo}
