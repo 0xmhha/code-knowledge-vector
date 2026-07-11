@@ -45,7 +45,9 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 
 - [~] **P2 — 조율 재인덱싱** (§7-P2, §3) — 진행 중(브랜치 `feat/reindex-realign`).
   - [x] **P2a — canonical_id 재정렬 편입** — reindex가 `manifest.Sources.CKG.Path`에서 `ckgalign.Load` → 재임베딩 청크에 `canonical_id` 재스탬프(빌드 경로 미러링). 미로드 시 warn-and-continue(fail-loud는 P1 Open/health digest assert). 테스트 `TestReindex_PreservesCanonicalAlignment`(재정렬 전 0/7 → 후 유지).
-  - [ ] **P2b** — graph_digest mismatch 시 전체 재정렬 + schema 캐스케이드 자동 트리거 + 검증 게이트(§5.1: orphan 0 / canonical ≥90% / `COUNT(*)`).
+  - [x] **P2b-1 — graph_digest mismatch 전체 재정렬** — 같은 커밋에 그래프만 재생성(digest 변경)되면 git diff가 비어도 전체 청크의 `canonical_id`를 새 그래프로 재정렬(벡터 미변경, join 키만). `store.RealignCanonical` + `realignAllCanonical`. `CanonicalAvailable` 게이트(빈 그래프가 좋은 키를 지우지 않음), 비어있지 않은 값만 갱신. 새 digest를 manifest에 기록(다음 reindex no-op). 테스트 `TestReindex_RealignsOnGraphDigestChange`(regen 후 OLD→NEW).
+  - [ ] **P2b-2 — 검증 게이트(§5.1)** — orphan(청크↔벡터) 0 / canonical 매칭률 ≥90% / `COUNT(*)` 재조정. 실패 시 promote 차단.
+  - [ ] **P2b-3 — schema 캐스케이드 자동 트리거** — CKG cache schema bump(예 1.22→1.23) 감지 시 재정렬이 아닌 **전면 재빌드** 필요 신호(§3.2).
 - [ ] **P4-count(선착) — ChunkCount 실측 교정** (§5.2, 소규모) — 근사 드리프트를 `COUNT(*)`로 교정. §5.1 검증 게이트 정확도 선결이라 P3보다 앞당김.
   - 근거: `internal/build/reindex.go:308` `man.ChunkCount += result.Chunks.Total - (result.FilesDeleted + result.FilesModified)`.
 - [ ] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — `sources.prs.last_pr_number` cutoff로 이후 PR만 fetch + docs/flow `content_hash` 기반 재인덱싱. 현 서빙본 `sources.prs=none`.

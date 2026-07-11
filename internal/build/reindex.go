@@ -227,6 +227,33 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		}
 	}
 
+	// P2b — graph regeneration: if the aligned CKG graph changed under the
+	// same source commit (its logical digest differs from what this index
+	// recorded), the git diff is empty but canonical_id may be stale across
+	// the whole index. Re-align every chunk against the new graph (no
+	// re-embed — only the join key changes) and record the new digest so the
+	// next reindex is a no-op. Gated on CanonicalAvailable so an unpopulated
+	// graph never wipes good join keys (ADR-007).
+	if ckgIx != nil && ckgIx.CanonicalAvailable() && man.Sources != nil && man.Sources.CKG != nil {
+		recorded := man.Sources.CKG.GraphDigest
+		if coords, cerr := ckgalign.ReadCoords(man.Sources.CKG.Path); cerr == nil {
+			current := coords.GraphDigest
+			if recorded != "" && current != "" && recorded != current {
+				n, rerr := realignAllCanonical(ctx, store, ckgIx)
+				if rerr != nil {
+					return nil, fmt.Errorf("reindex canonical realign: %w", rerr)
+				}
+				man.Sources.CKG.GraphDigest = current
+				fp.Emit("reindex.canonical_realigned",
+					"recorded_digest", recorded, "current_digest", current, "chunks_realigned", n)
+				if o.ProgressOut != nil {
+					fmt.Fprintf(o.ProgressOut, "ckv: ckg graph regenerated (digest %s→%s); re-aligned %d chunks\n",
+						recorded, current, n)
+				}
+			}
+		}
+	}
+
 	result := &ReindexResult{
 		PrevHead: prevHead,
 		NewHead:  newHead,
@@ -374,6 +401,38 @@ func stampCanonicalIDs(ix *ckgalign.Index, chunks []types.Chunk) {
 			}
 		}
 	}
+}
+
+// realignAllCanonical re-derives every chunk's canonical_id from ix and writes
+// back only the ones that changed to a new non-empty value. Used when the
+// aligned CKG graph is regenerated (digest changed) under the same source
+// commit: the git diff is empty but canonical_id may be stale across the whole
+// index. Vectors are untouched — only the join key is refreshed. Never wipes a
+// canonical to empty (a chunk the new graph no longer matches keeps its prior
+// key rather than losing the join entirely).
+func realignAllCanonical(ctx context.Context, store *sqlitevec.Store, ix *ckgalign.Index) (int, error) {
+	files, err := store.AllFiles(ctx)
+	if err != nil {
+		return 0, err
+	}
+	updates := make(map[string]string)
+	for _, f := range files {
+		chunks, err := store.LookupByFileOrdered(ctx, f)
+		if err != nil {
+			return 0, err
+		}
+		for _, c := range chunks {
+			if c.StartLine <= 0 {
+				continue
+			}
+			if e := ix.LookupEntry(c.File, c.StartLine, c.EndLine); e != nil {
+				if e.CanonicalID != "" && e.CanonicalID != c.CanonicalID {
+					updates[c.ID] = e.CanonicalID
+				}
+			}
+		}
+	}
+	return store.RealignCanonical(ctx, updates)
 }
 
 // changeSet partitions paths by what the index should do with them.

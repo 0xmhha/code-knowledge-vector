@@ -986,6 +986,39 @@ func (s *Store) LookupPRsByFile(ctx context.Context, file string) ([]types.PRRef
 	return out, rows.Err()
 }
 
+// RealignCanonical updates the canonical_id column for the given chunk ids
+// (id → new canonical_id). Used by reindex when the aligned CKG graph is
+// regenerated under the same source commit: only the join key changes, so the
+// vectors and every other column are left untouched. Returns the number of
+// rows updated.
+func (s *Store) RealignCanonical(ctx context.Context, updates map[string]string) (int, error) {
+	if len(updates) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE chunks SET canonical_id = ? WHERE id = ?`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+
+	n := 0
+	for id, canon := range updates {
+		res, err := stmt.ExecContext(ctx, canon, id)
+		if err != nil {
+			return 0, fmt.Errorf("realign canonical %s: %w", id, err)
+		}
+		c, _ := res.RowsAffected()
+		n += int(c)
+	}
+	return n, tx.Commit()
+}
+
 func marshalPRRefs(refs []types.PRRef) string {
 	if len(refs) == 0 {
 		return ""
