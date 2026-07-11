@@ -14,9 +14,12 @@ import (
 	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
+	"github.com/0xmhha/code-knowledge-vector/internal/ckgalign"
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
+	"github.com/0xmhha/code-knowledge-vector/internal/flowcorpus"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
+	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
 	"github.com/0xmhha/code-knowledge-vector/internal/policy"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
 	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
@@ -34,6 +37,13 @@ var ErrNoManifest = errors.New("reindex: no manifest at OutDir — run `ckv buil
 // retrieval. The caller must either use the original embedder or run a
 // full `ckv build` to replace the index.
 var ErrEmbedderMismatch = errors.New("reindex: embedder identity does not match manifest")
+
+// ErrSchemaCascade signals the recorded CKG schema_version differs from the
+// graph's current schema_version. A CKG cache schema bump cold-rebuilds the
+// graph and can change canonical_id semantics wholesale, so a partial reindex
+// (even with re-alignment) is unsafe — the caller must run a full `ckv build`
+// (reindex-migration-design §3.2).
+var ErrSchemaCascade = errors.New("reindex: CKG schema_version changed — run `ckv build` for a full rebuild")
 
 // ReindexOptions configures a partial rebuild. SrcRoot, OutDir, and
 // Embedder are required; everything else has a documented default.
@@ -73,6 +83,12 @@ type ReindexOptions struct {
 	// through the policy loader so category/guidance stay current with
 	// the yaml even when only some files change.
 	PolicyPath string
+
+	// PRFetch, when non-nil, enables incremental PR-corpus ingest: reindex
+	// fetches merged PRs after the manifest's recorded cutoff
+	// (sources.prs.last_pr_number / last_merged_at) and indexes only the new
+	// ones. Nil leaves the PR corpus untouched (the common code-only reindex).
+	PRFetch *PRFetchOptions
 }
 
 // ReindexResult is what Reindex returns to the caller.
@@ -96,6 +112,15 @@ type ReindexResult struct {
 	NewHead  string
 	BuiltAt  string
 	DBPath   string
+	// Validation is the post-reindex integrity report (§5.1): authoritative
+	// counts, orphan detection, and canonical coverage.
+	Validation sqlitevec.Validation
+	// PRsIndexed is the number of PR-corpus chunks added by an incremental PR
+	// ingest this run (0 when PRFetch is nil or no new PRs were found).
+	PRsIndexed int
+	// FlowReindexed is the number of flow-corpus chunks re-indexed this run
+	// because the corpus content hash changed (0 when unchanged or absent).
+	FlowReindexed int
 }
 
 // Reindex re-embeds only the files that changed between the manifest's
@@ -203,6 +228,70 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		return nil, fmt.Errorf("policy: %w", err)
 	}
 
+	// CKG re-alignment (P2a): re-run ckgalign against the same graph this
+	// index was built against — recorded in manifest.Sources.CKG.Path — so
+	// re-embedded chunks keep their canonical_id join key. Without this,
+	// reindexed files silently lose canonical_id (reindex-migration-design
+	// §0.2 gap1). Best-effort: a recorded-but-unloadable graph warns and
+	// continues rather than blocking a routine reindex on ckg availability;
+	// the digest assert at Open/health (P1) owns fail-loud for a genuinely
+	// mismatched graph.
+	var ckgIx *ckgalign.Index
+	if man.Sources != nil && man.Sources.CKG != nil && man.Sources.CKG.Path != "" {
+		ix, alignErr := ckgalign.Load(man.Sources.CKG.Path)
+		if alignErr != nil {
+			fmt.Fprintf(os.Stderr, "ckv: warning: reindex could not load ckg graph at %s (%v); "+
+				"re-embedded chunks lose canonical_id until the next aligned build\n",
+				man.Sources.CKG.Path, alignErr)
+			fp.Emit("reindex.ckg_align_unavailable", "ckg_path", man.Sources.CKG.Path, "err", alignErr.Error())
+		} else {
+			ckgIx = ix
+			fp.Emit("reindex.ckg_align_loaded", "ckg_path", man.Sources.CKG.Path,
+				"entries", ix.EntryCount(), "canonical_available", ix.CanonicalAvailable())
+		}
+	}
+
+	// The aligned CKG graph's current coordinates (schema + digest), read once
+	// for the schema-cascade (P2b-3) and graph-regeneration (P2b-1) checks.
+	if man.Sources != nil && man.Sources.CKG != nil && man.Sources.CKG.Path != "" {
+		if coords, cerr := ckgalign.ReadCoords(man.Sources.CKG.Path); cerr == nil {
+			// P2b-3 — schema cascade: a CKG cache schema bump (recorded vs
+			// current schema_version) cold-rebuilds the graph and can change
+			// canonical_id semantics wholesale. Re-alignment is not enough;
+			// refuse the partial reindex and direct the caller to a full
+			// `ckv build` (reindex-migration-design §3.2).
+			if rec := man.Sources.CKG.SchemaVersion; rec != "" && coords.SchemaVersion != "" && coords.SchemaVersion != rec {
+				return nil, fmt.Errorf("%w: recorded=%s current=%s", ErrSchemaCascade, rec, coords.SchemaVersion)
+			}
+
+			// P2b-1 — graph regeneration: if the graph changed under the same
+			// source commit (its logical digest differs from what this index
+			// recorded), the git diff is empty but canonical_id may be stale
+			// across the whole index. Re-align every chunk against the new
+			// graph (no re-embed — only the join key changes) and record the
+			// new digest so the next reindex is a no-op. Gated on
+			// CanonicalAvailable so an unpopulated graph never wipes good join
+			// keys (ADR-007).
+			if ckgIx != nil && ckgIx.CanonicalAvailable() {
+				recorded := man.Sources.CKG.GraphDigest
+				current := coords.GraphDigest
+				if recorded != "" && current != "" && recorded != current {
+					n, rerr := realignAllCanonical(ctx, store, ckgIx)
+					if rerr != nil {
+						return nil, fmt.Errorf("reindex canonical realign: %w", rerr)
+					}
+					man.Sources.CKG.GraphDigest = current
+					fp.Emit("reindex.canonical_realigned",
+						"recorded_digest", recorded, "current_digest", current, "chunks_realigned", n)
+					if o.ProgressOut != nil {
+						fmt.Fprintf(o.ProgressOut, "ckv: ckg graph regenerated (digest %s→%s); re-aligned %d chunks\n",
+							recorded, current, n)
+					}
+				}
+			}
+		}
+	}
+
 	result := &ReindexResult{
 		PrevHead: prevHead,
 		NewHead:  newHead,
@@ -279,6 +368,7 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		if len(chunks) == 0 {
 			continue
 		}
+		stampCanonicalIDs(ckgIx, chunks)
 		pol.Apply(chunks)
 		if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, nil, embedTextFn); err != nil {
 			return nil, fmt.Errorf("embed/upsert %s: %w", rel, err)
@@ -293,6 +383,75 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		languageCounts[lang] += chunk.Summarize(chunks).Total
 	}
 
+	// P3 — incremental PR ingest: when PR fetching is enabled, fetch merged
+	// PRs after the recorded cutoff and index only the new ones (dedup by
+	// number), then advance the cutoff. gh access is best-effort — a fetch
+	// failure warns and leaves the PR corpus unchanged rather than failing the
+	// code reindex. Runs before validation so the new PR chunks are counted.
+	if o.PRFetch != nil {
+		sinceNumber := 0
+		fetchOpts := *o.PRFetch
+		if man.Sources != nil && man.Sources.PRs != nil {
+			sinceNumber = man.Sources.PRs.LastPRNumber
+			if fetchOpts.Since.IsZero() && man.Sources.PRs.LastMergedAt != "" {
+				if ts, e := time.Parse(time.RFC3339, man.Sources.PRs.LastMergedAt); e == nil {
+					fetchOpts.Since = ts
+				}
+			}
+		}
+		metas, ferr := FetchMergedPRs(ctx, o.SrcRoot, fetchOpts)
+		if ferr != nil {
+			fmt.Fprintf(os.Stderr, "ckv: pr-fetch warning: %v\n", ferr)
+		} else if cutoff, n, ierr := ingestPRs(ctx, store, o.Embedder, o.BatchSize, embedTextFn, metas, sinceNumber); ierr != nil {
+			return nil, fmt.Errorf("reindex pr ingest: %w", ierr)
+		} else if cutoff != nil {
+			if man.Sources == nil {
+				man.Sources = &manifest.Sources{}
+			}
+			if man.Sources.PRs == nil {
+				man.Sources.PRs = cutoff
+			} else {
+				man.Sources.PRs.LastPRNumber = cutoff.LastPRNumber
+				man.Sources.PRs.LastMergedAt = cutoff.LastMergedAt
+				if man.Sources.PRs.Repo == "" {
+					man.Sources.PRs.Repo = cutoff.Repo
+				}
+			}
+			result.PRsIndexed = n
+			if o.ProgressOut != nil {
+				fmt.Fprintf(o.ProgressOut, "ckv: incremental PR ingest: %d new PR chunks (cutoff #%d)\n",
+					n, cutoff.LastPRNumber)
+			}
+		}
+	}
+
+	// P3b — incremental flow-corpus re-index: when the recorded flow corpus
+	// content hash differs from the file's current hash, replace the flow layer
+	// wholesale (delete + reload) so corpus edits and removals are reflected.
+	// Best-effort: a load failure warns and leaves the layer unchanged.
+	if man.Sources != nil && man.Sources.Flow != nil && man.Sources.Flow.Path != "" {
+		if current := contentHash(man.Sources.Flow.Path); current != "" && current != man.Sources.Flow.ContentHash {
+			flowChunks, _, ferr := flowcorpus.Load(man.Sources.Flow.Path, filepath.Base(man.Sources.Flow.Path))
+			if ferr != nil {
+				fmt.Fprintf(os.Stderr, "ckv: flow re-index warning: %v\n", ferr)
+			} else {
+				if _, derr := store.DeleteFlowChunks(ctx); derr != nil {
+					return nil, fmt.Errorf("reindex flow delete: %w", derr)
+				}
+				if len(flowChunks) > 0 {
+					if err := embedAndUpsert(ctx, store, o.Embedder, flowChunks, o.BatchSize, nil, embedTextFn); err != nil {
+						return nil, fmt.Errorf("reindex flow embed: %w", err)
+					}
+				}
+				man.Sources.Flow.ContentHash = current
+				result.FlowReindexed = len(flowChunks)
+				if o.ProgressOut != nil {
+					fmt.Fprintf(o.ProgressOut, "ckv: flow corpus changed → re-indexed %d flow chunks\n", len(flowChunks))
+				}
+			}
+		}
+	}
+
 	// Step 3: refresh manifest. Even with zero changes we update
 	// BuiltAt so freshness reflects the most recent verification pass.
 	builtAt := o.Now().UTC().Format(time.RFC3339)
@@ -302,10 +461,32 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 	man.SrcCommit = newHead
 	man.IndexedHead = newHead
 	man.Languages = languageCounts
-	// ChunkCount in the manifest is best-effort: we don't recompute it
-	// from a SELECT COUNT after every reindex (expensive on large DBs).
-	// Callers who need an authoritative count should query the store.
-	man.ChunkCount += result.Chunks.Total - (result.FilesDeleted + result.FilesModified)
+
+	// P2b-2 — validation gate (reindex-migration-design §5.1): reconcile
+	// ChunkCount to the authoritative COUNT(*) (replacing the drift-prone
+	// arithmetic that mistook a re-embedded file's chunk total for a net
+	// delta) and surface store integrity. Orphan chunks/vectors are a hard
+	// integrity violation → fail loud. Low canonical coverage against a
+	// populated graph is a warning: the graph, not this index, owns whether a
+	// join key exists.
+	val, verr := store.Validate(ctx)
+	if verr != nil {
+		return nil, fmt.Errorf("reindex validate: %w", verr)
+	}
+	if !val.OK() {
+		return nil, fmt.Errorf("reindex integrity check failed: %d orphan chunks, %d orphan vectors",
+			val.OrphanChunks, val.OrphanVectors)
+	}
+	man.ChunkCount = val.Chunks
+	result.Validation = val
+	fp.Emit("reindex.validated",
+		"chunks", val.Chunks, "vectors", val.Vectors,
+		"orphan_chunks", val.OrphanChunks, "orphan_vectors", val.OrphanVectors,
+		"symbol_chunks", val.SymbolChunks, "canonical_rate", val.CanonicalRate())
+	if ckgIx != nil && ckgIx.CanonicalAvailable() && val.SymbolChunks > 0 && val.CanonicalRate() < 0.90 {
+		fmt.Fprintf(os.Stderr, "ckv: warning: canonical_id coverage %.1f%% below 90%% after reindex (ckg-aligned)\n",
+			val.CanonicalRate()*100)
+	}
 
 	if err := store.SetManifest(ctx, map[string]string{
 		"embedding_model":     o.Embedder.Name(),
@@ -331,6 +512,88 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		"new_head", newHead,
 	)
 	return result, nil
+}
+
+// stampCanonicalIDs copies canonical_id from the aligned ckg node onto each
+// source chunk that has a real source span and no canonical_id yet. Mirrors
+// the build-path alignment (internal/build/builder.go) so a reindex keeps the
+// CKG↔CKV join key on re-embedded chunks. No-op when ix is nil (index built
+// without --ckg, or the recorded graph was unloadable).
+func stampCanonicalIDs(ix *ckgalign.Index, chunks []types.Chunk) {
+	if ix == nil {
+		return
+	}
+	for i := range chunks {
+		if chunks[i].CanonicalID == "" && chunks[i].StartLine > 0 {
+			if e := ix.LookupEntry(chunks[i].File, chunks[i].StartLine, chunks[i].EndLine); e != nil {
+				chunks[i].CanonicalID = e.CanonicalID
+			}
+		}
+	}
+}
+
+// realignAllCanonical re-derives every chunk's canonical_id from ix and writes
+// back only the ones that changed to a new non-empty value. Used when the
+// aligned CKG graph is regenerated (digest changed) under the same source
+// commit: the git diff is empty but canonical_id may be stale across the whole
+// index. Vectors are untouched — only the join key is refreshed. Never wipes a
+// canonical to empty (a chunk the new graph no longer matches keeps its prior
+// key rather than losing the join entirely).
+func realignAllCanonical(ctx context.Context, store *sqlitevec.Store, ix *ckgalign.Index) (int, error) {
+	files, err := store.AllFiles(ctx)
+	if err != nil {
+		return 0, err
+	}
+	updates := make(map[string]string)
+	for _, f := range files {
+		chunks, err := store.LookupByFileOrdered(ctx, f)
+		if err != nil {
+			return 0, err
+		}
+		for _, c := range chunks {
+			if c.StartLine <= 0 {
+				continue
+			}
+			if e := ix.LookupEntry(c.File, c.StartLine, c.EndLine); e != nil {
+				if e.CanonicalID != "" && e.CanonicalID != c.CanonicalID {
+					updates[c.ID] = e.CanonicalID
+				}
+			}
+		}
+	}
+	return store.RealignCanonical(ctx, updates)
+}
+
+// ingestPRs indexes PR-corpus chunks for the merged PRs in metas whose number
+// is newer than sinceNumber (dedup against the recorded cutoff), tags matching
+// source chunks with PR breadcrumbs, and returns the advanced cutoff plus the
+// number of PR chunks indexed. gh access lives in the caller (FetchMergedPRs);
+// this pure ingest+dedup step is unit-testable without gh.
+func ingestPRs(ctx context.Context, store *sqlitevec.Store, emb types.Embedder, batch int, embedTextFn func(types.Chunk) string, metas []prdoc.PRMeta, sinceNumber int) (*manifest.PRSource, int, error) {
+	var fresh []prdoc.PRMeta
+	for _, m := range metas {
+		if m.PRNumber > sinceNumber {
+			fresh = append(fresh, m)
+		}
+	}
+	if len(fresh) == 0 {
+		return nil, 0, nil
+	}
+	var prChunks []types.Chunk
+	for _, m := range fresh {
+		prChunks = append(prChunks, prdoc.Parse(m)...)
+	}
+	if len(prChunks) > 0 {
+		if err := embedAndUpsert(ctx, store, emb, prChunks, batch, nil, embedTextFn); err != nil {
+			return nil, 0, fmt.Errorf("embed/upsert PR chunks: %w", err)
+		}
+	}
+	if filePRs := buildFilePRMap(fresh); len(filePRs) > 0 {
+		if _, err := tagSourceChunksWithPRs(ctx, store, filePRs); err != nil {
+			return nil, 0, fmt.Errorf("tag source chunks with PRs: %w", err)
+		}
+	}
+	return prCutoff(fresh), len(prChunks), nil
 }
 
 // changeSet partitions paths by what the index should do with them.

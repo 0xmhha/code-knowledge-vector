@@ -404,6 +404,44 @@ func (s *Store) DeleteByFile(ctx context.Context, path string) error {
 	return tx.Commit()
 }
 
+// DeleteFlowChunks removes every flow-corpus chunk (flow_step / flow_spine and
+// curated invariants) plus their vectors. Used by reindex to replace the flow
+// layer wholesale when the corpus content hash changes, so records removed from
+// the corpus don't leave orphan chunks. Returns the number of chunks deleted.
+func (s *Store) DeleteFlowChunks(ctx context.Context) (int, error) {
+	const cond = `chunk_kind IN ('flow_step','flow_spine') OR (chunk_kind = 'invariant' AND provenance = 'curated')`
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM chunks WHERE `+cond)
+	if err != nil {
+		return 0, fmt.Errorf("select flow chunks: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chunk_vec WHERE chunk_id = ?`, id); err != nil {
+			return 0, fmt.Errorf("delete flow vec %s: %w", id, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chunks WHERE `+cond); err != nil {
+		return 0, fmt.Errorf("delete flow chunks: %w", err)
+	}
+	return len(ids), tx.Commit()
+}
+
 // Search runs a vec0 KNN over query, then JOINs to chunks for metadata
 // and applies the Filter as a post-step. We over-fetch by 3x when a
 // filter is set so the post-filter has enough candidates to satisfy k.
@@ -915,6 +953,56 @@ func (s *Store) Stats(ctx context.Context) (types.Stats, error) {
 	return st, rows.Err()
 }
 
+// Validation is the post-reindex integrity report (reindex-migration-design
+// §5.1): authoritative counts + orphan detection + canonical coverage.
+type Validation struct {
+	Chunks          int // SELECT COUNT(*) FROM chunks — the authoritative count
+	Vectors         int // SELECT COUNT(*) FROM chunk_vec
+	OrphanChunks    int // chunks with no matching vector
+	OrphanVectors   int // vectors with no matching chunk
+	SymbolChunks    int // chunks with a symbol_name and a real span (alignable)
+	CanonicalChunks int // SymbolChunks carrying a non-empty canonical_id
+}
+
+// OK reports the hard integrity invariant: every chunk has a vector and every
+// vector has a chunk (no orphans on either side).
+func (v Validation) OK() bool { return v.OrphanChunks == 0 && v.OrphanVectors == 0 }
+
+// CanonicalRate is the fraction of alignable (symbol) chunks that carry a
+// canonical_id join key. 1.0 when there are no symbol chunks.
+func (v Validation) CanonicalRate() float64 {
+	if v.SymbolChunks == 0 {
+		return 1
+	}
+	return float64(v.CanonicalChunks) / float64(v.SymbolChunks)
+}
+
+// Validate computes the integrity report from small aggregate queries — cheap
+// enough to run at the end of every reindex.
+func (s *Store) Validate(ctx context.Context) (Validation, error) {
+	var v Validation
+	for _, probe := range []struct {
+		dst *int
+		sql string
+	}{
+		{&v.Chunks, `SELECT COUNT(*) FROM chunks`},
+		{&v.Vectors, `SELECT COUNT(*) FROM chunk_vec`},
+		{&v.OrphanChunks, `SELECT COUNT(*) FROM chunks WHERE id NOT IN (SELECT chunk_id FROM chunk_vec)`},
+		{&v.OrphanVectors, `SELECT COUNT(*) FROM chunk_vec WHERE chunk_id NOT IN (SELECT id FROM chunks)`},
+		// Canonical coverage is measured over CODE-symbol chunks only
+		// (symbol / function_split). PR, doc, invariant, convention, and flow
+		// chunks carry no ckg node by design, so counting them would drag the
+		// rate down after a PR/docs ingest (P3).
+		{&v.SymbolChunks, `SELECT COUNT(*) FROM chunks WHERE chunk_kind IN ('symbol','function_split') AND start_line > 0`},
+		{&v.CanonicalChunks, `SELECT COUNT(*) FROM chunks WHERE canonical_id != '' AND chunk_kind IN ('symbol','function_split') AND start_line > 0`},
+	} {
+		if err := s.db.QueryRowContext(ctx, probe.sql).Scan(probe.dst); err != nil {
+			return v, fmt.Errorf("validate %q: %w", probe.sql, err)
+		}
+	}
+	return v, nil
+}
+
 // Close releases the underlying *sql.DB handle. Idempotent.
 func (s *Store) Close() error {
 	if s.db == nil {
@@ -984,6 +1072,39 @@ func (s *Store) LookupPRsByFile(ctx context.Context, file string) ([]types.PRRef
 		}
 	}
 	return out, rows.Err()
+}
+
+// RealignCanonical updates the canonical_id column for the given chunk ids
+// (id → new canonical_id). Used by reindex when the aligned CKG graph is
+// regenerated under the same source commit: only the join key changes, so the
+// vectors and every other column are left untouched. Returns the number of
+// rows updated.
+func (s *Store) RealignCanonical(ctx context.Context, updates map[string]string) (int, error) {
+	if len(updates) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE chunks SET canonical_id = ? WHERE id = ?`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+
+	n := 0
+	for id, canon := range updates {
+		res, err := stmt.ExecContext(ctx, canon, id)
+		if err != nil {
+			return 0, fmt.Errorf("realign canonical %s: %w", id, err)
+		}
+		c, _ := res.RowsAffected()
+		n += int(c)
+	}
+	return n, tx.Commit()
 }
 
 func marshalPRRefs(refs []types.PRRef) string {
