@@ -603,16 +603,64 @@ func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embed
 		for j, c := range chunks[i:end] {
 			texts[j] = embedTextFn(c)
 		}
-		vecs, err := emb.Embed(ctx, texts)
+		okChunks, vecs, err := embedResilient(ctx, emb, chunks[i:end], texts)
 		if err != nil {
 			return fmt.Errorf("embed batch: %w", err)
 		}
-		if err := store.Upsert(ctx, chunks[i:end], vecs); err != nil {
-			return fmt.Errorf("upsert batch: %w", err)
+		if len(okChunks) > 0 {
+			if err := store.Upsert(ctx, okChunks, vecs); err != nil {
+				return fmt.Errorf("upsert batch: %w", err)
+			}
 		}
 		i = end
 	}
 	return nil
+}
+
+// embedResilient embeds texts for the given chunks and returns the chunks that
+// embedded successfully, paired with their vectors. On an Embed error it
+// bisects the batch and retries each half; a single chunk that still fails is
+// skipped (warned) rather than aborting the whole build. This absorbs embedder
+// backends that reject specific inputs — e.g. ollama's Qwen3 embedding endpoint
+// crashing on a very large chunk (docs/qwen3-dimension-ab-2026-07-12.md).
+// A cancelled or timed-out context is propagated, not skipped, so a genuine
+// outage still fails loudly instead of silently dropping every chunk.
+func embedResilient(ctx context.Context, emb types.Embedder, chunks []types.Chunk, texts []string) ([]types.Chunk, [][]float32, error) {
+	vecs, err := emb.Embed(ctx, texts)
+	if err == nil {
+		return chunks, vecs, nil
+	}
+	if ctx.Err() != nil {
+		return nil, nil, err
+	}
+	if len(chunks) <= 1 {
+		if len(chunks) == 1 {
+			// Distinguish a per-input rejection from a broken embedder: if a
+			// tiny known-good probe also fails, the embedder is down — propagate
+			// the original error rather than silently dropping every chunk to an
+			// empty index.
+			if _, perr := emb.Embed(ctx, []string{"ok"}); perr != nil {
+				return nil, nil, err
+			}
+			fmt.Fprintf(os.Stderr, "ckv: warning: skipping chunk %s (%s): embedder rejected it: %v\n",
+				chunks[0].ID, chunks[0].File, err)
+		}
+		return nil, nil, nil
+	}
+	mid := len(chunks) / 2
+	lc, lv, lerr := embedResilient(ctx, emb, chunks[:mid], texts[:mid])
+	if lerr != nil {
+		return nil, nil, lerr
+	}
+	rc, rv, rerr := embedResilient(ctx, emb, chunks[mid:], texts[mid:])
+	if rerr != nil {
+		return nil, nil, rerr
+	}
+	outC := append(make([]types.Chunk, 0, len(lc)+len(rc)), lc...)
+	outC = append(outC, rc...)
+	outV := append(make([][]float32, 0, len(lv)+len(rv)), lv...)
+	outV = append(outV, rv...)
+	return outC, outV, nil
 }
 
 // detectCommit returns `git rev-parse HEAD` at srcRoot, or empty if the
