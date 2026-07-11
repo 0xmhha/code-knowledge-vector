@@ -49,7 +49,8 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
   - [x] **P2b-3 — schema 캐스케이드 자동 트리거** — 기록된 vs 현재 CKG `schema_version` 불일치 시 부분 reindex를 **거부**(`ErrSchemaCascade`)하고 `ckv build` 전면 재빌드 유도(`ErrEmbedderMismatch`와 동일 패턴). 테스트 `TestReindex_RefusesOnSchemaBump`(1.22→1.23).
 - [~] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — 진행 중.
   - [x] **P3a — 증분 PR 인제스트** — `reindex --include-pr-history`가 `sources.prs.{last_pr_number,last_merged_at}` cutoff 이후 PR만 fetch(gh, `FetchMergedPRs`)해 number>cutoff만 인덱스(dedup)·source 청크 태깅·cutoff 갱신. 코어 `ingestPRs`(gh 불요, 주입식 테스트 `TestIngestPRs_DedupsAndIndexes`). 부수: `Validate`의 canonical rate 분모를 code-symbol 종류(`symbol`/`function_split`)로 한정(PR/doc 청크가 rate 왜곡 방지).
-  - [ ] **P3b — docs/flow content_hash 재인덱싱** — `sources.docs/flow.content_hash` 변경 감지 시 해당 레이어만 재파싱·재임베딩(현재 reindex는 코드만).
+  - [x] **P3b-flow — flow corpus content_hash 재인덱싱** — `sources.flow.content_hash` 변경 감지 시 flow 레이어를 통째로 교체(`store.DeleteFlowChunks` → `flowcorpus.Load` → 재임베딩, 제거된 레코드도 정리). content_hash 갱신. 테스트 `TestReindex_ReindexesFlowOnContentChange`(마커 레코드 추가 후 반영 확인).
+  - [ ] **P3b-docs — docs-roots content_hash 재인덱싱** — `sources.docs.content_hash` 변경 시 curated docs 레이어(`chunk_kind=doc` AND `category=domain`) 교체·재walk. (in-tree markdown은 이미 코드 diff 경로가 처리.)
 - [ ] **P4 — 재개·원자성·락** (§7-P4, §4.4/§5.3) — 데이터 체크포인트 원장 + reindex 원자성(swap) + advisory lock + SetManifest 트랜잭션.
 
 ## 3. 외부·협의 대기 (§7-P5 무중단 서빙)

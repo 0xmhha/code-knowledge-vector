@@ -404,6 +404,44 @@ func (s *Store) DeleteByFile(ctx context.Context, path string) error {
 	return tx.Commit()
 }
 
+// DeleteFlowChunks removes every flow-corpus chunk (flow_step / flow_spine and
+// curated invariants) plus their vectors. Used by reindex to replace the flow
+// layer wholesale when the corpus content hash changes, so records removed from
+// the corpus don't leave orphan chunks. Returns the number of chunks deleted.
+func (s *Store) DeleteFlowChunks(ctx context.Context) (int, error) {
+	const cond = `chunk_kind IN ('flow_step','flow_spine') OR (chunk_kind = 'invariant' AND provenance = 'curated')`
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM chunks WHERE `+cond)
+	if err != nil {
+		return 0, fmt.Errorf("select flow chunks: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chunk_vec WHERE chunk_id = ?`, id); err != nil {
+			return 0, fmt.Errorf("delete flow vec %s: %w", id, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chunks WHERE `+cond); err != nil {
+		return 0, fmt.Errorf("delete flow chunks: %w", err)
+	}
+	return len(ids), tx.Commit()
+}
+
 // Search runs a vec0 KNN over query, then JOINs to chunks for metadata
 // and applies the Filter as a post-step. We over-fetch by 3x when a
 // filter is set so the post-filter has enough candidates to satisfy k.

@@ -136,6 +136,9 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 	if res.PRsIndexed > 0 {
 		fmt.Printf("ckv: incremental PR ingest → %d new PR chunks\n", res.PRsIndexed)
 	}
+	if res.FlowReindexed > 0 {
+		fmt.Printf("ckv: flow corpus changed → re-indexed %d flow chunks\n", res.FlowReindexed)
+	}
 	fmt.Printf("ckv: %s → %s at %s\n", res.PrevHead, res.NewHead, res.BuiltAt)
 	return nil
 }

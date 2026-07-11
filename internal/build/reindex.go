@@ -16,6 +16,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
 	"github.com/0xmhha/code-knowledge-vector/internal/ckgalign"
 	"github.com/0xmhha/code-knowledge-vector/internal/discover"
+	"github.com/0xmhha/code-knowledge-vector/internal/flowcorpus"
 	"github.com/0xmhha/code-knowledge-vector/internal/footprint"
 	"github.com/0xmhha/code-knowledge-vector/internal/manifest"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/prdoc"
@@ -117,6 +118,9 @@ type ReindexResult struct {
 	// PRsIndexed is the number of PR-corpus chunks added by an incremental PR
 	// ingest this run (0 when PRFetch is nil or no new PRs were found).
 	PRsIndexed int
+	// FlowReindexed is the number of flow-corpus chunks re-indexed this run
+	// because the corpus content hash changed (0 when unchanged or absent).
+	FlowReindexed int
 }
 
 // Reindex re-embeds only the files that changed between the manifest's
@@ -417,6 +421,33 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 			if o.ProgressOut != nil {
 				fmt.Fprintf(o.ProgressOut, "ckv: incremental PR ingest: %d new PR chunks (cutoff #%d)\n",
 					n, cutoff.LastPRNumber)
+			}
+		}
+	}
+
+	// P3b — incremental flow-corpus re-index: when the recorded flow corpus
+	// content hash differs from the file's current hash, replace the flow layer
+	// wholesale (delete + reload) so corpus edits and removals are reflected.
+	// Best-effort: a load failure warns and leaves the layer unchanged.
+	if man.Sources != nil && man.Sources.Flow != nil && man.Sources.Flow.Path != "" {
+		if current := contentHash(man.Sources.Flow.Path); current != "" && current != man.Sources.Flow.ContentHash {
+			flowChunks, _, ferr := flowcorpus.Load(man.Sources.Flow.Path, filepath.Base(man.Sources.Flow.Path))
+			if ferr != nil {
+				fmt.Fprintf(os.Stderr, "ckv: flow re-index warning: %v\n", ferr)
+			} else {
+				if _, derr := store.DeleteFlowChunks(ctx); derr != nil {
+					return nil, fmt.Errorf("reindex flow delete: %w", derr)
+				}
+				if len(flowChunks) > 0 {
+					if err := embedAndUpsert(ctx, store, o.Embedder, flowChunks, o.BatchSize, nil, embedTextFn); err != nil {
+						return nil, fmt.Errorf("reindex flow embed: %w", err)
+					}
+				}
+				man.Sources.Flow.ContentHash = current
+				result.FlowReindexed = len(flowChunks)
+				if o.ProgressOut != nil {
+					fmt.Fprintf(o.ProgressOut, "ckv: flow corpus changed → re-indexed %d flow chunks\n", len(flowChunks))
+				}
 			}
 		}
 	}

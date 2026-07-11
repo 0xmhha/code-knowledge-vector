@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -396,5 +398,81 @@ func TestIngestPRs_DedupsAndIndexes(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("server.go not tagged with PR #10: %+v", prs)
+	}
+}
+
+func flowHasMarker(t *testing.T, outDir, marker string) bool {
+	t.Helper()
+	st, err := sqlitevec.Open(filepath.Join(outDir, "vector.db"), mock.Default().Dimension())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+	chunks, err := st.FlowChunks(context.Background())
+	if err != nil {
+		t.Fatalf("flow chunks: %v", err)
+	}
+	for _, c := range chunks {
+		if strings.Contains(c.Text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestReindex_ReindexesFlowOnContentChange is the P3b guard: when the flow
+// corpus file's content hash changes, reindex must replace the flow layer
+// (delete + reload) so corpus edits are reflected — reindex previously touched
+// only code (and, after P3a, PRs).
+func TestReindex_ReindexesFlowOnContentChange(t *testing.T) {
+	const marker = "P3B-REINDEX-MARKER"
+	src := resolveTestdataSample(t)
+	base, err := os.ReadFile(filepath.Join("..", "flowcorpus", "testdata", "mini-corpus.jsonl"))
+	if err != nil {
+		t.Fatalf("read flow fixture: %v", err)
+	}
+	corpus := filepath.Join(t.TempDir(), "corpus.jsonl")
+	if err := os.WriteFile(corpus, base, 0o644); err != nil {
+		t.Fatalf("write corpus: %v", err)
+	}
+	out := t.TempDir()
+
+	if _, err := Run(context.Background(), Options{
+		SrcRoot:    src,
+		OutDir:     out,
+		Embedder:   mock.Default(),
+		FlowCorpus: corpus,
+		Now:        func() time.Time { return time.Unix(0, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	if flowHasMarker(t, out, marker) {
+		t.Fatalf("marker flow present before the corpus edit")
+	}
+
+	// Append a new flow record carrying the marker, changing the content hash.
+	rec := `{"type":"flow","id":"p3b-marker","entry_point":"P3B","trigger":"t","summary":"` + marker + `","root_symbol":"main.x","links":[],"called_by":[]}`
+	f, err := os.OpenFile(corpus, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("open corpus for append: %v", err)
+	}
+	if _, err := f.WriteString("\n" + rec + "\n"); err != nil {
+		f.Close()
+		t.Fatalf("append corpus: %v", err)
+	}
+	f.Close()
+
+	if _, err := Reindex(context.Background(), ReindexOptions{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		Files:    []string{"server.go"},
+		Now:      func() time.Time { return time.Unix(100, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+
+	if !flowHasMarker(t, out, marker) {
+		t.Fatalf("flow corpus change not reflected after reindex — P3b missing")
 	}
 }
