@@ -105,6 +105,9 @@ type ReindexResult struct {
 	// (e.g., changed README.txt is in the diff but ckv doesn't index
 	// .txt today). Surfaced so users know the diff size != reindex size.
 	FilesSkipped int
+	// FilesResumed is the count of files skipped because a prior interrupted
+	// reindex toward the same head already re-embedded them (resume checkpoint).
+	FilesResumed int
 	// Chunks aggregates chunk.Stats across every file processed.
 	Chunks chunk.Stats
 	// PrevHead and NewHead bracket the reindex range.
@@ -235,6 +238,11 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		return nil, fmt.Errorf("policy: %w", err)
 	}
 
+	// P4c — resume ledger: files already re-embedded by an interrupted prior
+	// reindex toward this same head are skipped below (matched by content hash);
+	// the ledger is cleared once this run completes (reindex-migration §4.4).
+	ckpt := loadCheckpoint(o.OutDir, newHead)
+
 	// CKG re-alignment (P2a): re-run ckgalign against the same graph this
 	// index was built against — recorded in manifest.Sources.CKG.Path — so
 	// re-embedded chunks keep their canonical_id join key. Without this,
@@ -363,6 +371,13 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 			result.FilesSkipped++
 			continue
 		}
+		// Resume: an interrupted prior run already re-embedded this file (same
+		// content) toward this head — skip it.
+		sha := fileSHA(abs)
+		if ckpt.isDone(rel, sha) {
+			result.FilesResumed++
+			continue
+		}
 		// Always purge existing rows first so a file that lost symbols
 		// doesn't leave orphan chunks.
 		if err := store.DeleteByFile(ctx, rel); err != nil {
@@ -379,6 +394,9 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		pol.Apply(chunks)
 		if err := embedAndUpsert(ctx, store, o.Embedder, chunks, o.BatchSize, nil, embedTextFn); err != nil {
 			return nil, fmt.Errorf("embed/upsert %s: %w", rel, err)
+		}
+		if err := ckpt.markDone(rel, sha); err != nil {
+			return nil, fmt.Errorf("reindex checkpoint %s: %w", rel, err)
 		}
 		if containsString(changes.added, rel) {
 			result.FilesAdded++
@@ -508,6 +526,8 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 	if err := manifest.Save(o.OutDir, man); err != nil {
 		return nil, fmt.Errorf("save manifest.json: %w", err)
 	}
+	// The manifest is now the durable record — the resume ledger is spent.
+	ckpt.clear()
 
 	doneReindex(
 		"files_processed", result.FilesProcessed,
@@ -515,6 +535,7 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		"files_modified", result.FilesModified,
 		"files_deleted", result.FilesDeleted,
 		"files_skipped", result.FilesSkipped,
+		"files_resumed", result.FilesResumed,
 		"chunks_total", result.Chunks.Total,
 		"new_head", newHead,
 	)
