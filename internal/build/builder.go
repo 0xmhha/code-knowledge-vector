@@ -151,6 +151,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("mkdir out: %w", err)
 	}
 
+	// Serialize concurrent writers on this dataset (§5.3). Released on return.
+	lock, err := acquireDatasetLock(o.OutDir)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.release()
+
 	commit, _ := detectCommit(o.SrcRoot) // empty string when not a git repo; acceptable
 
 	// Load per-project hook (<src>/ckv.yaml). Absence is OK — Load

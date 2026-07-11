@@ -188,6 +188,13 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		}
 	}
 
+	// Serialize concurrent writers on this dataset (§5.3). Released on return.
+	lock, err := acquireDatasetLock(o.OutDir)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.release()
+
 	prevHead := o.Since
 	if prevHead == "" {
 		prevHead = man.IndexedHead
