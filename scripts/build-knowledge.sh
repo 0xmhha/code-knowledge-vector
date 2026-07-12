@@ -26,14 +26,21 @@ set -uo pipefail
 
 # ---- config (env-overridable) ----------------------------------------------
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="${SRC:-/Users/wm-it-25_0220/Work/github/test/analysis-test-3}"
+# Machine-local paths come from build-profiles.env (git-ignored). Copy
+# build-profiles.env.example to build-profiles.env and edit it, or pass any
+# value via the environment. No machine path is baked into this script.
+if [ -f "$REPO/build-profiles.env" ]; then
+  # shellcheck disable=SC1091
+  . "$REPO/build-profiles.env"
+fi
+SRC="${SRC:-}"
 # CKG_DIR is the dataset root; the ckg graph lives in $CKG_DIR/graph-db/ and
 # the vector index is written to $CKG_DIR/vector-db/ (sibling layout).
-CKG_DIR="${CKG_DIR:-/Users/wm-it-25_0220/Work/github/knowledge-data/pr-77-2}"
+CKG_DIR="${CKG_DIR:-}"
 GRAPH_DB_DIR="$CKG_DIR/graph-db"
-FILTER="${FILTER:-/Users/wm-it-25_0220/Work/github/code-knowledge-graph/eval/stablenet/stablenet-files-with-tests.json}"
+FILTER="${FILTER:-}"
 DOCS="${DOCS:-$SRC/.claude/docs}"
-FLOW_CORPUS="${FLOW_CORPUS:-/Users/wm-it-25_0220/Work/github/go-stablenet/.claude.backup.20260625_180533/docs/corpus/corpus.jsonl}"
+FLOW_CORPUS="${FLOW_CORPUS:-}"
 POLICY="${POLICY:-$REPO/policy/stablenet.yaml}"
 OUT="${OUT:-$CKG_DIR/vector-db}"
 EMBEDDER="${EMBEDDER:-ollama}"
@@ -58,6 +65,8 @@ die() { printf '\033[31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 # ---- preflight --------------------------------------------------------------
 preflight() {
   say "preflight"
+  [ -n "$SRC" ] && [ -n "$CKG_DIR" ] && [ -n "$FILTER" ] \
+    || die "SRC, CKG_DIR and FILTER must be set — copy build-profiles.env.example to build-profiles.env and edit (or pass via env)"
   [ -d "$SRC" ] || die "SRC not found: $SRC"
   [ -f "$GRAPH_DB_DIR/graph.db" ] || die "ckg graph.db not found in: $GRAPH_DB_DIR"
   [ -f "$FILTER" ] || die "files-from filter not found: $FILTER"

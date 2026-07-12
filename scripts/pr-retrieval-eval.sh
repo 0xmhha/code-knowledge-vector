@@ -19,10 +19,18 @@
 #   GS, PRS, FILTER, OLLAMA, MODEL
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GS="${GS:-/Users/wm-it-25_0220/Work/github/go-stablenet}"
+# Machine-local paths from build-profiles.env (git-ignored); see
+# build-profiles.env.example. Every value stays env-overridable.
+if [ -f "$REPO/build-profiles.env" ]; then
+  # shellcheck disable=SC1091
+  . "$REPO/build-profiles.env"
+fi
+GS="${GS:-}"
 PRS="${PRS:-$REPO/testdata/prs.yaml}"
-FILTER="${FILTER:-/Users/wm-it-25_0220/Work/github/code-knowledge-graph/eval/stablenet/stablenet-files-with-tests.json}"
+FILTER="${FILTER:-}"
 REPONAME="${REPONAME:-stable-net/go-stablenet}"
+[ -n "$GS" ] && [ -n "$FILTER" ] \
+  || { echo "GS and FILTER must be set — copy build-profiles.env.example to build-profiles.env and edit (or pass via env)" >&2; exit 2; }
 MODEL="${MODEL:-bge-m3}"
 OLLAMA="${CKV_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}"
 CKV="$REPO/bin/ckv"
