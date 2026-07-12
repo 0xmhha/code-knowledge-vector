@@ -1,3 +1,5 @@
+//go:build darwin && tokenizers
+
 package coreml
 
 import (
