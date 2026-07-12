@@ -76,13 +76,85 @@ func EnforceCitationsAt(hits []types.Hit, srcRoot, currentHead string, docsRoots
 			dropped++
 			continue
 		}
-		if currentHead != "" && h.Chunk.CommitHash != "" && h.Chunk.CommitHash != currentHead {
+		if citationIsStale(srcRoot, h.Chunk, currentHead, docsRoots) {
 			h.StaleCitation = true
 			stale++
 		}
 		keep = append(keep, h)
 	}
 	return keep, dropped, stale
+}
+
+// citationIsStale reports whether a surviving hit's citation is stale (kept, but
+// flagged). Two axes:
+//
+//   - commit drift: the chunk was indexed at a different git HEAD than the tree
+//     now serves (needs currentHead + a recorded CommitHash).
+//   - flow-step line drift (C2): a flow_step cites a curated file:line, but the
+//     code moved and the line is now past the file's end. Flow chunks carry no
+//     CommitHash, so the commit axis never fires for them — this is their only
+//     staleness signal, and it runs whenever a source tree is present.
+func citationIsStale(srcRoot string, c types.Chunk, currentHead string, docsRoots []string) bool {
+	if currentHead != "" && c.CommitHash != "" && c.CommitHash != currentHead {
+		return true
+	}
+	if c.ChunkKind == types.ChunkFlowStep && flowStepLineDrifted(srcRoot, c, docsRoots) {
+		return true
+	}
+	return false
+}
+
+// flowStepLineDrifted reports whether a flow_step's cited line no longer exists
+// in the current file — the curated corpus line drifted past the file's end.
+// The file is resolved under srcRoot or a docsRoot (mirroring verifyCitation).
+// A missing file is not "drift" here — verifyCitation already drops that hit —
+// and an unreadable file is treated as not-drifted (best-effort, like the
+// commit check).
+func flowStepLineDrifted(srcRoot string, c types.Chunk, docsRoots []string) bool {
+	if c.StartLine < 1 {
+		return false
+	}
+	path := resolveExisting(srcRoot, c.File, docsRoots)
+	if path == "" {
+		return false
+	}
+	n, err := countLines(path)
+	if err != nil {
+		return false
+	}
+	return c.StartLine > n
+}
+
+// resolveExisting returns the first root/rel path that exists as a regular file
+// (srcRoot first, then docsRoots), or "" when none does.
+func resolveExisting(srcRoot, rel string, docsRoots []string) string {
+	if fileExistsUnder(srcRoot, rel) {
+		return filepath.Join(srcRoot, rel)
+	}
+	for _, dr := range docsRoots {
+		if dr != "" && fileExistsUnder(dr, rel) {
+			return filepath.Join(dr, rel)
+		}
+	}
+	return ""
+}
+
+// countLines returns the number of text lines in the file at path. A trailing
+// newline is not counted as an extra empty line; a final line without a newline
+// still counts.
+func countLines(path string) (int, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	if len(b) == 0 {
+		return 0, nil
+	}
+	n := strings.Count(string(b), "\n")
+	if b[len(b)-1] != '\n' {
+		n++
+	}
+	return n, nil
 }
 
 // hasSyntheticCitation reports whether a chunk's File is a synthetic
