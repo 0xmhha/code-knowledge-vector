@@ -167,3 +167,29 @@ func TestQueryInstruct(t *testing.T) {
 		t.Errorf("unknown model should return empty, got %q", got)
 	}
 }
+
+func TestKnownDims(t *testing.T) {
+	d4 := KnownDims("qwen3-embedding:4b")
+	if len(d4) == 0 || d4[len(d4)-1] != 2560 {
+		t.Errorf("4b KnownDims should end at native 2560: %v", d4)
+	}
+	found1024 := false
+	for _, d := range d4 {
+		if d == 1024 {
+			found1024 = true
+		}
+	}
+	if !found1024 {
+		t.Errorf("4b should support 1024: %v", d4)
+	}
+	d06 := KnownDims("qwen3-embedding:0.6b")
+	if len(d06) == 0 || d06[len(d06)-1] != 1024 {
+		t.Errorf("0.6b KnownDims should end at native 1024: %v", d06)
+	}
+	if KnownDims("bge-large-en-v1.5") != nil {
+		t.Errorf("non-MRL model should have nil KnownDims")
+	}
+	if KnownDims("nonexistent-model") != nil {
+		t.Errorf("unknown model should return nil")
+	}
+}

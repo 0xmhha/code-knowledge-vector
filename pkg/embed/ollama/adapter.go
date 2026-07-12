@@ -19,6 +19,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/embed/registry"
@@ -115,11 +116,10 @@ func Open(opts Options) (*Adapter, error) {
 	// nativeDim is authoritative for validation. Enabling it here makes every
 	// subsequent Embed truncate + renormalize, and reports the reduced
 	// dimension via Dimension()/Identity().
+	if err := validateTargetDim(opts.ModelName, opts.TargetDim, nativeDim); err != nil {
+		return nil, err
+	}
 	if opts.TargetDim > 0 {
-		if opts.TargetDim > nativeDim {
-			return nil, fmt.Errorf("ollama: target dim %d exceeds model %q native dim %d",
-				opts.TargetDim, opts.ModelName, nativeDim)
-		}
 		a.targetDim = opts.TargetDim
 		a.dim = opts.TargetDim
 	}
@@ -246,6 +246,25 @@ func (a *Adapter) EmbedQuery(ctx context.Context, queries []string) ([][]float32
 // "Instruct: {task}\nQuery: {query}". Applied to queries only.
 func qwen3QueryText(instruct, query string) string {
 	return "Instruct: " + instruct + "\nQuery: " + query
+}
+
+// validateTargetDim rejects an --embed-dim that exceeds the model's native
+// dimension, or that isn't one of the model's standard MRL dims when it
+// advertises a ladder (registry.KnownDims) — keeping indexes on a consistent,
+// comparable set of dimensions. 0 (no truncation, native dim) is always valid.
+func validateTargetDim(modelName string, targetDim, nativeDim int) error {
+	if targetDim <= 0 {
+		return nil
+	}
+	if targetDim > nativeDim {
+		return fmt.Errorf("ollama: target dim %d exceeds model %q native dim %d",
+			targetDim, modelName, nativeDim)
+	}
+	if known := registry.KnownDims(modelName); len(known) > 0 && !slices.Contains(known, targetDim) {
+		return fmt.Errorf("ollama: --embed-dim %d is not a supported truncation dim for %q; use one of %v",
+			targetDim, modelName, known)
+	}
+	return nil
 }
 
 // truncateNormalize returns the first dim components of v, re-normalized to

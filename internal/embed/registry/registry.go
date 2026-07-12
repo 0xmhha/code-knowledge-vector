@@ -88,6 +88,12 @@ type ModelConfig struct {
 	// way — those get no query prefix.
 	QueryInstruct string
 
+	// KnownDims is the standard ladder of MRL truncation dimensions for an
+	// MRL-trained model (ascending, native dim last). --embed-dim must be one of
+	// these, keeping indexes on a consistent, comparable set of dimensions. Nil
+	// for non-MRL models, where only the native Dim is valid.
+	KnownDims []int
+
 	// File layout (relative to model directory)
 	OnnxFile      string // e.g. "onnx/model.onnx"
 	TokenizerFile string // e.g. "tokenizer.json"
@@ -196,6 +202,7 @@ var models = map[string]ModelConfig{
 		Normalize:     "l2",
 		Pooling:       PoolingLastToken,
 		QueryInstruct: qwen3CodeInstruct,
+		KnownDims:     []int{256, 512, 1024},
 	},
 	"qwen3-embedding:4b": {
 		Name:          "qwen3-embedding:4b",
@@ -204,7 +211,18 @@ var models = map[string]ModelConfig{
 		Normalize:     "l2",
 		Pooling:       PoolingLastToken,
 		QueryInstruct: qwen3CodeInstruct,
+		KnownDims:     []int{512, 1024, 2560},
 	},
+}
+
+// KnownDims returns a model's standard MRL truncation dimensions (ascending,
+// native last), or nil when the model has no MRL ladder (only its native dim is
+// valid). Unknown models return nil.
+func KnownDims(modelName string) []int {
+	if cfg, err := Lookup(modelName); err == nil {
+		return cfg.KnownDims
+	}
+	return nil
 }
 
 // qwen3CodeInstruct is the query-side task description for Qwen3-Embedding on a
