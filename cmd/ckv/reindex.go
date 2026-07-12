@@ -15,13 +15,16 @@ import (
 )
 
 type reindexOpts struct {
-	src       string
-	out       string
-	since     string
-	files     []string
-	exclude   []string
-	policy    string
-	jsonOut   bool
+	src     string
+	out     string
+	since   string
+	files   []string
+	exclude []string
+	policy  string
+	jsonOut bool
+
+	llmPrefixModel string
+
 	includePR bool
 	prSince   string
 	prRepo    string
@@ -58,6 +61,7 @@ Examples:
 	f.StringSliceVar(&opts.files, "files", nil, "force-reindex these src-relative paths (bypasses git diff)")
 	f.StringSliceVar(&opts.exclude, "exclude", nil, "extra ignore patterns (repeatable; e.g. --exclude='vendor/**')")
 	f.StringVar(&opts.policy, "policy", "", "path to policy yaml (must match the build's policy; categorizes chunks by path)")
+	f.StringVar(&opts.llmPrefixModel, "llm-prefix-model", "", "Phase-D.2 LLM contextual prefix model (must match the build's value; empty keeps the rule-based prefix)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 	f.BoolVar(&opts.includePR, "include-pr-history", false, "incrementally fetch merged PRs via gh CLI and index only those newer than the recorded cutoff")
 	f.StringVar(&opts.prSince, "pr-since", "", "only PRs merged after this date (YYYY-MM-DD); requires --include-pr-history (default: manifest cutoff)")
@@ -95,6 +99,7 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 		Footprint:               fp,
 		ProgressOut:             os.Stderr,
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
+		LLMPrefixModel:          opts.llmPrefixModel,
 		PolicyPath:              opts.policy,
 	}
 	if opts.includePR {

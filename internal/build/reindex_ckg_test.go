@@ -370,7 +370,7 @@ func TestIngestPRs_DedupsAndIndexes(t *testing.T) {
 	}
 
 	// sinceNumber = 5 → PR #5 is skipped (dedup), PR #10 is ingested.
-	cutoff, n, err := ingestPRs(context.Background(), st, mock.Default(), 32, resolveEmbedTextFn(true), metas, 5)
+	cutoff, n, err := ingestPRs(context.Background(), st, mock.Default(), 32, resolveEmbedTextFn(context.Background(), true, nil), metas, 5)
 	if err != nil {
 		t.Fatalf("ingestPRs: %v", err)
 	}

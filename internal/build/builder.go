@@ -56,6 +56,16 @@ type Options struct {
 	// baseline. Chunk IDs and the stored Text are unaffected either way.
 	DisableContextualPrefix bool
 
+	// LLMPrefixModel enables Phase D.2 contextual retrieval: an Ollama chat
+	// model (e.g. "llama3") writes a one-sentence description of each chunk,
+	// prepended to the chunk's raw embed text. Empty (the default) keeps the
+	// cheap rule-based prefix. Generated prefixes are disk-cached under
+	// <OutDir>/.ckv-llmprefix-cache and a generation failure degrades to the
+	// rule-based prefix, so the build never fails on the LLM. Expensive: one
+	// generation per new chunk, so opt-in only. Chunk IDs/stored Text are
+	// unaffected — the prefix lives only in the embedded text.
+	LLMPrefixModel string
+
 	// PR corpus. When non-nil, the build fetches merged PRs
 	// via `gh` CLI and indexes their descriptions + commit messages
 	// as additional chunks alongside the source code.
@@ -263,7 +273,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	languageCounts := make(map[string]int)
 	indexedFiles := 0
 	chunker := newChunker(o.Embedder, cfg)
-	embedTextFn := resolveEmbedTextFn(o.DisableContextualPrefix)
+	embedTextFn := resolveEmbedTextFn(ctx, o.DisableContextualPrefix, resolveLLMPrefixer(o.LLMPrefixModel, o.OutDir))
 
 	// Policy is optional. Absence is silent so existing callers without
 	// a policy file behave unchanged. Malformed yaml is fatal — same
