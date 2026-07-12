@@ -111,9 +111,12 @@ func TestPoolByMode_DispatchesToRightPool(t *testing.T) {
 		t.Errorf("Mean pool dim 0: got %f, want 0.6", meanOut[0][0])
 	}
 
-	_, err = poolByMode(registry.PoolingLastToken, raw, mask, 1, 1, 2)
-	if err == nil {
-		t.Error("LastToken pool should error until implemented")
+	lastOut, err := poolByMode(registry.PoolingLastToken, raw, mask, 1, 1, 2)
+	if err != nil {
+		t.Fatalf("LastToken pool: %v", err)
+	}
+	if diff := abs32(lastOut[0][0] - 0.6); diff > 1e-5 {
+		t.Errorf("LastToken pool dim 0: got %f, want 0.6", lastOut[0][0])
 	}
 
 	_, err = poolByMode(registry.PoolingMode(99), raw, mask, 1, 1, 2)
