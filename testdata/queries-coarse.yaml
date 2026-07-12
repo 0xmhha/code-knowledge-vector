@@ -1,0 +1,32 @@
+# Coarse-level probe fixture — file/type/module intent (NOT a single symbol).
+# Purpose: measure whether Phase B (multi-granularity coarse chunks) has any
+# headroom on testdata/sample, given the corpus already has file_header chunks
+# that ~cover each small file. A hit = the right FILE appears in top-k (scorer
+# matches file + line overlap; any chunk of the file counts).
+schema_version: "1"
+
+queries:
+  - id: c1
+    intent: "the HTTP server implementation and its lifecycle"
+    expected: { file: server.go, symbol: Server, kind: Struct, line_range: [1, 49] }
+  - id: c2
+    intent: "the in-memory key-value caching layer"
+    expected: { file: cache.go, symbol: Cache, kind: Struct, line_range: [1, 55] }
+  - id: c3
+    intent: "input validation and sanitization utilities"
+    expected: { file: validator.go, symbol: validator, kind: File, line_range: [1, 72] }
+  - id: c4
+    intent: "request routing and error responses"
+    expected: { file: handler.ts, symbol: Handler, kind: Class, line_range: [1, 51] }
+  - id: c5
+    intent: "the HTTP client with retry and timeout handling"
+    expected: { file: client.js, symbol: client, kind: File, line_range: [1, 67] }
+  - id: c6
+    intent: "the ERC20 token contract"
+    expected: { file: token.sol, symbol: Token, kind: Contract, line_range: [1, 47] }
+  - id: c7
+    intent: "how concurrent access to shared state is guarded"
+    expected: { file: cache.go, symbol: Cache, kind: Struct, line_range: [1, 55] }
+  - id: c8
+    intent: "the module that turns URLs into handlers"
+    expected: { file: handler.ts, symbol: Handler, kind: Class, line_range: [1, 51] }

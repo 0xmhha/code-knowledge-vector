@@ -33,6 +33,58 @@ func B() { fmt.Println("b") }
 	}
 }
 
+func TestIncludeFileFullEmitsCoarseChunk(t *testing.T) {
+	src := []byte(`package x
+
+import "fmt"
+
+func A() { fmt.Println("a") }
+func B() { fmt.Println("b") }
+`)
+	in := Input{
+		File:       "x.go",
+		Language:   "go",
+		CommitHash: "abc",
+		Source:     src,
+		Spans: []parse.SymbolSpan{
+			{Name: "A", Kind: types.KindFunction, StartLine: 5, EndLine: 5, Text: `func A() { fmt.Println("a") }`},
+			{Name: "B", Kind: types.KindFunction, StartLine: 6, EndLine: 6, Text: `func B() { fmt.Println("b") }`},
+		},
+	}
+
+	// Off by default: no file_full chunk.
+	for _, c := range New(Options{}).Chunk(in) {
+		if c.ChunkKind == types.ChunkFileFull {
+			t.Fatal("file_full emitted without IncludeFileFull")
+		}
+	}
+
+	// On: exactly one additive file_full chunk spanning the whole file, with a
+	// distinct ID from the file_header chunk (so both coexist in the store).
+	chunks := New(Options{IncludeFileFull: true}).Chunk(in)
+	var full, header *types.Chunk
+	for i := range chunks {
+		switch chunks[i].ChunkKind {
+		case types.ChunkFileFull:
+			if full != nil {
+				t.Fatal("more than one file_full chunk")
+			}
+			full = &chunks[i]
+		case types.ChunkFileHeader:
+			header = &chunks[i]
+		}
+	}
+	if full == nil || header == nil {
+		t.Fatalf("want both file_full and file_header, got full=%v header=%v", full != nil, header != nil)
+	}
+	if full.Text != string(src) {
+		t.Errorf("file_full text should be the whole file")
+	}
+	if full.ID == header.ID {
+		t.Errorf("file_full and file_header must have distinct IDs")
+	}
+}
+
 func TestChunkIDsDeterministic(t *testing.T) {
 	in := Input{
 		File:       "x.go",

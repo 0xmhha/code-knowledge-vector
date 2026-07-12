@@ -41,6 +41,11 @@ const (
 	ChunkSymbol        ChunkKind = "symbol"         // whole function/method/type
 	ChunkFunctionSplit ChunkKind = "function_split" // sub-chunk of a long function
 	ChunkFileHeader    ChunkKind = "file_header"    // import block / top-of-file
+	// ChunkFileFull is a coarse-granularity chunk covering a whole source file
+	// (Phase B multi-granularity, roadmap §3.1). Additive and opt-in: emitted
+	// only when Options.IncludeFileFull is set, so it competes in search
+	// alongside the fine symbol chunks for file/module-level queries.
+	ChunkFileFull ChunkKind = "file_full"
 	// ChunkDoc covers markdown heading sections (DocSection/ADRSection).
 	// Kept distinct from ChunkSymbol so callers can filter the corpus by
 	// "code vs documentation" without inspecting SymbolKind. The chunker

@@ -169,6 +169,25 @@ func TestLoadHardQueriesFixture(t *testing.T) {
 	}
 }
 
+func TestLoadCoarseQueriesFixture(t *testing.T) {
+	path, _ := filepath.Abs(filepath.Join("..", "..", "testdata", "queries-coarse.yaml"))
+	fx, err := LoadFixture(path)
+	if err != nil {
+		t.Fatalf("LoadFixture: %v", err)
+	}
+	if len(fx.Queries) < 5 {
+		t.Fatalf("expected ≥5 coarse queries, got %d", len(fx.Queries))
+	}
+	for _, q := range fx.Queries {
+		if q.Expected.File == "" {
+			t.Errorf("query %q: missing expected.file", q.ID)
+		}
+		if q.Expected.LineRange[0] < 1 || q.Expected.LineRange[1] < q.Expected.LineRange[0] {
+			t.Errorf("query %q: invalid line_range %v", q.ID, q.Expected.LineRange)
+		}
+	}
+}
+
 func TestRunComputesMetricsAgainstSample(t *testing.T) {
 	eng, _ := newSampleEngine(t)
 	path, _ := filepath.Abs(filepath.Join("..", "..", "testdata", "queries.yaml"))

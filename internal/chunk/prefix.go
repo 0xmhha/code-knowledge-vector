@@ -38,6 +38,9 @@ func BuildEmbedText(c types.Chunk) string {
 	case types.ChunkFileHeader:
 		return fmt.Sprintf("language: %s. file: %s. file header.\n\n%s",
 			languageLabel(c.Language), c.File, c.Text)
+	case types.ChunkFileFull:
+		return fmt.Sprintf("language: %s. file: %s. whole file.\n\n%s",
+			languageLabel(c.Language), c.File, c.Text)
 	case types.ChunkDoc:
 		// SymbolName for doc sections is the heading slug (e.g.
 		// "why-sqlite-vec"). Kind ("DocSection"/"ADRSection") is
