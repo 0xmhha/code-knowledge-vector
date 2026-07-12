@@ -129,6 +129,11 @@ type FlowStepMeta struct {
 	Emits      string   `json:"emits,omitempty"`
 	Branches   []Branch `json:"branches,omitempty"`
 	Invariants []string `json:"invariants,omitempty"`
+	// AlignedChunkID is the ID of the code chunk whose line range contains this
+	// step's file:line (Phase C alignment), letting a caller jump from a flow
+	// step to its actual implementation chunk. Empty when the step's line did
+	// not resolve to any code chunk — the corpus drifted from the code.
+	AlignedChunkID string `json:"aligned_chunk_id,omitempty"`
 }
 
 // FlowSpineMeta is the structured metadata for a ChunkFlowSpine chunk: a

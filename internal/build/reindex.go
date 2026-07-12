@@ -471,6 +471,11 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 				if _, derr := store.DeleteFlowChunks(ctx); derr != nil {
 					return nil, fmt.Errorf("reindex flow delete: %w", derr)
 				}
+				// Phase C: re-align steps to code chunks so a flow-corpus
+				// reindex preserves aligned_chunk_id (a full build would set
+				// it). The code chunks already live in the store, so build the
+				// alignment index from the files the steps reference.
+				alignFlowStepsFromStore(ctx, store, flowChunks, o.ProgressOut)
 				if len(flowChunks) > 0 {
 					if err := embedAndUpsert(ctx, store, o.Embedder, flowChunks, o.BatchSize, nil, embedTextFn); err != nil {
 						return nil, fmt.Errorf("reindex flow embed: %w", err)
@@ -573,6 +578,36 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 		"new_head", newHead,
 	)
 	return result, nil
+}
+
+// alignFlowStepsFromStore aligns flow steps to code chunks during a flow-only
+// reindex (Phase C). The source chunks are not re-processed on this path, so it
+// builds the alignment index by querying the store for the distinct files the
+// steps reference. Best-effort: a lookup failure just leaves that file's steps
+// unaligned.
+func alignFlowStepsFromStore(ctx context.Context, store *sqlitevec.Store, flowChunks []types.Chunk, progress io.Writer) {
+	codeIx := flowcorpus.CodeIndex{}
+	seen := map[string]bool{}
+	for _, c := range flowChunks {
+		if c.ChunkKind != types.ChunkFlowStep || c.File == "" || seen[c.File] {
+			continue
+		}
+		seen[c.File] = true
+		codeChunks, err := store.LookupByFileOrdered(ctx, c.File)
+		if err != nil {
+			continue
+		}
+		for _, cc := range codeChunks {
+			switch cc.ChunkKind {
+			case types.ChunkSymbol, types.ChunkFunctionSplit:
+				codeIx.Add(cc.File, cc.StartLine, cc.EndLine, cc.ID)
+			}
+		}
+	}
+	resolved, total := flowcorpus.AlignSteps(flowChunks, codeIx)
+	if total > 0 && progress != nil {
+		fmt.Fprintf(progress, "ckv: flow steps aligned to code: %d/%d\n", resolved, total)
+	}
 }
 
 // stampCanonicalIDs copies canonical_id from the aligned ckg node onto each
