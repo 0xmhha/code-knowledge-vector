@@ -2,6 +2,7 @@
 
 > **역할**: CKV의 *실행 가능한 잔여 작업*을 코드검증본으로 모은 단일 진입점.
 > **작성**: 2026-07-11 (코드 대조: 브랜치 `docs/retire-ckg-node-id`, HEAD `d546d95`)
+> **갱신**: 2026-07-12 (PR #17~#45 반영, main HEAD `c7a961b`) — **CKV 소관 작업 실질 완료**, 잔여는 아래 "현재 상태"의 블록 4건.
 > **관계**:
 > - 배경·협의·결정 근거 → [`session-handoff-2026-06-29.md §4`](./session-handoff-2026-06-29.md) (서사 SoT)
 > - reindex 설계 → [`reindex-migration-design-2026-07-10.md`](./reindex-migration-design-2026-07-10.md)
@@ -13,6 +14,29 @@
 
 ---
 
+## 현재 상태 (2026-07-12) — CKV 소관 실질 완료
+
+이번 세션(PR #17~#45)에서 CKV 소관 작업이 실질적으로 종결됐다. 남은 항목은 전부 **이 머신에서 착수 불가**(부재 데이터·throughput 환경·CKS 소관)다.
+
+**종결(§별 상세는 아래 감사 이력):**
+- `ckg_node_id` 은퇴(§1) · reindex P2/P3/P4/P5 CKV-side(§2/§3) · Qwen3 차원·모델 결정 + embed 견고화(§4)
+- 품질 레버 측정 사이클(§5): hard fixture → prefix 레버 스윕(rule-based 최적, D.2 반증) → Phase B multi-gran(measured **no-go**)
+- ADR-007~010 승격(§5): canonical_id join · 임베딩 차원 · prefix/granularity 전략 · flow 시그니처
+- flow Phase C(정렬 C1 + drift C2) · Phase D(도구 4종 CKV 구현·MCP 노출) · Phase E(빌드 경로 외부화)
+
+**블록 잔여 (착수 조건 명시):**
+
+| 항목 | 블로커 | unblock 조건 |
+|---|---|---|
+| flow **F** — `get_flow`/`find_branches` precision/recall 정본 평가 | 대형 flow corpus 부재 | go-stablenet 정본 corpus(255레코드) + 정답셋을 이 머신에 확보 |
+| **PRR-1** / throughput | 대형 코퍼스 부재(0.74 c/s 재현 불가; 임베딩은 이미 배치) | go-stablenet clone + PR base_sha reachable + (선택) CoreML EP용 libonnxruntime |
+| **Phase A** — sliding split 실측 | 긴 함수 코퍼스 부재(testdata/sample 함수가 짧아 split 미발동) | 큰 함수 비율이 높은 실 코퍼스 |
+| **CKS 소관** — 재기동 수신 · P5 오케스트레이션 · flow 도구 표면 *소비* | CKS 세션 의존 | CKS 재기동 + 양측 digest 교차확인(`coordination-prompts §10.10`) |
+
+**다음 세션 진입점**: 위 데이터셋 중 하나가 확보되면 해당 행이 즉시 언블록된다. 그 전까지 CKV 코드 측 신규 작업은 없다.
+
+---
+
 ## 0. 추천 실행 순서 (reindex-design §7 + roadmap §12 통합)
 
 섹션은 주제별이고, 실제 착수 순서는 아래 교차 우선순위를 따른다.
@@ -21,8 +45,9 @@
 2. ✅ **P2 조율 재인덱싱** (§2) — P2a/P2b-1/P2b-2/P2b-3, main 반영(PR #18).
 3. ✅ **P3 증분 PR·docs 인제스트** (§2) — P3a 증분 PR + P3b-flow(PR #18), P3b-docs(2026-07-12). P3 전체 완료.
 4. ✅ **Qwen3 A/B → 차원 결정** (§4) — 1024-truncate 권장(측정 완료). 대형 코퍼스 재확인 후 ADR 락 잔여.
-5. **P4 재개·원자성·락** (§2) / **P5 무중단 서빙·CKS 교차확인** (§3) — 오케스트레이션=CKS 의존.
-6. **품질·인프라 잔여** (§5) — Instruct prefix·D.2 prefix(기본 비활성)·B10·hard fixture·레버 스윕·Phase B 프로토타입(measured **no-go**) 종결; 남은 품질 레버는 대형 코퍼스 재검증 대기(소형에선 rule-based가 이미 최적), sliding(Phase A)은 긴 함수 코퍼스 블록, throughput 대기.
+5. ✅ **P4 재개·원자성·락** (§2, P4a/b/c) / **P5 무중단 서빙 CKV-side** (§3, `ckv promote`·health 버전) — CKV 슬라이스 완료. 오케스트레이션만 CKS 의존.
+6. ✅ **품질·인프라 잔여** (§5) — Instruct prefix·D.2 prefix(기본 비활성)·B10·hard fixture·레버 스윕·Phase B 프로토타입(measured **no-go**)·ADR-009 종결. 남은 품질 레버는 대형 코퍼스 재검증 대기(소형에선 rule-based가 이미 최적), sliding(Phase A)은 긴 함수 코퍼스 블록.
+7. ✅ **flow Phase C~E** (§5) — 정렬 C1/C2 · 도구 D · 빌드 경로 외부화 E. ADR-010 승격. 잔여 F(정본 평가)는 대형 corpus 블록.
 
 ---
 
