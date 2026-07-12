@@ -46,6 +46,12 @@ type Options struct {
 	// FileHeaderLines overrides DefaultFileHeaderLines (50). 0 keeps
 	// the default. Sourced from project ckv.yaml.chunking.file_header_lines.
 	FileHeaderLines int
+	// IncludeFileFull emits an additional coarse chunk covering the whole file
+	// (Phase B multi-granularity, roadmap §3.1). Off by default — opt-in for
+	// measurement. Unlike file_header (first N lines) this spans the entire
+	// file, giving file/module-level queries a coarse target alongside the fine
+	// symbol chunks. Skipped for markdown (heading sections are already coarse).
+	IncludeFileFull bool
 }
 
 // Input is everything the chunker needs about one file.
@@ -92,6 +98,15 @@ func (c *Chunker) Chunk(in Input) []types.Chunk {
 		}
 	}
 
+	// Phase B (opt-in): a coarse whole-file chunk alongside the fine symbol
+	// chunks, for file/module-level queries. Skip markdown (dense heading
+	// sections already provide coarse granularity).
+	if c.opts.IncludeFileFull && in.Language != "markdown" {
+		if full := c.fileFullChunk(in); full != nil {
+			out = append(out, *full)
+		}
+	}
+
 	for _, sp := range in.Spans {
 		// When a function body exceeds the embedder's
 		// input cap, split it into multiple sub-chunks instead of
@@ -105,6 +120,33 @@ func (c *Chunker) Chunk(in Input) []types.Chunk {
 		out = append(out, c.symbolChunk(in, sp, text))
 	}
 	return out
+}
+
+// fileFullChunk returns a coarse chunk spanning the entire file (Phase B).
+// Distinct id/kind from the file_header chunk so both can coexist. The text is
+// truncated to the embedder's input cap when necessary — a long file's coarse
+// vector is still a useful file-level signal even head-truncated.
+func (c *Chunker) fileFullChunk(in Input) *types.Chunk {
+	if strings.TrimSpace(string(in.Source)) == "" {
+		return nil
+	}
+	text := string(in.Source)
+	endLine := strings.Count(text, "\n") + 1
+	contentHash := types.ContentSHA256(text)
+	id := types.ChunkID(in.File, 0, endLine, contentHash)
+	return &types.Chunk{
+		ID:            id,
+		File:          in.File,
+		StartLine:     1,
+		EndLine:       endLine,
+		Language:      in.Language,
+		IsTest:        types.IsTestPath(in.File, in.Language),
+		SymbolKind:    types.KindFileHeader,
+		ChunkKind:     types.ChunkFileFull,
+		CommitHash:    in.CommitHash,
+		ContentSHA256: contentHash,
+		Text:          c.maybeTruncate(text),
+	}
 }
 
 // shouldSplit reports whether a span gets the function-split treatment.

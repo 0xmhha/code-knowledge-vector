@@ -22,7 +22,7 @@
 3. ✅ **P3 증분 PR·docs 인제스트** (§2) — P3a 증분 PR + P3b-flow(PR #18), P3b-docs(2026-07-12). P3 전체 완료.
 4. ✅ **Qwen3 A/B → 차원 결정** (§4) — 1024-truncate 권장(측정 완료). 대형 코퍼스 재확인 후 ADR 락 잔여.
 5. **P4 재개·원자성·락** (§2) / **P5 무중단 서빙·CKS 교차확인** (§3) — 오케스트레이션=CKS 의존.
-6. **품질·인프라 잔여** (§5) — Instruct prefix·D.2 prefix(기본 비활성)·B10·hard fixture(천장 해소, 측정 대역 확보) 종결; 이제 hard fixture로 multi-gran·sliding 실측 가능, throughput 대기.
+6. **품질·인프라 잔여** (§5) — Instruct prefix·D.2 prefix(기본 비활성)·B10·hard fixture·레버 스윕·Phase B 프로토타입(measured **no-go**) 종결; 남은 품질 레버는 대형 코퍼스 재검증 대기(소형에선 rule-based가 이미 최적), sliding(Phase A)은 긴 함수 코퍼스 블록, throughput 대기.
 
 ---
 
@@ -84,6 +84,7 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 - [x] **#7** LLM contextual prefix (Phase D.2) — **구현·실측 완료**(2026-07-12, `llm-contextual-prefix-poc-2026-07-12.md`). `internal/llmprefix`(주입형 `Generator`/디스크캐시 `Cached`/`OllamaGenerator`) + `--llm-prefix-model` 배선(build/reindex). **PoC 결정**: testdata/sample(50청크·bge-m3)에서 LLM prefix(llama3)가 rule-based(D.1)를 **못 이김**(recall@1 0.86→0.78, 조합형도 0.84; MRR 0.911→0.877/0.900; 생성 19×). → **기본 비활성 opt-in 레버**로만 제공, 켰을 때는 조합형(LLM+rule+raw). 캐비엇: 소형 self-descriptive 코퍼스·llama3·벡터단독 편향 — 대형 코퍼스/강한 생성기/BM25 병용 시 재측정 여지.
 - [x] **D1-FU-7 hard eval fixture (2026-07-12)** — 기본 `queries.yaml`이 소형 코퍼스에서 천장(bge-m3 recall@5 0.98)이라 품질 레버를 변별 못 하는 문제 해소. `testdata/queries-hard.yaml`(N=24) 신설 — zero-lexical-overlap·lexical decoy·cross-language·indirect로 설계. **실측**: recall@1 0.86→**0.58**, MRR 0.911→**0.669**, recall@5 0.98→0.88(측정 대역 확보, 10/24 non-rank-1). Phase A/B·D.2 go/no-go 측정 기반. `TestLoadHardQueriesFixture`(CI 검증). 기록: `eval-hard-fixture-2026-07-12.md`. **캐비엇**: 동일 소형 코퍼스라 *변별력*용이지 절대 벤치 아님 — 대형 코퍼스 별도.
 - [x] **prefix 레버 측정 스윕 (2026-07-12)** — hard fixture로 raw/D.1/D.2를 한 번에 재측정(bge-m3). **판정**: D.1(rule-based)이 두 fixture 모두 승자 — raw 대비 recall@1 **+0.16**(hard 0.42→0.58, easy 0.70→0.86), hard MRR/recall@5 최고. **D.2 헤드룸 가설 반증**: 천장 벗어난 hard set에서도 D.2가 D.1 못 이김(recall@1 0.54<0.58) → D.2 열세는 소형-코퍼스 아티팩트 아님, 기본 off 확정, #36 캐비엇 종결. 기록: `prefix-lever-sweep-2026-07-12.md`. **함의**: 강한 D.2조차 rule-based를 못 이겨 Phase B(multi-gran) 한계이득 재고 신호 — 착수 전 프로토타입으로 hard fixture 신호 선확인 권장.
+- [x] **Phase B (multi-granularity) go/no-go 프로토타입 (2026-07-12)** — 전체 구현(~250 LOC·throughput −50%) 전에 저비용 프로토타입으로 판정. `internal/chunk`에 opt-in coarse 청크 `file_full`(env `CKV_EXPERIMENTAL_FILE_FULL`, 기본 off) 추가 + coarse probe fixture(`queries-coarse.yaml` N=8) 신설. **판정 NO-GO**: coarse 청크가 도와야 할 coarse probe에서 오히려 recall@3 **1.00→0.88**(MRR 0.792→0.754), hard에서 recall@5 **0.88→0.79**·found **21→19** 회귀. baseline coarse probe가 이미 recall@3=1.00(헤드룸 없음, file_header가 소형 파일 커버). → Phase B 전체 구현 보류, file_full은 gated off 유지(대형 이질 코퍼스 재검증용, D.2와 동일). 테스트 `TestIncludeFileFullEmitsCoarseChunk`·`TestLoadCoarseQueriesFixture`. 기록: `phase-b-multigran-probe-2026-07-12.md`.
 - [ ] **PRR-1** full PR regression — throughput 보류(현 0.74 c/s).
 - [ ] **flow Phase C→F** — file:line 정렬 강화 → 빌드 오케스트레이션(일부 `build-knowledge.sh`로 해소) → 평가. CKS 표면 노출(Phase D 마지막)은 CKS 소관.
 - [ ] **ADR 승격(F)** — canonical_id join / 임베딩 모델·차원(측정 후) / flow 시그니처. R1/R2 가드레일을 Consequences에 측정 근거와 함께 명시.

@@ -41,6 +41,11 @@ func newChunker(emb types.Embedder, cfg *projectcfg.Config) *chunk.Chunker {
 	if cfg != nil && cfg.Chunking.FileHeaderLines > 0 {
 		opts.FileHeaderLines = cfg.Chunking.FileHeaderLines
 	}
+	// Phase B multi-granularity is an experiment gated behind an env flag while
+	// its retrieval benefit is measured (docs/phase-b-*). Off by default.
+	if os.Getenv("CKV_EXPERIMENTAL_FILE_FULL") == "1" {
+		opts.IncludeFileFull = true
+	}
 	return chunk.New(opts)
 }
 
