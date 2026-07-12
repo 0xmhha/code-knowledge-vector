@@ -451,6 +451,70 @@ func (s *Store) DeleteFlowChunks(ctx context.Context) (int, error) {
 	return len(ids), tx.Commit()
 }
 
+// docsLayerCond selects the curated docs layer: markdown sections indexed from
+// an out-of-tree `--docs` root (chunk_kind='doc' AND category='domain'). It
+// deliberately excludes in-tree markdown (category=”) — handled by the code
+// diff path — and flow chunks (a different chunk_kind).
+const docsLayerCond = `chunk_kind = 'doc' AND category = 'domain'`
+
+// DeleteDocsChunks removes every curated docs-corpus chunk plus its vectors.
+// Used by reindex to replace the docs layer wholesale when the docs tree
+// content hash changes, so edits/removals under the --docs roots don't leave
+// orphan chunks. Returns the number of chunks deleted.
+func (s *Store) DeleteDocsChunks(ctx context.Context) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM chunks WHERE `+docsLayerCond)
+	if err != nil {
+		return 0, fmt.Errorf("select docs chunks: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chunk_vec WHERE chunk_id = ?`, id); err != nil {
+			return 0, fmt.Errorf("delete docs vec %s: %w", id, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chunks WHERE `+docsLayerCond); err != nil {
+		return 0, fmt.Errorf("delete docs chunks: %w", err)
+	}
+	return len(ids), tx.Commit()
+}
+
+// DocsChunks returns every curated docs-corpus chunk (chunk_kind='doc' AND
+// category='domain'), ordered by file then start line.
+func (s *Store) DocsChunks(ctx context.Context) ([]types.Chunk, error) {
+	stmt := `SELECT ` + chunkSelectCols + ` FROM chunks c
+		WHERE c.chunk_kind = 'doc' AND c.category = 'domain' ORDER BY c.file, c.start_line`
+	rows, err := s.db.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, fmt.Errorf("docs_chunks: %w", err)
+	}
+	defer rows.Close()
+	var out []types.Chunk
+	for rows.Next() {
+		c, scanErr := scanChunk(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // Search runs a vec0 KNN over query, then JOINs to chunks for metadata
 // and applies the Filter as a post-step. We over-fetch by 3x when a
 // filter is set so the post-filter has enough candidates to satisfy k.

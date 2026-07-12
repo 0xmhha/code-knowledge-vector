@@ -144,6 +144,9 @@ func runReindex(ctx context.Context, opts *reindexOpts) error {
 	if res.FlowReindexed > 0 {
 		fmt.Printf("ckv: flow corpus changed → re-indexed %d flow chunks\n", res.FlowReindexed)
 	}
+	if res.DocsReindexed > 0 {
+		fmt.Printf("ckv: docs corpus changed → re-indexed %d doc chunks\n", res.DocsReindexed)
+	}
 	if res.FilesResumed > 0 {
 		fmt.Printf("ckv: resumed — %d files skipped (already done by an interrupted run)\n", res.FilesResumed)
 	}

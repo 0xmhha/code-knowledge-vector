@@ -124,6 +124,25 @@ func treeHash(root string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// docsRootsFromManifest recovers the curated `--docs` roots a reindex must
+// re-walk. manifest.DocsRoots records every citation-resolving root, which
+// includes the flow-corpus directory (appended at build time for fileless flow
+// citations); that directory is NOT a docs root, so it is removed here to match
+// the set the build hashed into Sources.Docs.ContentHash.
+func docsRootsFromManifest(man *manifest.Manifest) []string {
+	roots := append([]string{}, man.DocsRoots...)
+	if man.Sources != nil && man.Sources.Flow != nil && man.Sources.Flow.Path != "" {
+		flowDir := filepath.Dir(man.Sources.Flow.Path)
+		for i, r := range roots {
+			if r == flowDir {
+				roots = append(roots[:i], roots[i+1:]...)
+				break
+			}
+		}
+	}
+	return roots
+}
+
 // docsRootsHash combines the tree hashes of every docs root (order-independent)
 // into one content hash for the docs layer.
 func docsRootsHash(roots []string) string {

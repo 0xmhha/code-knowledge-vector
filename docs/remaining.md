@@ -19,7 +19,7 @@
 
 1. ✅ **`ckg_node_id` 은퇴** (§1) — main 반영(PR #17).
 2. ✅ **P2 조율 재인덱싱** (§2) — P2a/P2b-1/P2b-2/P2b-3, main 반영(PR #18).
-3. ✅ **P3a 증분 PR + P3b-flow** (§2) — main 반영(PR #18). P3b-docs만 잔여(저가치).
+3. ✅ **P3 증분 PR·docs 인제스트** (§2) — P3a 증분 PR + P3b-flow(PR #18), P3b-docs(2026-07-12). P3 전체 완료.
 4. ✅ **Qwen3 A/B → 차원 결정** (§4) — 1024-truncate 권장(측정 완료). 대형 코퍼스 재확인 후 ADR 락 잔여.
 5. **P4 재개·원자성·락** (§2) / **P5 무중단 서빙·CKS 교차확인** (§3) — 오케스트레이션=CKS 의존.
 6. **품질·인프라 잔여** (§5) — Instruct prefix·D.2 prefix(실측 완료: 기본 비활성)·B10 종결; multi-gran·sliding 실측·throughput 대기.
@@ -47,10 +47,10 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
   - [x] **P2b-1 — graph_digest mismatch 전체 재정렬** — 같은 커밋에 그래프만 재생성(digest 변경)되면 git diff가 비어도 전체 청크의 `canonical_id`를 새 그래프로 재정렬(벡터 미변경, join 키만). `store.RealignCanonical` + `realignAllCanonical`. `CanonicalAvailable` 게이트(빈 그래프가 좋은 키를 지우지 않음), 비어있지 않은 값만 갱신. 새 digest를 manifest에 기록(다음 reindex no-op). 테스트 `TestReindex_RealignsOnGraphDigestChange`(regen 후 OLD→NEW).
   - [x] **P2b-2 — 검증 게이트(§5.1) + count 재조정(§5.2, P4-count 흡수)** — reindex 종료 시 `store.Validate`: `ChunkCount`를 실측 `COUNT(*)`로 재조정(근사 드리프트 버그 제거), orphan(청크↔벡터) 0 강제(위반 시 fail-loud), canonical 커버리지 계산(ckg-aligned인데 <90%면 warn). `ReindexResult.Validation`로 노출. 테스트 `TestReindex_ReconcilesChunkCount`(56 드리프트→50 실측), `TestReindex_ValidationReport`(orphan 0 / chunks==vectors / canonical>0).
   - [x] **P2b-3 — schema 캐스케이드 자동 트리거** — 기록된 vs 현재 CKG `schema_version` 불일치 시 부분 reindex를 **거부**(`ErrSchemaCascade`)하고 `ckv build` 전면 재빌드 유도(`ErrEmbedderMismatch`와 동일 패턴). 테스트 `TestReindex_RefusesOnSchemaBump`(1.22→1.23).
-- [~] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — 진행 중.
+- [x] **P3 — 증분 PR·docs 인제스트** (§7-P3, §2) — 완료(P3a/P3b-flow/P3b-docs).
   - [x] **P3a — 증분 PR 인제스트** — `reindex --include-pr-history`가 `sources.prs.{last_pr_number,last_merged_at}` cutoff 이후 PR만 fetch(gh, `FetchMergedPRs`)해 number>cutoff만 인덱스(dedup)·source 청크 태깅·cutoff 갱신. 코어 `ingestPRs`(gh 불요, 주입식 테스트 `TestIngestPRs_DedupsAndIndexes`). 부수: `Validate`의 canonical rate 분모를 code-symbol 종류(`symbol`/`function_split`)로 한정(PR/doc 청크가 rate 왜곡 방지).
   - [x] **P3b-flow — flow corpus content_hash 재인덱싱** — `sources.flow.content_hash` 변경 감지 시 flow 레이어를 통째로 교체(`store.DeleteFlowChunks` → `flowcorpus.Load` → 재임베딩, 제거된 레코드도 정리). content_hash 갱신. 테스트 `TestReindex_ReindexesFlowOnContentChange`(마커 레코드 추가 후 반영 확인).
-  - [ ] **P3b-docs — docs-roots content_hash 재인덱싱** — `sources.docs.content_hash` 변경 시 curated docs 레이어(`chunk_kind=doc` AND `category=domain`) 교체·재walk. (in-tree markdown은 이미 코드 diff 경로가 처리.)
+  - [x] **P3b-docs — docs-roots content_hash 재인덱싱** (2026-07-12) — `sources.docs.content_hash` 변경 감지 시 curated docs 레이어(`chunk_kind=doc` AND `category=domain`)를 통째로 교체(`store.DeleteDocsChunks` → `--docs` roots 재walk → `reindexDocsRoots` 재임베딩). docs roots는 `docsRootsFromManifest`(manifest.DocsRoots에서 flow-corpus 디렉터리 제외)로 복원, 해시는 빌드와 동일한 `docsRootsHash`. `ReindexResult.DocsReindexed` 노출. in-tree markdown(category="")·flow 청크(다른 kind)는 미영향. 테스트 `TestDeleteDocsChunks`(store: domain-doc만 삭제, symbol/in-tree 유지)·`TestReindex_ReindexesDocsOnContentChange`(마커 섹션 추가 후 반영).
 - [x] **P4 — 재개·원자성·락** (§7-P4, §4.4/§5.3) — 완료(P4a/P4b/P4c).
   - [x] **P4a — advisory lock** — `acquireDatasetLock`(`<out>/.ckv.lock` flock, non-blocking) — 동시 build/reindex 직렬화(§5.3), 크래시 시 자동 해제. Run/Reindex 진입 시 획득, 점유 시 `ErrLocked`. 테스트 `TestAcquireDatasetLock_*`·`TestRun_RefusesWhenLocked`.
   - [x] **P4b — 원자성 + SetManifest 트랜잭션** — 조사 결과 대부분 이미 원자적: `manifest.Save`는 temp+rename(원자적), reindex는 manifest-last 순서라 크래시 시 재실행으로 자기치유(멱등). 실질 갭은 in-DB `setManifestKVs`가 키별 auto-commit이던 것 → **단일 트랜잭션**으로 원자화(all-or-nothing, §4.4). 커버: `TestStatsReflectsManifest`. (전체 all-or-nothing 스왑은 §4.1 blue-green=P5 소관.)
