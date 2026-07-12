@@ -191,6 +191,27 @@ var models = map[string]ModelConfig{
 		EstimatedRAMMB: 2500,
 	},
 
+	// bge-code-v1 is a Qwen2-based, decoder-only code embedder. Unlike the
+	// BERT-family entries above it needs position_ids (not token_type_ids) and
+	// last-token pooling. Ships as safetensors; export to ONNX with
+	// `ckv model convert BAAI/bge-code-v1 --format onnx` before use.
+	"bge-code-v1": {
+		Name:          "bge-code-v1",
+		Dim:           1536,
+		MaxInput:      32768,
+		Normalize:     "l2",
+		OnnxFile:      "onnx/model.onnx",
+		TokenizerFile: "tokenizer.json",
+		HFRepo:        "BAAI/bge-code-v1",
+		InputOrder:    []string{"input_ids", "attention_mask", "position_ids"},
+		Outputs:       []string{"last_hidden_state"},
+		ExtraInputs: map[string]ExtraInputFn{
+			"position_ids": PositionIDsExtraInput,
+		},
+		Pooling:        PoolingLastToken,
+		EstimatedRAMMB: 6000,
+	},
+
 	// qwen3-embedding entries are Ollama-only: no ONNX export is configured
 	// (OnnxFile/HFRepo empty), so `ckv model fetch` and the bgeonnx backend
 	// reject them. The ollama adapter reads Dim/MaxInput from here so the

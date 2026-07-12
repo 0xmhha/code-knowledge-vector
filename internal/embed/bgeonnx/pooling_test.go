@@ -153,3 +153,43 @@ func TestCLSPoolNormalize_ShapeMismatchRejected(t *testing.T) {
 		t.Fatal("expected size mismatch error")
 	}
 }
+
+func TestLastTokenPoolNormalize_HandComputed(t *testing.T) {
+	// batch=1, seqLen=3, hidden=2. mask [1,1,0] → last attended token = index 1.
+	// t1 = [3,4], L2 norm 5 → [0.6, 0.8]. t2 = [100,100] is padding, ignored.
+	raw := []float32{9, 9, 3, 4, 100, 100}
+	mask := [][]int64{{1, 1, 0}}
+	got, err := lastTokenPoolNormalize(raw, mask, 1, 3, 2)
+	if err != nil {
+		t.Fatalf("lastTokenPoolNormalize: %v", err)
+	}
+	if len(got) != 1 || len(got[0]) != 2 {
+		t.Fatalf("shape = %dx%d, want 1x2", len(got), len(got[0]))
+	}
+	if math.Abs(float64(got[0][0])-0.6) > 1e-6 || math.Abs(float64(got[0][1])-0.8) > 1e-6 {
+		t.Fatalf("got %v, want [0.6 0.8] (last attended token, normalized)", got[0])
+	}
+	var norm float64
+	for _, v := range got[0] {
+		norm += float64(v) * float64(v)
+	}
+	if math.Abs(math.Sqrt(norm)-1) > 1e-6 {
+		t.Fatalf("not unit norm: %v", math.Sqrt(norm))
+	}
+}
+
+func TestLastTokenPoolNormalize_AllZeroMaskRejected(t *testing.T) {
+	if _, err := lastTokenPoolNormalize([]float32{1, 1}, [][]int64{{0}}, 1, 1, 2); err == nil {
+		t.Fatalf("all-zero attention mask should be rejected")
+	}
+}
+
+func TestPoolByMode_LastTokenDispatches(t *testing.T) {
+	got, err := poolByMode(PoolingLastToken, []float32{3, 4}, [][]int64{{1}}, 1, 1, 2)
+	if err != nil {
+		t.Fatalf("PoolingLastToken should be implemented, got error: %v", err)
+	}
+	if len(got) != 1 || len(got[0]) != 2 {
+		t.Fatalf("shape = %dx%d, want 1x2", len(got), len(got[0]))
+	}
+}

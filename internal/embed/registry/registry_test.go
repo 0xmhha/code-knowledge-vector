@@ -193,3 +193,22 @@ func TestKnownDims(t *testing.T) {
 		t.Errorf("unknown model should return nil")
 	}
 }
+
+func TestBGECodeV1Entry(t *testing.T) {
+	cfg, err := Lookup("bge-code-v1")
+	if err != nil {
+		t.Fatalf("bge-code-v1 should be registered: %v", err)
+	}
+	if cfg.Dim != 1536 {
+		t.Errorf("Dim = %d, want 1536", cfg.Dim)
+	}
+	if cfg.Pooling != PoolingLastToken {
+		t.Errorf("Pooling = %v, want last_token (decoder-only)", cfg.Pooling)
+	}
+	if _, ok := cfg.ExtraInputs["position_ids"]; !ok {
+		t.Errorf("bge-code-v1 (Qwen2) must synthesize position_ids, ExtraInputs=%v", cfg.ExtraInputs)
+	}
+	if _, ok := cfg.ExtraInputs["token_type_ids"]; ok {
+		t.Errorf("decoder-only model must not use token_type_ids")
+	}
+}
