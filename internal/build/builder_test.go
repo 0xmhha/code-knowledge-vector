@@ -60,6 +60,84 @@ func resolveTestdataSample(t *testing.T) string {
 	return abs
 }
 
+// TestRun_AlignsFlowStepsToCode is the Phase C guard: a flow step whose
+// file:line falls inside a real code chunk gets that chunk's ID stamped as
+// AlignedChunkID, so a caller can jump from the flow prose to its implementation.
+func TestRun_AlignsFlowStepsToCode(t *testing.T) {
+	src := resolveTestdataSample(t)
+	out := t.TempDir()
+
+	// server.go's Server.Listen spans lines 22–29; a step at line 25 must
+	// align to that symbol chunk. The second step points at a nonexistent line
+	// so it stays unaligned (corpus drift).
+	corpus := filepath.Join(t.TempDir(), "corpus.jsonl")
+	lines := strings.Join([]string{
+		`{"type":"flow","id":"f1","entry_point":"E","trigger":"t","summary":"server listen flow","root_symbol":"Server"}`,
+		`{"type":"step","id":"s1","flow":"f1","symbol":"Server.Listen","file":"server.go","line":25,"prose":"binds the listening socket"}`,
+		`{"type":"step","id":"s2","flow":"f1","symbol":"Ghost","file":"server.go","line":9000,"prose":"drifted step past EOF"}`,
+	}, "\n")
+	if err := os.WriteFile(corpus, []byte(lines+"\n"), 0o644); err != nil {
+		t.Fatalf("write corpus: %v", err)
+	}
+
+	if _, err := Run(context.Background(), Options{
+		SrcRoot:    src,
+		OutDir:     out,
+		Embedder:   mock.Default(),
+		FlowCorpus: corpus,
+		Now:        func() time.Time { return time.Unix(0, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	st, err := sqlitevec.Open(filepath.Join(out, "vector.db"), mock.Default().Dimension())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	// Resolve what the aligned code chunk for server.go:25 should be.
+	codeChunks, err := st.LookupByFileOrdered(context.Background(), "server.go")
+	if err != nil {
+		t.Fatalf("lookup server.go: %v", err)
+	}
+	wantID := ""
+	for _, c := range codeChunks {
+		if c.ChunkKind == types.ChunkSymbol && c.StartLine <= 25 && 25 <= c.EndLine {
+			wantID = c.ID
+		}
+	}
+	if wantID == "" {
+		t.Fatal("no server.go symbol chunk contains line 25 — fixture assumption broken")
+	}
+
+	flowChunks, err := st.FlowChunks(context.Background())
+	if err != nil {
+		t.Fatalf("flow chunks: %v", err)
+	}
+	var s1, s2 *types.FlowStepMeta
+	for _, c := range flowChunks {
+		if c.FlowStep == nil {
+			continue
+		}
+		switch c.FlowStep.StepID {
+		case "s1":
+			s1 = c.FlowStep
+		case "s2":
+			s2 = c.FlowStep
+		}
+	}
+	if s1 == nil || s2 == nil {
+		t.Fatalf("expected both flow steps in the store (s1=%v s2=%v)", s1 != nil, s2 != nil)
+	}
+	if s1.AlignedChunkID != wantID {
+		t.Errorf("s1 AlignedChunkID = %q, want %q (server.go:25 symbol chunk)", s1.AlignedChunkID, wantID)
+	}
+	if s2.AlignedChunkID != "" {
+		t.Errorf("s2 (drifted) should be unaligned, got %q", s2.AlignedChunkID)
+	}
+}
+
 func TestRunIndexesSample(t *testing.T) {
 	src := resolveTestdataSample(t)
 	out := t.TempDir()

@@ -333,6 +333,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	defer wdCancel()
 	memSig := startMemWatchdog(wdCtx, o.ProgressOut)
 
+	// Accumulate a per-file index of code chunk line spans so a flow corpus
+	// (loaded after the source loop) can align each step's file:line to the
+	// code chunk that implements it (Phase C). Populated only when a flow
+	// corpus is configured — no cost otherwise.
+	codeIx := flowcorpus.CodeIndex{}
+
 	for i, f := range files {
 		var perFileErr error
 		func() {
@@ -365,6 +371,19 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 					}
 				}
 			}
+			// Record code chunk spans for flow-step alignment (Phase C).
+			// Only symbol / function-split chunks are alignment targets —
+			// header/whole-file chunks span the file and would shadow the
+			// containing symbol. Skipped entirely without a flow corpus.
+			if o.FlowCorpus != "" {
+				for i := range chunks {
+					switch chunks[i].ChunkKind {
+					case types.ChunkSymbol, types.ChunkFunctionSplit:
+						codeIx.Add(chunks[i].File, chunks[i].StartLine, chunks[i].EndLine, chunks[i].ID)
+					}
+				}
+			}
+
 			// Convention stats: feed Go source through the aggregator
 			// before chunks are upserted. Convention emission happens
 			// at build end so per-package summaries see all files.
@@ -500,12 +519,28 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		for _, w := range fcStats.Warnings {
 			fmt.Fprintf(os.Stderr, "ckv: flow-corpus warning: %s\n", w)
 		}
+		// Phase C: align each flow step's file:line to the code chunk that
+		// implements it. Done before upsert so aligned_chunk_id is persisted.
+		// A low resolution rate means the corpus drifted from the code — warn
+		// but proceed (unaligned steps still embed and retrieve on prose).
+		resolved, totalSteps := flowcorpus.AlignSteps(flowChunks, codeIx)
 		fp.Emit("flow_corpus.loaded",
 			"path", o.FlowCorpus,
 			"flows", fcStats.Flows, "steps", fcStats.Steps,
 			"invariants", fcStats.Invariants, "edges_skipped", fcStats.Edges,
 			"records_skipped", fcStats.Skipped,
+			"steps_aligned", resolved, "steps_total", totalSteps,
 		)
+		if totalSteps > 0 {
+			pct := resolved * 100 / totalSteps
+			if o.ProgressOut != nil {
+				fmt.Fprintf(o.ProgressOut, "ckv: flow steps aligned to code: %d/%d (%d%%)\n", resolved, totalSteps, pct)
+			}
+			if pct < 80 {
+				fmt.Fprintf(os.Stderr, "ckv: warning: only %d%% of flow steps aligned to code chunks "+
+					"(%d/%d) — the corpus may have drifted from the source\n", pct, resolved, totalSteps)
+			}
+		}
 		if len(flowChunks) > 0 {
 			if err := embedAndUpsert(ctx, store, o.Embedder, flowChunks, o.BatchSize, memSig, embedTextFn); err != nil {
 				return nil, fmt.Errorf("embed/upsert flow corpus: %w", err)

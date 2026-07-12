@@ -420,6 +420,71 @@ func flowHasMarker(t *testing.T, outDir, marker string) bool {
 	return false
 }
 
+// flowStepAlignment returns step s1's AlignedChunkID from the store.
+func flowStepAlignment(t *testing.T, outDir, stepID string) string {
+	t.Helper()
+	st, err := sqlitevec.Open(filepath.Join(outDir, "vector.db"), mock.Default().Dimension())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+	chunks, err := st.FlowChunks(context.Background())
+	if err != nil {
+		t.Fatalf("flow chunks: %v", err)
+	}
+	for _, c := range chunks {
+		if c.FlowStep != nil && c.FlowStep.StepID == stepID {
+			return c.FlowStep.AlignedChunkID
+		}
+	}
+	t.Fatalf("flow step %q not found in store", stepID)
+	return ""
+}
+
+// TestReindex_RealignsFlowStepsToCode is the Phase C reindex guard: a
+// flow-corpus content change re-embeds the flow layer, and the re-embedded
+// steps must keep their code alignment (a full build would set it), not silently
+// drop aligned_chunk_id.
+func TestReindex_RealignsFlowStepsToCode(t *testing.T) {
+	src := resolveTestdataSample(t)
+	out := t.TempDir()
+	corpus := filepath.Join(t.TempDir(), "corpus.jsonl")
+	write := func(summary string) {
+		lines := strings.Join([]string{
+			`{"type":"flow","id":"f1","entry_point":"E","trigger":"t","summary":"` + summary + `","root_symbol":"Server"}`,
+			`{"type":"step","id":"s1","flow":"f1","symbol":"Server.Listen","file":"server.go","line":25,"prose":"binds the socket"}`,
+		}, "\n")
+		if err := os.WriteFile(corpus, []byte(lines+"\n"), 0o644); err != nil {
+			t.Fatalf("write corpus: %v", err)
+		}
+	}
+
+	write("server listen flow")
+	if _, err := Run(context.Background(), Options{
+		SrcRoot: src, OutDir: out, Embedder: mock.Default(), FlowCorpus: corpus,
+		Now: func() time.Time { return time.Unix(0, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	seeded := flowStepAlignment(t, out, "s1")
+	if seeded == "" {
+		t.Fatal("seed build did not align s1 — Phase C build path broken")
+	}
+
+	// Change the corpus content (new summary → new content hash) so reindex
+	// replaces the flow layer, then confirm the re-embedded step stays aligned.
+	write("server listen flow (edited)")
+	if _, err := Reindex(context.Background(), ReindexOptions{
+		SrcRoot: src, OutDir: out, Embedder: mock.Default(), Files: []string{"server.go"},
+		Now: func() time.Time { return time.Unix(100, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	if got := flowStepAlignment(t, out, "s1"); got != seeded {
+		t.Errorf("after flow reindex, s1 AlignedChunkID = %q, want %q (alignment dropped)", got, seeded)
+	}
+}
+
 // docsHasMarker reports whether any curated docs-corpus chunk contains marker.
 func docsHasMarker(t *testing.T, outDir, marker string) bool {
 	t.Helper()
