@@ -59,3 +59,4 @@ This keeps the record honest about what was true at each point in time.
 | [007](007-canonical-id-join-key.md) | canonical_id is the CKG↔CKV join key | Accepted | 2026-06-29 |
 | [008](008-qwen3-embedding-1024-dim.md) | Qwen3-Embedding at 1024 dims (MRL-truncated) | Accepted | 2026-07-12 |
 | [009](009-rule-based-prefix-default.md) | Rule-based prefix is default; LLM prefix + multi-granularity deferred | Accepted | 2026-07-12 |
+| [010](010-flow-corpus-chunk-signatures.md) | Flow-corpus chunk signatures and layer identity | Accepted | 2026-07-12 |
