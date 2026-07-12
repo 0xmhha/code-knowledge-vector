@@ -72,6 +72,42 @@ func TestEnforceCitationsAt_StaleCommitHashFlag(t *testing.T) {
 	}
 }
 
+// TestEnforceCitationsAt_FlowStepLineDrift is the Phase C2 guard: a flow_step
+// whose curated line drifted past the current file's end is flagged stale (not
+// dropped), while an in-bounds step is left fresh. Flow chunks carry no commit
+// hash, so this line-bounds check is their only staleness signal and runs even
+// with an empty currentHead (drift is commit-independent).
+func TestEnforceCitationsAt_FlowStepLineDrift(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "svc.go"), []byte("line1\nline2\nline3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flowStep := func(line int) types.Hit {
+		return types.Hit{Chunk: types.Chunk{
+			File: "svc.go", StartLine: line, EndLine: line,
+			ChunkKind: types.ChunkFlowStep, FlowStep: &types.FlowStepMeta{StepID: "s"},
+		}}
+	}
+	hits := []types.Hit{flowStep(2), flowStep(99)} // in-bounds, drifted past EOF
+
+	keep, dropped, stale := EnforceCitationsAt(hits, dir, "") // empty head: only flow drift can fire
+	if dropped != 0 {
+		t.Fatalf("dropped=%d, want 0 (drift is stale, not dropped)", dropped)
+	}
+	if stale != 1 {
+		t.Fatalf("stale=%d, want 1 (only the drifted step)", stale)
+	}
+	if len(keep) != 2 {
+		t.Fatalf("keep=%d, want 2 (both survive)", len(keep))
+	}
+	if keep[0].StaleCitation {
+		t.Errorf("in-bounds step (line 2 of 3) should not be stale")
+	}
+	if !keep[1].StaleCitation {
+		t.Errorf("drifted step (line 99 of 3) should be stale")
+	}
+}
+
 // TestEnforceCitationsAt_EmptyCurrentHeadSkipsStaleCheck verifies the
 // stale check is opt-in: empty currentHead means "we don't know what
 // fresh looks like" → don't mark anything stale.
