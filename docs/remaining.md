@@ -78,7 +78,9 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 ## 5. backlog 잔여 (2026-05 세대 중 미종결)
 
 - [x] **B10** parser fuzz/property 테스트 — **이미 구현됨**(확인 2026-07-12): 5개 파서(golang/typescript/javascript/solidity/markdown) 각 `FuzzParse`(seed corpus) + 공유 `internal/parse/fuzzcheck.CheckSpans` 불변식(StartLine≥1, EndLine≥StartLine, Name/Kind/Text 비어있지 않음, panic 없음). seed는 `go test`(CI)에서 실행, `-fuzz` 런 검증(golang 8s/547K exec PASS).
-- [ ] **A2** `ckv model fetch` CLI (`hf` 의존 제거) / **A3** linux CI matrix / **A4** bge-code-v1 Qwen2 어댑터.
+- [x] **A2** `ckv model fetch` CLI — **완료**(확인 2026-07-12): `internal/embed/model.FetchModel`이 `https://huggingface.co/<repo>/resolve/main/<file>`로 직접 HTTP 다운로드(온디스크 temp+rename, 기존 파일 skip). **`hf` CLI 의존 0건**. 테스트 `TestFetchModel_*`·`TestDownloadFile_*`(httptest). (`ckv model convert`의 optimum/coremltools는 별개 = ONNX/CoreML 변환 툴, hf 아님.)
+- [x] **A3** linux CI matrix — **완료**: `.github/workflows/ci.yml` `matrix.os` = linux(amd64/arm64) + macos/arm64. PR 체크의 `test (linux/*)`가 이것.
+- [ ] **A4** bge-code-v1 Qwen2 어댑터 — **진짜 미완**: bgeonnx `pooling.go`가 `PoolingLastToken`을 `not yet implemented` 반환(decoder-only ONNX 미지원) + `bge-code-v1` 레지스트리 엔트리 없음. ONNX last-token pooling 구현 + 엔트리 필요. (qwen3의 last-token은 ollama 내부 pooling이라 무관.)
 - [ ] **#7** LLM contextual prefix (Phase D.2) — bgeonnx throughput buffer 회복 후.
 - [ ] **PRR-1** full PR regression — throughput 보류(현 0.74 c/s).
 - [ ] **flow Phase C→F** — file:line 정렬 강화 → 빌드 오케스트레이션(일부 `build-knowledge.sh`로 해소) → 평가. CKS 표면 노출(Phase D 마지막)은 CKS 소관.
