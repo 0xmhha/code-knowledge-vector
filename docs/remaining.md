@@ -73,7 +73,7 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 - [x] **embed 경로 견고화 (2026-07-12)** — `embedAndUpsert`가 `embedResilient`로 배치 실패 시 이분 분할 재시도 + 단일 청크 실패는 skip-and-warn(벡터 쌍 유지). systemic 장애는 tiny probe로 구분해 전파(빈 인덱스 방지). ctx 취소는 전파. 검증: qwen3-4b로 blockchain.go 포함 코퍼스 빌드가 abort 대신 완료(53파일 592청크, 크래시 청크만 skip). 테스트 `TestEmbedResilient_{SkipsPoisonChunk,PropagatesCtxError}`.
 - [x] **Instruct query-prefix (2026-07-12)** — 옵션 `types.QueryEmbedder` 인터페이스 + 레지스트리 `QueryInstruct`(qwen3만) + ollama `EmbedQuery`(qwen3 쿼리에 `Instruct: {task}\nQuery:` 래핑, passage는 raw). query.Engine이 있으면 `EmbedQuery` 사용. `CKV_DISABLE_QUERY_PREFIX=1` 토글. **측정**(go-stablenet gs-full): recall@10 3/10→**4/10**(chaincmd MISS→8 회복, handler 2→1, 회귀 없음). 테스트 3건.
 - [x] **knownDims 표준화 (2026-07-12)** — 레지스트리 `ModelConfig.KnownDims`(qwen3:4b `512/1024/2560`, 0.6b `256/512/1024`, native 포함) + `registry.KnownDims(name)`. ollama `validateTargetDim`가 `--embed-dim`을 KnownDims로 검증(비표준·초과 dim 거부, 비-MRL 모델은 무제한). CLI help 갱신. 테스트 `TestKnownDims`·`TestValidateTargetDim`.
-- [x] **qwen3-embedding:0.6b(native 1024) vs 4b-trunc-1024 비교 (2026-07-12)** — 동일 코퍼스(1015청크, 1024dim): recall@10 동률 4/4, 찾은 타겟 평균순위 0.6b 2.75 vs 4b 3.0, 저장 동일 — 단 **0.6b가 4× 작고(639MB vs 2.5GB) 더 안정**. **0.6b 강력 후보**. 기록: `qwen3-dimension-ab-2026-07-12.md §8`. 대형 재확인 후 권장 모델 4b→0.6b 조정 검토(ADR-008 후속).
+- [x] **qwen3 0.6b vs 4b-trunc-1024 비교 + 대형 재확인 (2026-07-12)** — 소표본(N=4)은 0.6b 근소 우위였으나 **대형(123파일/1834청크, N=9)에서 정정: 트레이드오프**. recall@10 동률 9/9, MRR 4b 0.748 vs 0.6b 0.683(4b 근소 우위), 저장 동일 — 단 0.6b는 **4× 작고(639MB) 0 skip 완전 안정**(4b는 7청크 크래시 skip). **ADR-008(4b@1024) 뒤집을 근거 없음**, 0.6b는 메모리·안정성 우선 배포의 강력한 대안. 기록: `qwen3-dimension-ab-2026-07-12.md §8`.
 
 ## 5. backlog 잔여 (2026-05 세대 중 미종결)
 
