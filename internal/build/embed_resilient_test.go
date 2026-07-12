@@ -67,6 +67,53 @@ func TestEmbedResilient_SkipsPoisonChunk(t *testing.T) {
 	}
 }
 
+// sizeLimitEmbedder fails any batch containing an input larger than limit bytes
+// — mirrors ollama's Qwen3-4b endpoint crashing on oversized chunks.
+type sizeLimitEmbedder struct {
+	limit int
+	dim   int
+}
+
+func (e *sizeLimitEmbedder) Identity() types.EmbeddingIdentity {
+	return types.EmbeddingIdentity{Provider: "test", Model: "sizelimit", Dim: e.dim}
+}
+func (e *sizeLimitEmbedder) Name() string        { return "sizelimit" }
+func (e *sizeLimitEmbedder) Dimension() int      { return e.dim }
+func (e *sizeLimitEmbedder) MaxInputTokens() int { return 8192 }
+func (e *sizeLimitEmbedder) Embed(ctx context.Context, batch []string) ([][]float32, error) {
+	for _, t := range batch {
+		if len(t) > e.limit {
+			return nil, fmt.Errorf("input %d bytes exceeds limit (simulated crash)", len(t))
+		}
+	}
+	out := make([][]float32, len(batch))
+	for i := range out {
+		out[i] = make([]float32, e.dim)
+		out[i][0] = 1
+	}
+	return out, nil
+}
+
+// TestEmbedResilient_RecoversOversizedByTruncating verifies an oversized chunk
+// that the backend rejects is recovered by re-embedding a truncated input,
+// rather than being skipped.
+func TestEmbedResilient_RecoversOversizedByTruncating(t *testing.T) {
+	// Crashes on inputs > 20 KB; truncate cap (maxEmbedRetryBytes ~12 KB) fits.
+	emb := &sizeLimitEmbedder{limit: 20000, dim: 8}
+	big := strings.Repeat("x", 30000)
+
+	oc, ov, err := embedResilient(context.Background(), emb, []types.Chunk{{ID: "big"}}, []string{big})
+	if err != nil {
+		t.Fatalf("embedResilient: %v", err)
+	}
+	if len(oc) != 1 || len(ov) != 1 {
+		t.Fatalf("oversized chunk should be recovered via truncation, not skipped: got %d chunks", len(oc))
+	}
+	if len(ov[0]) != 8 {
+		t.Fatalf("recovered vector has wrong dim %d", len(ov[0]))
+	}
+}
+
 // TestEmbedResilient_PropagatesCtxError verifies a cancelled context is a hard
 // error, not treated as a per-input rejection to skip.
 func TestEmbedResilient_PropagatesCtxError(t *testing.T) {
