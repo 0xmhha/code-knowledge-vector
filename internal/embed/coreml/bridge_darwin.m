@@ -1,3 +1,5 @@
+//go:build darwin && tokenizers
+
 // CoreML Objective-C bridge for CKV.
 // Loads an MLModel from .mlpackage/.mlmodelc and runs embedding inference.
 // The Go CGO layer calls these C functions.
