@@ -79,6 +79,11 @@ type ReindexOptions struct {
 	// retrieval.
 	DisableContextualPrefix bool
 
+	// LLMPrefixModel mirrors Options.LLMPrefixModel for the reindex path.
+	// Keep it equal to the value used at build time — mixing LLM-prefixed
+	// and rule-prefixed embeddings in one store would degrade retrieval.
+	LLMPrefixModel string
+
 	// PolicyPath mirrors Options.PolicyPath. Reindexed chunks pass
 	// through the policy loader so category/guidance stay current with
 	// the yaml even when only some files change.
@@ -232,7 +237,7 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 
 	parsers := newParsers()
 	chunker := newChunker(o.Embedder, cfg)
-	embedTextFn := resolveEmbedTextFn(o.DisableContextualPrefix)
+	embedTextFn := resolveEmbedTextFn(ctx, o.DisableContextualPrefix, resolveLLMPrefixer(o.LLMPrefixModel, o.OutDir))
 	pol, err := policy.Load(o.PolicyPath)
 	if err != nil {
 		return nil, fmt.Errorf("policy: %w", err)

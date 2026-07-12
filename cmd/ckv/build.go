@@ -27,6 +27,8 @@ type buildOpts struct {
 	batchSize  int
 	jsonOut    bool
 
+	llmPrefixModel string
+
 	includePR bool
 	prSince   string
 	prRepo    string
@@ -61,6 +63,7 @@ Re-running on a populated --out updates chunks in place (Upsert).`,
 	f.StringVar(&opts.flowCorpus, "flow-corpus", "", "path to a curated flow corpus JSONL (corpus.jsonl) to embed as flow_step/flow_spine/curated-invariant chunks (schema: <go-stablenet>/.claude/docs/corpus/SCHEMA.md)")
 	f.BoolVar(&opts.jsonOut, "json", false, "machine-readable summary output")
 	f.IntVar(&opts.batchSize, "batch", 0, "embedding batch size (0 = default 32); lower it (e.g. 4) when an embedder rejects large batches of big chunks")
+	f.StringVar(&opts.llmPrefixModel, "llm-prefix-model", "", "enable Phase-D.2 LLM contextual prefix: name of a local Ollama chat model (e.g. 'llama3') that writes a one-sentence description of each chunk, prepended to its embed text. Empty keeps the cheap rule-based prefix. Disk-cached under <out>/.ckv-llmprefix-cache; a generation failure degrades to the rule-based prefix")
 	f.BoolVar(&opts.includePR, "include-pr-history", false, "fetch merged PRs via gh CLI and index descriptions + commit messages")
 	f.StringVar(&opts.prSince, "pr-since", "", "only PRs merged after this date (YYYY-MM-DD); requires --include-pr-history")
 	f.StringVar(&opts.prRepo, "pr-repo", "", "GitHub repo (owner/repo) for PR fetch; auto-detected from git remote if empty")
@@ -101,6 +104,7 @@ func runBuild(ctx context.Context, opts *buildOpts) error {
 		Footprint:               fp,
 		ProgressOut:             os.Stderr,
 		DisableContextualPrefix: os.Getenv("CKV_DISABLE_CONTEXTUAL_PREFIX") == "1",
+		LLMPrefixModel:          opts.llmPrefixModel,
 		PolicyPath:              opts.policy,
 		DocsRoots:               opts.docs,
 		FlowCorpus:              opts.flowCorpus,

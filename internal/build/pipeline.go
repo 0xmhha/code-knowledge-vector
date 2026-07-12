@@ -1,12 +1,15 @@
 package build
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
 	"github.com/0xmhha/code-knowledge-vector/internal/convention"
 	"github.com/0xmhha/code-knowledge-vector/internal/invariant"
+	"github.com/0xmhha/code-knowledge-vector/internal/llmprefix"
 	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/golang"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/javascript"
@@ -39,13 +42,46 @@ func newChunker(emb types.Embedder, cfg *projectcfg.Config) *chunk.Chunker {
 	return chunk.New(opts)
 }
 
-// resolveEmbedTextFn selects the embed text function based on the
-// contextual prefix flag.
-func resolveEmbedTextFn(disablePrefix bool) func(types.Chunk) string {
+// resolveEmbedTextFn selects the embed text function. When an LLM prefixer is
+// set (Phase D.2), each chunk's embed text is its generated one-sentence
+// context prefix followed by the rule-based prefix + raw chunk — the LLM prose
+// is layered ON TOP of the rule-based signal, not instead of it. A cache miss /
+// generation failure degrades to the rule-based prefix alone (D.1). Otherwise
+// disablePrefix chooses raw (no prefix) vs the rule-based prefix.
+//
+// Combining (LLM + rule-based) beats LLM-alone: the rule-based prefix carries
+// exact symbol/file tokens that a prose paraphrase dilutes. Measured on
+// testdata/sample (docs/llm-contextual-prefix-poc-2026-07-12.md), even the
+// combined form does not beat rule-based alone on that small, self-descriptive
+// corpus — so this lever ships opt-in and off by default.
+func resolveEmbedTextFn(ctx context.Context, disablePrefix bool, prefixer llmprefix.Prefixer) func(types.Chunk) string {
+	if prefixer != nil {
+		return func(c types.Chunk) string {
+			if pre := prefixer.Prefix(ctx, c); pre != "" {
+				return pre + "\n" + chunk.BuildEmbedText(c)
+			}
+			return chunk.BuildEmbedText(c)
+		}
+	}
 	if disablePrefix {
 		return chunk.RawEmbedText
 	}
 	return chunk.BuildEmbedText
+}
+
+// resolveLLMPrefixer builds a disk-cached ollama LLM prefixer for the given
+// model (empty → nil, i.e. no LLM prefix). The cache lives under outDir so
+// rebuilds reuse generated prefixes.
+func resolveLLMPrefixer(model, outDir string) llmprefix.Prefixer {
+	if model == "" {
+		return nil
+	}
+	p, err := llmprefix.NewCached(llmprefix.NewOllamaGenerator(model), filepath.Join(outDir, ".ckv-llmprefix-cache"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ckv: warning: LLM prefix disabled — %v\n", err)
+		return nil
+	}
+	return p
 }
 
 // processFile reads, parses, and chunks a single source file.
