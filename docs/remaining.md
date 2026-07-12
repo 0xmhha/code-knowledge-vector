@@ -87,7 +87,7 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 - [x] **Phase B (multi-granularity) go/no-go 프로토타입 (2026-07-12)** — 전체 구현(~250 LOC·throughput −50%) 전에 저비용 프로토타입으로 판정. `internal/chunk`에 opt-in coarse 청크 `file_full`(env `CKV_EXPERIMENTAL_FILE_FULL`, 기본 off) 추가 + coarse probe fixture(`queries-coarse.yaml` N=8) 신설. **판정 NO-GO**: coarse 청크가 도와야 할 coarse probe에서 오히려 recall@3 **1.00→0.88**(MRR 0.792→0.754), hard에서 recall@5 **0.88→0.79**·found **21→19** 회귀. baseline coarse probe가 이미 recall@3=1.00(헤드룸 없음, file_header가 소형 파일 커버). → Phase B 전체 구현 보류, file_full은 gated off 유지(대형 이질 코퍼스 재검증용, D.2와 동일). 테스트 `TestIncludeFileFullEmitsCoarseChunk`·`TestLoadCoarseQueriesFixture`. 기록: `phase-b-multigran-probe-2026-07-12.md`.
 - [ ] **PRR-1** full PR regression — throughput 보류(현 0.74 c/s).
 - [ ] **flow Phase C→F** — file:line 정렬 강화 → 빌드 오케스트레이션(일부 `build-knowledge.sh`로 해소) → 평가. CKS 표면 노출(Phase D 마지막)은 CKS 소관.
-- [ ] **ADR 승격(F)** — canonical_id join / 임베딩 모델·차원(측정 후) / flow 시그니처. R1/R2 가드레일을 Consequences에 측정 근거와 함께 명시.
+- [~] **ADR 승격(F)** — 대부분 완료. canonical_id join(**ADR-007**), 임베딩 차원(**ADR-008**), retrieval prefix/granularity 전략(**ADR-009**: rule-based 기본·D.2/Phase B defer, 측정 근거 명시). **잔여**: flow 시그니처 ADR(현재 미작성)만.
 
 ## 6. 종결·정정 확인
 

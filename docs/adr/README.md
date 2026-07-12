@@ -58,3 +58,4 @@ This keeps the record honest about what was true at each point in time.
 | [006](006-bm25-temporary-rerank.md) | BM25 candidate-set rerank as temporary measurement infrastructure | Rejected | 2026-05-26 |
 | [007](007-canonical-id-join-key.md) | canonical_id is the CKG↔CKV join key | Accepted | 2026-06-29 |
 | [008](008-qwen3-embedding-1024-dim.md) | Qwen3-Embedding at 1024 dims (MRL-truncated) | Accepted | 2026-07-12 |
+| [009](009-rule-based-prefix-default.md) | Rule-based prefix is default; LLM prefix + multi-granularity deferred | Accepted | 2026-07-12 |
