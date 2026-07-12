@@ -2,7 +2,7 @@
 
 > **역할**: CKV의 *실행 가능한 잔여 작업*을 코드검증본으로 모은 단일 진입점.
 > **작성**: 2026-07-11 (코드 대조: 브랜치 `docs/retire-ckg-node-id`, HEAD `d546d95`)
-> **갱신**: 2026-07-12 (PR #17~#45 반영, main HEAD `c7a961b`) — **CKV 소관 작업 실질 완료**, 잔여는 아래 "현재 상태"의 블록 4건.
+> **갱신**: 2026-07-12 (PR #17~#47 반영, main HEAD `f595d83`) — **CKV 소관 작업 실질 완료**, 잔여는 아래 "현재 상태"의 블록 4건.
 > **관계**:
 > - 배경·협의·결정 근거 → [`session-handoff-2026-06-29.md §4`](./session-handoff-2026-06-29.md) (서사 SoT)
 > - reindex 설계 → [`reindex-migration-design-2026-07-10.md`](./reindex-migration-design-2026-07-10.md)
@@ -16,13 +16,14 @@
 
 ## 현재 상태 (2026-07-12) — CKV 소관 실질 완료
 
-이번 세션(PR #17~#45)에서 CKV 소관 작업이 실질적으로 종결됐다. 남은 항목은 전부 **이 머신에서 착수 불가**(부재 데이터·throughput 환경·CKS 소관)다.
+이번 세션(PR #17~#47)에서 CKV 소관 작업이 실질적으로 종결됐다. 남은 항목은 전부 **이 머신에서 착수 불가**(부재 데이터·throughput 환경·CKS 소관)다.
 
 **종결(§별 상세는 아래 감사 이력):**
 - `ckg_node_id` 은퇴(§1) · reindex P2/P3/P4/P5 CKV-side(§2/§3) · Qwen3 차원·모델 결정 + embed 견고화(§4)
 - 품질 레버 측정 사이클(§5): hard fixture → prefix 레버 스윕(rule-based 최적, D.2 반증) → Phase B multi-gran(measured **no-go**)
 - ADR-007~010 승격(§5): canonical_id join · 임베딩 차원 · prefix/granularity 전략 · flow 시그니처
 - flow Phase C(정렬 C1 + drift C2) · Phase D(도구 4종 CKV 구현·MCP 노출) · Phase E(빌드 경로 외부화)
+- 위생: tracker 정리(#46) · coreml을 `tokenizers` opt-in 태그로 게이트(#47) → 전체 스위트 `go test ./...` **exit 0**(42패키지, coreml 제외 불요)
 
 **블록 잔여 (착수 조건 명시):**
 
