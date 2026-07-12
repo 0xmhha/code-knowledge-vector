@@ -1,0 +1,251 @@
+# CKV eval fixture — HARD discrimination set (schema v1)
+#
+# Purpose: the default testdata/queries.yaml is at the retrieval ceiling on the
+# small testdata/sample corpus (bge-m3: recall@1 0.86, recall@5 0.98), so it
+# can no longer discriminate between retrieval quality levers (contextual
+# prefix, sliding split, multi-granularity). This fixture is deliberately HARD:
+# every query is written to depress recall@1/MRR into a measurable band so a
+# lever's effect is visible.
+#
+# Scorer (same as queries.yaml): a hit is correct if citation.file ==
+# expected.file AND the hit's line range overlaps expected.line_range. symbol/
+# kind are documentation only.
+#
+# corpus: ./testdata/sample (server.go, cache.go, validator.go, handler.ts,
+#         client.js, token.sol, docs/decisions.md).
+#
+# Design levers that make a query hard (each query notes which it uses):
+#   - zero-lexical-overlap : the intent shares no identifier with the target.
+#   - lexical decoy        : intent words surface-match a DIFFERENT file, so the
+#                            wrong file is a tempting top-1 (e.g. "address" →
+#                            server.Addr / token(address) instead of the email
+#                            validator; "reject/validate" → validator instead of
+#                            the Solidity modifier).
+#   - cross-language       : the correct answer is in an unexpected language.
+#   - indirect/negation    : behavior described by its effect, not its name.
+
+schema_version: "1"
+
+queries:
+  # ---- server.go ----
+  - id: h1
+    intent: "make sure the network resource is freed even if the caller forgets to"
+    expected:
+      file: server.go
+      symbol: Server.Close
+      kind: Method
+      line_range: [32, 37]
+    notes: "indirect; decoy: cache.Delete/EvictAll ('free/release')"
+
+  - id: h2
+    intent: "begin accepting inbound connections"
+    expected:
+      file: server.go
+      symbol: Server.Listen
+      kind: Method
+      line_range: [22, 29]
+    notes: "decoy: handler.dispatch ('accept requests')"
+
+  # ---- cache.go ----
+  - id: h3
+    intent: "wipe everything held so the process can exit cleanly"
+    expected:
+      file: cache.go
+      symbol: Cache.EvictAll
+      kind: Method
+      line_range: [49, 54]
+    notes: "decoy: server.Close ('exit/clean shutdown')"
+
+  - id: h4
+    intent: "how many things are currently kept"
+    expected:
+      file: cache.go
+      symbol: Cache.Len
+      kind: Method
+      line_range: [40, 42]
+    notes: "lexical decoy: token.balanceOf ('how many tokens held')"
+
+  - id: h5
+    intent: "fetch a previously stored item and tell me whether it was there"
+    expected:
+      file: cache.go
+      symbol: Cache.Get
+      kind: Method
+      line_range: [25, 31]
+    notes: "decoy: client.parseResponse, token.balanceOf"
+
+  - id: h6
+    intent: "forget one specific remembered item"
+    expected:
+      file: cache.go
+      symbol: Cache.Delete
+      kind: Method
+      line_range: [33, 38]
+    notes: "decoy: cache.EvictAll (also removes)"
+
+  # ---- validator.go ----
+  - id: h7
+    intent: "confirm a contact address is well-formed before we accept it"
+    expected:
+      file: validator.go
+      symbol: ValidateEmail
+      kind: Function
+      line_range: [17, 25]
+    notes: "strong lexical decoy: 'address' → server.Addr / token(address account)"
+
+  - id: h8
+    intent: "canonicalize a mailbox so two spellings compare equal"
+    expected:
+      file: validator.go
+      symbol: NormalizeEmail
+      kind: Function
+      line_range: [30, 32]
+    notes: "decoy: SanitizeUsername ('clean up user input')"
+
+  - id: h9
+    intent: "make sure a secret is hard enough to guess"
+    expected:
+      file: validator.go
+      symbol: CheckPasswordStrength
+      kind: Function
+      line_range: [38, 59]
+    notes: "zero-lexical-overlap; decoy: token.onlyPositive ('require ...')"
+
+  - id: h10
+    intent: "drop hidden control bytes someone pasted into their handle"
+    expected:
+      file: validator.go
+      symbol: SanitizeUsername
+      kind: Function
+      line_range: [64, 72]
+    notes: "decoy: handler.validatePath ('reject bad string')"
+
+  # ---- handler.ts ----
+  - id: h11
+    intent: "turn an incoming path into the code that answers it"
+    expected:
+      file: handler.ts
+      symbol: Handler.dispatch
+      kind: Method
+      line_range: [16, 33]
+    notes: "cross-language decoy: server.Listen, client.createClient"
+
+  - id: h12
+    intent: "the canned reply when nothing matches"
+    expected:
+      file: handler.ts
+      symbol: notFound
+      kind: Function
+      line_range: [35, 35]
+    notes: "decoy: serverError, validatePath"
+
+  - id: h13
+    intent: "the consistent body we return when something broke on our side"
+    expected:
+      file: handler.ts
+      symbol: serverError
+      kind: Function
+      line_range: [39, 44]
+    notes: "cross-language decoy: client.formatError ('present an error')"
+
+  - id: h14
+    intent: "refuse a route that is empty or tries to escape upward"
+    expected:
+      file: handler.ts
+      symbol: validatePath
+      kind: Function
+      line_range: [46, 50]
+    notes: "lexical decoy: validator.ValidateEmail / SanitizeUsername"
+
+  # ---- client.js ----
+  - id: h15
+    intent: "produce a safe human message from a failed call without leaking internals"
+    expected:
+      file: client.js
+      symbol: formatError
+      kind: Function
+      line_range: [40, 50]
+    notes: "cross-language decoy: handler.serverError"
+
+  - id: h16
+    intent: "keep trying a flaky call a few times before giving up"
+    expected:
+      file: client.js
+      symbol: fetchWithRetry
+      kind: Function
+      line_range: [52, 67]
+    notes: "zero-lexical-overlap ('retry' not in intent)"
+
+  - id: h17
+    intent: "stand up a caller pinned to a single host"
+    expected:
+      file: client.js
+      symbol: createClient
+      kind: Function
+      line_range: [11, 24]
+    notes: "decoy: NewServer, NewCache (constructors)"
+
+  - id: h18
+    intent: "unwrap the payload once the call comes back ok"
+    expected:
+      file: client.js
+      symbol: parseResponse
+      kind: Function
+      line_range: [25, 34]
+    notes: "decoy: cache.Get, formatError"
+
+  # ---- token.sol ----
+  - id: h19
+    intent: "refuse the operation unless the number is above zero"
+    expected:
+      file: token.sol
+      symbol: onlyPositive
+      kind: Modifier
+      line_range: [20, 23]
+    notes: "strong lexical decoy: 'refuse/validate' → validator.*, handler.validatePath"
+
+  - id: h20
+    intent: "move value from the sender to someone else, checking they have enough"
+    expected:
+      file: token.sol
+      symbol: transfer
+      kind: Function
+      line_range: [36, 46]
+    notes: "decoy: client.fetch, cache.Set ('store value')"
+
+  - id: h21
+    intent: "read how much a holder currently owns"
+    expected:
+      file: token.sol
+      symbol: balanceOf
+      kind: Function
+      line_range: [30, 32]
+    notes: "decoy: cache.Len ('how many'), cache.Get"
+
+  - id: h22
+    intent: "announce that a movement of value happened"
+    expected:
+      file: token.sol
+      symbol: Transfer
+      kind: Event
+      line_range: [13, 13]
+    notes: "decoy: handler.notFound ('the reply we send')"
+
+  # ---- docs/decisions.md ----
+  - id: h23
+    intent: "the rationale behind not using a hosted vector database"
+    expected:
+      file: docs/decisions.md
+      symbol: why-sqlite-vec
+      kind: DocSection
+      line_range: [5, 11]
+    notes: "negation ('not hosted'); decoy: why-bge section"
+
+  - id: h24
+    intent: "reasoning for the code-aware embedding pick"
+    expected:
+      file: docs/decisions.md
+      symbol: why-bge-code-v1
+      kind: DocSection
+      line_range: [12, 20]
+    notes: "decoy: why-sqlite-vec section"
