@@ -95,6 +95,47 @@ func TestStoreFilterByLanguage(t *testing.T) {
 	}
 }
 
+func TestDeleteDocsChunks(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v.db")
+	s, _ := Open(dbPath, testDim)
+	defer s.Close()
+	ctx := context.Background()
+
+	// Curated docs layer (chunk_kind=doc, category=domain) alongside a
+	// symbol chunk and an in-tree doc chunk (category=""). Only the curated
+	// docs layer must be deleted.
+	doc1 := mkChunk("d1", "corpus/a.md", "domain doc one", 1, 3, "markdown", types.KindFunction)
+	doc1.ChunkKind, doc1.Category = types.ChunkDoc, "domain"
+	doc2 := mkChunk("d2", "corpus/b.md", "domain doc two", 1, 3, "markdown", types.KindFunction)
+	doc2.ChunkKind, doc2.Category = types.ChunkDoc, "domain"
+	intreeDoc := mkChunk("d3", "README.md", "in-tree doc", 1, 3, "markdown", types.KindFunction)
+	intreeDoc.ChunkKind, intreeDoc.Category = types.ChunkDoc, "" // NOT domain → keep
+	sym := mkChunk("s1", "x.go", "code", 1, 5, "go", types.KindFunction)
+
+	embs := [][]float32{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}}
+	if err := s.Upsert(ctx, []types.Chunk{doc1, doc2, intreeDoc, sym}, embs); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	n, err := s.DeleteDocsChunks(ctx)
+	if err != nil {
+		t.Fatalf("DeleteDocsChunks: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("deleted %d docs chunks, want 2 (curated domain only)", n)
+	}
+
+	remaining, _ := s.DocsChunks(ctx)
+	if len(remaining) != 0 {
+		t.Fatalf("DocsChunks after delete = %d, want 0", len(remaining))
+	}
+	// The symbol and in-tree doc chunks must survive.
+	st, _ := s.Stats(ctx)
+	if st.ChunkCount != 2 {
+		t.Fatalf("remaining chunks = %d, want 2 (symbol + in-tree doc)", st.ChunkCount)
+	}
+}
+
 func TestStoreDeleteByFile(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "v.db")
 	s, _ := Open(dbPath, testDim)

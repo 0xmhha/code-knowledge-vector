@@ -8,6 +8,7 @@ import (
 
 	"github.com/0xmhha/code-knowledge-vector/internal/chunk"
 	"github.com/0xmhha/code-knowledge-vector/internal/convention"
+	"github.com/0xmhha/code-knowledge-vector/internal/discover"
 	"github.com/0xmhha/code-knowledge-vector/internal/invariant"
 	"github.com/0xmhha/code-knowledge-vector/internal/llmprefix"
 	cparse "github.com/0xmhha/code-knowledge-vector/internal/parse"
@@ -17,6 +18,7 @@ import (
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/solidity"
 	"github.com/0xmhha/code-knowledge-vector/internal/parse/typescript"
 	"github.com/0xmhha/code-knowledge-vector/internal/projectcfg"
+	"github.com/0xmhha/code-knowledge-vector/internal/store/sqlitevec"
 	"github.com/0xmhha/code-knowledge-vector/pkg/types"
 )
 
@@ -137,6 +139,55 @@ func processFile(
 	}
 
 	return chunks, nil
+}
+
+// reindexDocsRoots re-walks the curated docs roots and re-embeds their markdown
+// as category="domain" doc chunks, returning the total chunks embedded. It
+// mirrors the build-time `--docs` loop (builder.go) and is used by reindex
+// after DeleteDocsChunks to replace the docs layer wholesale when the docs tree
+// content hash changes. Kept as a small parallel loop rather than sharing the
+// build path, which is coupled to build-only stat accounting.
+func reindexDocsRoots(
+	ctx context.Context,
+	store *sqlitevec.Store,
+	emb types.Embedder,
+	batch int,
+	parsers map[string]cparse.Parser,
+	cfg *projectcfg.Config,
+	chunker *chunk.Chunker,
+	roots []string,
+	embedTextFn func(types.Chunk) string,
+) (int, error) {
+	total := 0
+	for _, root := range roots {
+		files, walkErrs, werr := discover.Walk(root, discover.Options{})
+		if werr != nil {
+			return total, fmt.Errorf("walk docs %q: %w", root, werr)
+		}
+		for _, e := range walkErrs {
+			fmt.Fprintf(os.Stderr, "ckv: docs walk warning: %v\n", e)
+		}
+		for _, f := range files {
+			chunks, perr := processFile(f.AbsPath, f.RelPath, f.Language, "", parsers, cfg, chunker)
+			if perr != nil {
+				fmt.Fprintf(os.Stderr, "ckv: %v\n", perr)
+				continue
+			}
+			if len(chunks) == 0 {
+				continue
+			}
+			// Curated corpus is always "domain" regardless of any source-tree
+			// policy — same rule as the build path.
+			for i := range chunks {
+				chunks[i].Category = "domain"
+			}
+			if err := embedAndUpsert(ctx, store, emb, chunks, batch, nil, embedTextFn); err != nil {
+				return total, fmt.Errorf("embed/upsert docs %s: %w", f.RelPath, err)
+			}
+			total += len(chunks)
+		}
+	}
+	return total, nil
 }
 
 // accumulateStats adds the stats from a chunk slice to a running total.

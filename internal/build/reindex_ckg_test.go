@@ -420,6 +420,76 @@ func flowHasMarker(t *testing.T, outDir, marker string) bool {
 	return false
 }
 
+// docsHasMarker reports whether any curated docs-corpus chunk contains marker.
+func docsHasMarker(t *testing.T, outDir, marker string) bool {
+	t.Helper()
+	st, err := sqlitevec.Open(filepath.Join(outDir, "vector.db"), mock.Default().Dimension())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+	chunks, err := st.DocsChunks(context.Background())
+	if err != nil {
+		t.Fatalf("docs chunks: %v", err)
+	}
+	for _, c := range chunks {
+		if strings.Contains(c.Text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestReindex_ReindexesDocsOnContentChange is the P3b-docs guard: when a
+// curated `--docs` root's content hash changes, reindex must replace the docs
+// layer (delete + re-walk) so edits under the docs tree are reflected — the
+// code-diff path only sees in-tree files, not an out-of-tree docs corpus.
+func TestReindex_ReindexesDocsOnContentChange(t *testing.T) {
+	const marker = "P3B-DOCS-MARKER"
+	src := resolveTestdataSample(t)
+	docsRoot := t.TempDir()
+	docPath := filepath.Join(docsRoot, "guide.md")
+	if err := os.WriteFile(docPath, []byte("# Overview\n\nInitial curated guidance about the subsystem.\n"), 0o644); err != nil {
+		t.Fatalf("write doc: %v", err)
+	}
+	out := t.TempDir()
+
+	if _, err := Run(context.Background(), Options{
+		SrcRoot:   src,
+		OutDir:    out,
+		Embedder:  mock.Default(),
+		DocsRoots: []string{docsRoot},
+		Now:       func() time.Time { return time.Unix(0, 0).UTC() },
+	}); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	if docsHasMarker(t, out, marker) {
+		t.Fatalf("marker docs present before the edit")
+	}
+
+	// Edit the doc to add a new section carrying the marker → tree hash changes.
+	if err := os.WriteFile(docPath, []byte("# Overview\n\nInitial curated guidance.\n\n# Details\n\n"+marker+" section.\n"), 0o644); err != nil {
+		t.Fatalf("edit doc: %v", err)
+	}
+
+	res, err := Reindex(context.Background(), ReindexOptions{
+		SrcRoot:  src,
+		OutDir:   out,
+		Embedder: mock.Default(),
+		Files:    []string{"server.go"},
+		Now:      func() time.Time { return time.Unix(100, 0).UTC() },
+	})
+	if err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	if res.DocsReindexed == 0 {
+		t.Fatalf("DocsReindexed = 0, want >0 — docs change not detected")
+	}
+	if !docsHasMarker(t, out, marker) {
+		t.Fatalf("docs corpus change not reflected after reindex — P3b-docs missing")
+	}
+}
+
 // TestReindex_ReindexesFlowOnContentChange is the P3b guard: when the flow
 // corpus file's content hash changes, reindex must replace the flow layer
 // (delete + reload) so corpus edits are reflected — reindex previously touched

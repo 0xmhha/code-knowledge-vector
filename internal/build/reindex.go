@@ -129,6 +129,9 @@ type ReindexResult struct {
 	// FlowReindexed is the number of flow-corpus chunks re-indexed this run
 	// because the corpus content hash changed (0 when unchanged or absent).
 	FlowReindexed int
+	// DocsReindexed is the number of curated docs-corpus chunks re-indexed this
+	// run because the docs tree content hash changed (0 when unchanged/absent).
+	DocsReindexed int
 }
 
 // Reindex re-embeds only the files that changed between the manifest's
@@ -478,6 +481,31 @@ func Reindex(ctx context.Context, o ReindexOptions) (*ReindexResult, error) {
 				if o.ProgressOut != nil {
 					fmt.Fprintf(o.ProgressOut, "ckv: flow corpus changed → re-indexed %d flow chunks\n", len(flowChunks))
 				}
+			}
+		}
+	}
+
+	// P3b-docs — incremental docs-corpus re-index: when the recorded docs tree
+	// content hash differs, replace the curated docs layer (chunk_kind=doc AND
+	// category=domain) wholesale so edits/removals under the `--docs` roots are
+	// reflected. In-tree markdown is already handled by the code-diff path; flow
+	// chunks (a different kind) are untouched. Best-effort like the flow layer:
+	// a walk/embed failure aborts this run rather than leaving a half-replaced
+	// layer, but an absent docs source is simply skipped.
+	if man.Sources != nil && man.Sources.Docs != nil && man.Sources.Docs.Path != "" {
+		docsRoots := docsRootsFromManifest(man)
+		if current := docsRootsHash(docsRoots); current != "" && current != man.Sources.Docs.ContentHash {
+			if _, derr := store.DeleteDocsChunks(ctx); derr != nil {
+				return nil, fmt.Errorf("reindex docs delete: %w", derr)
+			}
+			n, eerr := reindexDocsRoots(ctx, store, o.Embedder, o.BatchSize, parsers, cfg, chunker, docsRoots, embedTextFn)
+			if eerr != nil {
+				return nil, fmt.Errorf("reindex docs embed: %w", eerr)
+			}
+			man.Sources.Docs.ContentHash = current
+			result.DocsReindexed = n
+			if o.ProgressOut != nil {
+				fmt.Fprintf(o.ProgressOut, "ckv: docs corpus changed → re-indexed %d doc chunks\n", n)
 			}
 		}
 	}
