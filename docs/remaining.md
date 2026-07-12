@@ -70,14 +70,14 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 - [x] **MRL truncate 경로** — `ollama.Options.TargetDim`(`truncateNormalize`) + CLI `--embed-dim`. 테스트 `TestTruncateNormalize`.
 - [x] **대형 코퍼스 재확인 (2026-07-12)** — go-stablenet 83파일/1015청크(20×)에서 full-2560 vs 1024-truncate: top-1 일치 8/10, top-5 overlap 0.81, ground-truth 3쿼리 순위 동일, 저장 ÷2.1. **1024-truncate 권장 확증**. 기록: `qwen3-dimension-ab-2026-07-12.md §6`. 부수: `ckv build --batch N` 추가.
 - [x] **ADR 승격 (차원 락) — `adr/008-qwen3-embedding-1024-dim.md` (Accepted, 2026-07-12)** — qwen3-embedding:4b @ 1024-truncate 확정. 정본 재검은 Consequences에 캐비엇으로 명시.
-- [x] **embed 경로 견고화 (2026-07-12)** — `embedAndUpsert`가 `embedResilient`로 배치 실패 시 이분 분할 재시도 + 단일 청크 실패는 skip-and-warn(벡터 쌍 유지). systemic 장애는 tiny probe로 구분해 전파(빈 인덱스 방지). ctx 취소는 전파. 검증: qwen3-4b로 blockchain.go 포함 코퍼스 빌드가 abort 대신 완료(53파일 592청크, 크래시 청크만 skip). 테스트 `TestEmbedResilient_{SkipsPoisonChunk,PropagatesCtxError}`.
+- [x] **embed 경로 견고화 (2026-07-12)** — `embedAndUpsert`가 `embedResilient`로 배치 실패 시 이분 분할 재시도. 단일 청크 실패는 **복구 래더**로 처리: full-input 재시도(4b 크래시는 flaky-메모리라 모델 리로드 후 성공) → 점진적 truncation(12KB→4KB, 저장 Text는 불변·벡터만 잘린 입력) → 그래도 실패 시에만 skip-and-warn. systemic 장애는 tiny probe로 구분해 전파(빈 인덱스 방지), ctx 취소 전파. **검증: 이전에 skip되던 crash 파일(blockchain.go 등)이 이제 0 skip으로 완전 복구**(95/95 청크). 테스트 `TestEmbedResilient_{SkipsPoisonChunk,RecoversOversizedByTruncating,PropagatesCtxError}`.
 - [x] **Instruct query-prefix (2026-07-12)** — 옵션 `types.QueryEmbedder` 인터페이스 + 레지스트리 `QueryInstruct`(qwen3만) + ollama `EmbedQuery`(qwen3 쿼리에 `Instruct: {task}\nQuery:` 래핑, passage는 raw). query.Engine이 있으면 `EmbedQuery` 사용. `CKV_DISABLE_QUERY_PREFIX=1` 토글. **측정**(go-stablenet gs-full): recall@10 3/10→**4/10**(chaincmd MISS→8 회복, handler 2→1, 회귀 없음). 테스트 3건.
 - [x] **knownDims 표준화 (2026-07-12)** — 레지스트리 `ModelConfig.KnownDims`(qwen3:4b `512/1024/2560`, 0.6b `256/512/1024`, native 포함) + `registry.KnownDims(name)`. ollama `validateTargetDim`가 `--embed-dim`을 KnownDims로 검증(비표준·초과 dim 거부, 비-MRL 모델은 무제한). CLI help 갱신. 테스트 `TestKnownDims`·`TestValidateTargetDim`.
 - [x] **qwen3 0.6b vs 4b-trunc-1024 비교 + 대형 재확인 (2026-07-12)** — 소표본(N=4)은 0.6b 근소 우위였으나 **대형(123파일/1834청크, N=9)에서 정정: 트레이드오프**. recall@10 동률 9/9, MRR 4b 0.748 vs 0.6b 0.683(4b 근소 우위), 저장 동일 — 단 0.6b는 **4× 작고(639MB) 0 skip 완전 안정**(4b는 7청크 크래시 skip). **ADR-008(4b@1024) 뒤집을 근거 없음**, 0.6b는 메모리·안정성 우선 배포의 강력한 대안. 기록: `qwen3-dimension-ab-2026-07-12.md §8`.
 
 ## 5. backlog 잔여 (2026-05 세대 중 미종결)
 
-- [ ] **B10** parser fuzz/property 테스트 (5개 파서, 독립 인프라).
+- [x] **B10** parser fuzz/property 테스트 — **이미 구현됨**(확인 2026-07-12): 5개 파서(golang/typescript/javascript/solidity/markdown) 각 `FuzzParse`(seed corpus) + 공유 `internal/parse/fuzzcheck.CheckSpans` 불변식(StartLine≥1, EndLine≥StartLine, Name/Kind/Text 비어있지 않음, panic 없음). seed는 `go test`(CI)에서 실행, `-fuzz` 런 검증(golang 8s/547K exec PASS).
 - [ ] **A2** `ckv model fetch` CLI (`hf` 의존 제거) / **A3** linux CI matrix / **A4** bge-code-v1 Qwen2 어댑터.
 - [ ] **#7** LLM contextual prefix (Phase D.2) — bgeonnx throughput buffer 회복 후.
 - [ ] **PRR-1** full PR regression — throughput 보류(현 0.74 c/s).

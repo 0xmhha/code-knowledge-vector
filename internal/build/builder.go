@@ -627,9 +627,10 @@ func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embed
 // embedResilient embeds texts for the given chunks and returns the chunks that
 // embedded successfully, paired with their vectors. On an Embed error it
 // bisects the batch and retries each half; a single chunk that still fails is
-// skipped (warned) rather than aborting the whole build. This absorbs embedder
-// backends that reject specific inputs — e.g. ollama's Qwen3 embedding endpoint
-// crashing on a very large chunk (docs/qwen3-dimension-ab-2026-07-12.md).
+// retried with a size-capped input, and only skipped (warned) if even that
+// fails — rather than aborting the whole build. This absorbs embedder backends
+// that reject oversized inputs — e.g. ollama's Qwen3-4b embedding endpoint
+// crashing on a very large chunk (docs/qwen3-dimension-ab-2026-07-12.md §8).
 // A cancelled or timed-out context is propagated, not skipped, so a genuine
 // outage still fails loudly instead of silently dropping every chunk.
 func embedResilient(ctx context.Context, emb types.Embedder, chunks []types.Chunk, texts []string) ([]types.Chunk, [][]float32, error) {
@@ -648,6 +649,22 @@ func embedResilient(ctx context.Context, emb types.Embedder, chunks []types.Chun
 			// empty index.
 			if _, perr := emb.Embed(ctx, []string{"ok"}); perr != nil {
 				return nil, nil, err
+			}
+			// Recover before skipping. The Qwen3-4b crash is partly flaky
+			// (memory pressure; the model reloads between failures) and partly
+			// size-driven, so try the full input again first, then progressively
+			// shorter truncations. A shorter embedding (signature + head) beats
+			// dropping the chunk; the stored chunk Text is unchanged — only the
+			// vector comes from the truncated input.
+			for _, cap := range []int{len(texts[0]), maxEmbedRetryBytes, maxEmbedRetryBytes / 3} {
+				in := truncateForEmbed(texts[0], cap)
+				if v, terr := emb.Embed(ctx, []string{in}); terr == nil {
+					if len(in) < len(texts[0]) {
+						fmt.Fprintf(os.Stderr, "ckv: note: chunk %s (%s) embedded from a truncated input (%d→%d bytes): backend rejected the full text\n",
+							chunks[0].ID, chunks[0].File, len(texts[0]), len(in))
+					}
+					return chunks, v, nil
+				}
 			}
 			fmt.Fprintf(os.Stderr, "ckv: warning: skipping chunk %s (%s): embedder rejected it: %v\n",
 				chunks[0].ID, chunks[0].File, err)
@@ -668,6 +685,21 @@ func embedResilient(ctx context.Context, emb types.Embedder, chunks []types.Chun
 	outV := append(make([][]float32, 0, len(lv)+len(rv)), lv...)
 	outV = append(outV, rv...)
 	return outC, outV, nil
+}
+
+// maxEmbedRetryBytes caps the input on the truncate-and-retry path. ~12 KB sits
+// safely under the ~20–40 KB size where ollama's Qwen3-4b embedding endpoint
+// crashes, while keeping a chunk's signature + head — enough for retrieval.
+const maxEmbedRetryBytes = 12000
+
+// truncateForEmbed returns s capped to at most maxBytes, cut back to a valid
+// UTF-8 boundary. Returns s unchanged when it already fits, so the retry path
+// only fires for genuinely oversized inputs.
+func truncateForEmbed(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	return strings.ToValidUTF8(s[:maxBytes], "")
 }
 
 // detectCommit returns `git rev-parse HEAD` at srcRoot, or empty if the
