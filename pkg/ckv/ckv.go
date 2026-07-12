@@ -95,6 +95,12 @@ type (
 	BranchMatch          = query.BranchMatch
 	InvariantEnforcement = query.InvariantEnforcement
 
+	// InvariantHit / ConventionHit are the policy + idiom lookup results
+	// (find_invariants / get_conventions), re-exported so in-process
+	// consumers get them without importing internal/query.
+	InvariantHit  = query.InvariantHit
+	ConventionHit = query.ConventionHit
+
 	// AlignmentReport is the CKG↔CKV alignment status (design §3.1).
 	AlignmentReport = query.AlignmentReport
 )
@@ -224,6 +230,27 @@ func (e *Engine) GetInvariantEnforcement(ctx context.Context, invID string) (*In
 		return nil, errors.New("ckv: engine is closed")
 	}
 	return e.inner.GetInvariantEnforcement(ctx, invID)
+}
+
+// FindInvariants returns invariants matching the filter. file ("" = any)
+// scopes to one source file; category ("" = any) filters by policy
+// category; tierMin (1|2|3, 0 = default) drops anything below that
+// confidence tier.
+func (e *Engine) FindInvariants(ctx context.Context, file, category string, tierMin int) ([]InvariantHit, error) {
+	if e == nil || e.inner == nil {
+		return nil, errors.New("ckv: engine is closed")
+	}
+	return e.inner.FindInvariants(ctx, file, category, tierMin)
+}
+
+// GetConventions returns per-package AST-convention summaries under the
+// package prefix ("" = all packages). Each carries a deterministic prose
+// summary plus the raw stats map.
+func (e *Engine) GetConventions(ctx context.Context, packagePrefix string) ([]ConventionHit, error) {
+	if e == nil || e.inner == nil {
+		return nil, errors.New("ckv: engine is closed")
+	}
+	return e.inner.GetConventions(ctx, packagePrefix)
 }
 
 // Manifest returns a copy of the loaded manifest. Useful for
