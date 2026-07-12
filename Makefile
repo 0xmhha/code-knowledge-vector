@@ -82,11 +82,14 @@ eval-ab: ## A/B measurement: bgeonnx BM25 OFF vs ON (testdata/sample)
 
 # ---- bge-m3 go-stablenet index (operator-gated, requires Ollama) ----
 
-# GSN_SRC: go-stablenet source tree. GSN_OUT: index output dir.
-GSN_SRC ?= /Users/wm-it-22-00661/Work/github/stable-net/go-stablenet-latest
+# GSN_SRC: go-stablenet source tree (no default — set it in build-profiles.env
+# and `set -a; . build-profiles.env; set +a` before make, or pass inline).
+# GSN_OUT: index output dir.
+GSN_SRC ?=
 GSN_OUT ?= ./ckv-stablenet
 
-rebuild-stablenet: ## Build the bge-m3 go-stablenet index (needs `ollama serve` + `ollama pull bge-m3`; ~10h for ~26k chunks)
+rebuild-stablenet: ## Build the bge-m3 go-stablenet index (needs `ollama serve` + `ollama pull bge-m3`; ~10h for ~26k chunks). Set GSN_SRC.
+	@[ -n "$(GSN_SRC)" ] || { echo "set GSN_SRC=/path/to/go-stablenet (see build-profiles.env.example)"; exit 1; }
 	@command -v ollama >/dev/null 2>&1 || { echo "ollama not found — install + 'ollama pull bge-m3' first"; exit 1; }
 	$(GO) run ./cmd/ckv build --embedder=ollama --model-name=bge-m3 --src "$(GSN_SRC)" --out "$(GSN_OUT)"
 

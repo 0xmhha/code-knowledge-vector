@@ -112,6 +112,8 @@ desktop.ini
 .env
 .env.*
 !.env.example
+# Machine-local build/eval paths (build-profiles.env.example is the committed template)
+/build-profiles.env
 *.pem
 *.key
 secrets/
