@@ -3,6 +3,10 @@
 > **역할**: CKV의 *실행 가능한 잔여 작업*을 코드검증본으로 모은 단일 진입점.
 > **작성**: 2026-07-11 (코드 대조: 브랜치 `docs/retire-ckg-node-id`, HEAD `d546d95`)
 > **갱신**: 2026-07-12 (PR #17~#47 반영, main HEAD `f595d83`) — **CKV 소관 작업 실질 완료**, 잔여는 아래 "현재 상태"의 블록 4건.
+> **재검증**: 2026-07-13 (main HEAD `adf4417`, PR #48까지) — 완료 항목([x]) 코드 실재 재확인
+> (`RealignCanonical`/`acquireDatasetLock`/`FilesResumed`/`PromoteVersion`/`ResolvedVersion`/`FetchMergedPRs`/
+> `DeleteDocsChunks`/`DeleteFlowChunks`/`AlignedChunkID`/`EmbedQuery`/`lastTokenPoolNormalize`/`FetchModel` 전부 존재,
+> `go build ./...` ok). PR #48은 `remaining.md` 동기화만(신규 코드 0) → **잔여 4블록 불변**.
 > **관계**:
 > - 배경·협의·결정 근거 → [`session-handoff-2026-06-29.md §4`](./session-handoff-2026-06-29.md) (서사 SoT)
 > - reindex 설계 → [`reindex-migration-design-2026-07-10.md`](./reindex-migration-design-2026-07-10.md)
@@ -14,9 +18,9 @@
 
 ---
 
-## 현재 상태 (2026-07-12) — CKV 소관 실질 완료
+## 현재 상태 (2026-07-13 재검증) — CKV 소관 실질 완료
 
-이번 세션(PR #17~#47)에서 CKV 소관 작업이 실질적으로 종결됐다. 남은 항목은 전부 **이 머신에서 착수 불가**(부재 데이터·throughput 환경·CKS 소관)다.
+PR #17~#48까지 CKV 소관 작업이 실질적으로 종결됐다(2026-07-13 코드 재대조 완료). 남은 항목은 전부 **이 머신에서 착수 불가**(부재 데이터·throughput 환경·CKS 소관)다.
 
 **종결(§별 상세는 아래 감사 이력):**
 - `ckg_node_id` 은퇴(§1) · reindex P2/P3/P4/P5 CKV-side(§2/§3) · Qwen3 차원·모델 결정 + embed 견고화(§4)
