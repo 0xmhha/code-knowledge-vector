@@ -1,5 +1,7 @@
 # CKV Retrieval Quality 로드맵
 
+> **ARCHIVED 2026-07-19.** 2026-05 roadmap snapshot; its major phases (reindex, D.1/D.2 prefix, file_full, PR/flow corpus) have shipped. Live status: [`remaining.md`](../remaining.md).
+
 > **문서 버전**: 1.0
 > **작성일**: 2026-05-19
 > **목적**: CKV의 retrieval 정확도를 산업계 베스트 프랙티스 수준까지 끌어올리기 위한 5가지 패턴 적용 로드맵. 각 패턴의 외부 공개 측정값 + 우리 환경에서의 예상 효과 + 적용 순서 + A/B 측정 framework 정의.

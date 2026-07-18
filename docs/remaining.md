@@ -6,9 +6,9 @@
 > **관계**:
 > - 배경·협의·결정 근거 → [`session-handoff-2026-06-29.md §4`](./session-handoff-2026-06-29.md) (서사 SoT)
 > - reindex 설계 → [`reindex-migration-design-2026-07-10.md`](./reindex-migration-design-2026-07-10.md)
-> - 브랜치 주제 체크리스트 → [`retire-ckg-node-id.md`](./retire-ckg-node-id.md)
+> - 브랜치 주제 체크리스트 → [`retire-ckg-node-id.md`](./archive/retire-ckg-node-id.md)
 > - 4세션 협의 원문 → [`coordination-prompts-2026-06-29.md`](./coordination-prompts-2026-06-29.md)
-> - 2026-05 세대 인벤토리(대부분 종결) → [`backlog.md`](./backlog.md) · [`pending-work-2026-05-21.md`](./pending-work-2026-05-21.md) (**stale**)
+> - 2026-05 세대 인벤토리(대부분 종결) → [`backlog.md`](./archive/backlog.md) · [`pending-work-2026-05-21.md`](./archive/pending-work-2026-05-21.md) (**stale**)
 >
 > 각 항목의 `근거`는 2026-07-11 `grep`/코드 확인 결과다. 완료 시 해당 줄을 `[x]`로 바꾸고 커밋 해시를 병기한다.
 
@@ -34,6 +34,11 @@
 | **Phase A** — sliding split 실측 | 긴 함수 코퍼스 부재(testdata/sample 함수가 짧아 split 미발동) | 큰 함수 비율이 높은 실 코퍼스 |
 | **CKS 소관** — 재기동 수신 · P5 오케스트레이션 · flow 도구 표면 *소비* | CKS 세션 의존 | CKS 재기동 + 양측 digest 교차확인(`coordination-prompts §10.10`) |
 
+**설계 open 결정 (코드 작업 아님 · 2026-07-19 편입, `reindex-migration-design-2026-07-10.md §9`):**
+
+- **도메인지식(flow/docs) 커밋별 버전관리** — 현재 flow/docs는 단일 스냅샷이라 시점(point-in-time) PR 평가에서 leakage 소지. 커밋축 버전관리 도입 여부 미결. 근거: `reindex-migration-design-2026-07-10.md §9`, `pr-retrieval-eval-2026-07-08.md`.
+- **증분 in-place vs 항상 swap-only** — 증분을 서빙본에 직접 반영 vs 항상 재빌드-스왑의 비용/단순성 트레이드오프. blue-green 전면 스왑은 P5(CKS 소관)이나 트레이드오프 자체는 미결로 기록. 근거: `reindex-migration-design-2026-07-10.md §4.2/§9`.
+
 **다음 세션 진입점**: 위 데이터셋 중 하나가 확보되면 해당 행이 즉시 언블록된다. 그 전까지 CKV 코드 측 신규 작업은 없다.
 
 ---
@@ -54,7 +59,7 @@
 
 ## 1. 즉시 착수 — `ckg_node_id` 은퇴 (브랜치 주제)
 
-전체 8단계 체크리스트는 [`retire-ckg-node-id.md`](./retire-ckg-node-id.md). **CKV 코드 완료 (2026-07-11, 미커밋)** — cks 이관 대기.
+전체 8단계 체크리스트는 [`retire-ckg-node-id.md`](./archive/retire-ckg-node-id.md). **CKV 코드 완료 (2026-07-11, 미커밋)** — cks 이관 대기.
 
 - [x] 코드 20개소(comment 6 + 코드 14)에서 `CKGNodeID`·`ckg_node_id` 제거
 - [x] 완료 게이트: `grep -rn "ckg_node_id\|CKGNodeID"` *.go → **0건** · build ok · test green(coreml 제외)
@@ -92,7 +97,7 @@ reindex-design §7은 "P1 다음 P2가 최우선"(§0.2 gap1 "CKG 재생성 시 
 
 ## 4. 임베딩 모델 교체 (reindex-B)
 
-- [x] **Qwen3 A/B PoC — 차원 실측 완료 (2026-07-12)** — `qwen3-embedding:4b` full-2560 vs truncate-1024, `testdata/queries.yaml` N=50. **1024-truncate 권장**: recall@1 0.86/0.88·MRR 0.902/0.913(손실 ~1-2%p), 저장 2.47× 절감. 기록·결정: [`qwen3-dimension-ab-2026-07-12.md`](./qwen3-dimension-ab-2026-07-12.md).
+- [x] **Qwen3 A/B PoC — 차원 실측 완료 (2026-07-12)** — `qwen3-embedding:4b` full-2560 vs truncate-1024, `testdata/queries.yaml` N=50. **1024-truncate 권장**: recall@1 0.86/0.88·MRR 0.902/0.913(손실 ~1-2%p), 저장 2.47× 절감. 기록·결정: [`qwen3-dimension-ab-2026-07-12.md`](./archive/qwen3-dimension-ab-2026-07-12.md).
 - [x] **MRL truncate 경로** — `ollama.Options.TargetDim`(`truncateNormalize`) + CLI `--embed-dim`. 테스트 `TestTruncateNormalize`.
 - [x] **대형 코퍼스 재확인 (2026-07-12)** — go-stablenet 83파일/1015청크(20×)에서 full-2560 vs 1024-truncate: top-1 일치 8/10, top-5 overlap 0.81, ground-truth 3쿼리 순위 동일, 저장 ÷2.1. **1024-truncate 권장 확증**. 기록: `qwen3-dimension-ab-2026-07-12.md §6`. 부수: `ckv build --batch N` 추가.
 - [x] **ADR 승격 (차원 락) — `adr/008-qwen3-embedding-1024-dim.md` (Accepted, 2026-07-12)** — qwen3-embedding:4b @ 1024-truncate 확정. 정본 재검은 Consequences에 캐비엇으로 명시.

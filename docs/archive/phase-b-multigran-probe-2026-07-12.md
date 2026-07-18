@@ -1,5 +1,7 @@
 # Phase B (multi-granularity) — go/no-go 프로토타입 실측
 
+> **ARCHIVED 2026-07-19.** Measurement record; the go/no-go verdict is locked in [`adr/009-rule-based-prefix-default.md`](../adr/009-rule-based-prefix-default.md). Kept for provenance.
+
 > **시점**: 2026-07-12 (측정 스냅샷).
 > **목적**: roadmap Phase B("한 코드를 여러 입도로 동시 임베딩" — 2차 class/struct·3차
 > file 전체 coarse 청크 추가, §3.1)를 **전체 구현(~250 LOC·throughput −50%) 전에**

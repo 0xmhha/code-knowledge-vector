@@ -277,14 +277,14 @@ scripts/build-knowledge.sh <profile>
 
 ---
 
-→ 위 결정으로 `docs/plan-2026-06-16-flow-ingest.md`에서 상세 설계 진입.
+→ 위 결정으로 `docs/archive/plan-2026-06-16-flow-ingest.md`에서 상세 설계 진입.
 
 ---
 
 ## 8. 참조
 
 - `docs/session-handoff-2026-06-29.md` — 현행 SoT
-- `docs/plan-2026-05-29-ckv-refactor.md` — invariant/convention 추출기 (자동추출 레이어)
+- `docs/archive/plan-2026-05-29-ckv-refactor.md` — invariant/convention 추출기 (자동추출 레이어)
 - `docs/evaluation-design-2026-05-22.md` — eval 방법 + BM25/rerank 결정
 - `<go-stablenet>/.claude/docs/corpus/` — 본 제안의 입력 데이터 (1차 출처)
 - code-knowledge-graph repo — CKG 호출그래프/impact (레이어 B)

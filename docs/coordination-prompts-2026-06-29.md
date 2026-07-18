@@ -12,7 +12,7 @@
 
 ### 세 세션에 공통으로 걸리는 결정 3가지
 1. **임베딩 모델 교체 + 전면 reindex** — bge-m3 → Qwen3-Embedding 검토
-   ([`embedding-model-recommendation-2026-06-22.md`](./embedding-model-recommendation-2026-06-22.md)).
+   ([`embedding-model-recommendation-2026-06-22.md`](./archive/embedding-model-recommendation-2026-06-22.md)).
    PR #12(임베딩 공간 identity 강제)로 공간 혼용이 금지되어, 교체 시 CKS가 관리하는
    인덱스까지 동일 모델로 재생성해야 한다.
 2. **canonical_id / Symbol ID 정규화(B7)** — CKG↔CKV join key 합의.

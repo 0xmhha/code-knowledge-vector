@@ -1,5 +1,7 @@
 # CKV 작업 Backlog
 
+> **ARCHIVED 2026-07-19.** Superseded by [`remaining.md`](../remaining.md) (the code-verified work SoT); this doc self-flagged stale. Kept for provenance.
+
 > ⚠️ **STALE (2026-05 세대 인벤토리)** — live 잔여 작업의 단일 SoT는
 > [`remaining.md`](./remaining.md) (코드검증본). 본 문서는 2026-05-21 시점의 45항목
 > inventory로, B1~B9·E·F·G·C10 등 대부분 종결됨. 아카이브성으로 유지하되 잔여 추적은

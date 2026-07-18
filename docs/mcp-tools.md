@@ -33,8 +33,8 @@ CKV의 MCP 서버(`ckv mcp`)가 노출하는 19개 도구의 입출력 스키마
 - `intent` (string, required): 자연어 쿼리
 - `k` (number, optional, default 10): top-K
 - `language` (string, optional): 언어 필터
-- `path_glob` (string, optional): 경로 글로브
-- `enable_bm25_rerank` (bool, optional): 후보셋 BM25 + RRF 재순위 (NEW-9)
+- `path` (string, optional): 경로 글로브
+- `bm25_rerank` (bool, optional): 후보셋 BM25 + RRF 재순위 (NEW-9)
 - `examples_k` (number, optional): 테스트 청크 분리
 
 **출력:**
@@ -375,4 +375,4 @@ agent가 jira ticket을 받았을 때 권장 호출 순서:
 - `internal/query/engine.go` (Hit 스키마)
 - `pkg/types/chunk.go` (Chunk 메타데이터)
 - `docs/SCHEMA.md` (저장 스키마)
-- `docs/plan-2026-05-29-ckv-refactor.md` (도구 설계 결정 기록)
+- `docs/archive/plan-2026-05-29-ckv-refactor.md` (도구 설계 결정 기록)

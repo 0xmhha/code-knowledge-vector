@@ -79,12 +79,27 @@ func main() {
 
 ---
 
-## 2. Production — bgeonnx embedder
+## 2. Production embedder — ollama (default) / bgeonnx (optional ONNX)
 
-> 진짜 semantic 검색에는 bgeonnx (ONNX runtime + bge-large-en-v1.5) 가 필요하다.
-> mock은 hash-based feature라 의미 신호가 없다 (`recall@5 ≈ 0.67` 수준).
+CKV의 임베더 백엔드는 세 가지 (`cmd/ckv/embedder.go`):
 
-### 2.1 시스템 의존성
+| `--embedder` | 백엔드 | 언제 |
+|---|---|---|
+| `ollama` (**기본값**) | 로컬 `ollama serve` 의 `bge-m3` (1024-dim) | **기본 프로덕션 경로.** 시스템 라이브러리 불필요, `ollama pull bge-m3` 만 하면 됨. `--model-name` 으로 다른 ollama 모델 선택 (권장: Qwen3-Embedding, ADR-008) |
+| `bgeonnx` | in-process ONNX runtime + BERT ONNX 모델 | 시스템 의존성(libonnxruntime + libtokenizers)을 감수하고 subprocess 없는 in-process 추론을 원할 때. `-tags bgeonnx` 필요 (§2.3) |
+| `mock` | hash 기반 (의미 신호 없음) | §1 흐름 검증 전용 |
+
+> `--embedder` 기본값은 `ollama` 다 (`cmd/ckv/root.go`). 예전 기본이던
+> bge-large-en-v1.5 (bgeonnx) 는 **선택 경로**로 강등됐다. 권장 임베딩 모델은
+> Qwen3-Embedding (ADR-008), 아래 §2.1–2.4 는 그 대안인 bgeonnx/ONNX 경로의
+> 배선 방법이다.
+
+### 2.1 시스템 의존성 (bgeonnx 경로)
+
+> 진짜 semantic 검색에는 실 임베더가 필요하다. bgeonnx는 ONNX runtime + BERT
+> ONNX 모델을 쓴다. mock은 hash-based feature라 의미 신호가 없다
+> (`recall@5 ≈ 0.67` 수준).
+
 
 `d1-installation-guide.md` §1 의 절차를 그대로 따른다:
 
@@ -148,6 +163,11 @@ func openProductionEngine(indexPath, modelDir string) (*ckv.Engine, func(), erro
 CGO_LDFLAGS="-L$HOME/lib" go build -tags bgeonnx ./...
 ```
 
+> **참고 — coreml 직접 백엔드**: 별도의 `internal/embed/coreml` 백엔드는 이제
+> `tokenizers` 빌드 태그 뒤로 게이트된다 (PR #47). macOS에서만 활성화되며
+> (`//go:build darwin && tokenizers`), libtokenizers가 없는 환경(예: CI)에서는
+> 자동으로 no-op 스텁으로 빌드된다. 기본 빌드에는 영향 없음.
+
 ---
 
 ## 3. Subprocess MCP 통합 (legacy)
@@ -158,16 +178,18 @@ CGO_LDFLAGS="-L$HOME/lib" go build -tags bgeonnx ./...
 ckv mcp --out=.ckv-data --embedder=bgeonnx
 ```
 
-stdio 위에서 MCP JSON-RPC. tool 이름:
+stdio 위에서 MCP JSON-RPC. 노출되는 도구는 현재 **19개** (검색 / 정제 / 메타 /
+흐름 / 보조 / 운영). 전체 입출력 스키마·사용 시나리오는 **`docs/mcp-tools.md`**
+를 정본으로 본다. 대표 도구:
 - `cks.context.semantic_search` — `intent` 필수, 옵션 (`k`, `language`,
-  `path`, `symbol_kind`, `budget_tokens`, `threshold`, `examples_k`)
-- `cks.ops.get_freshness`
-- `cks.ops.health`
+  `path`, `symbol_kind`, `budget_tokens`, `threshold`, `bm25_rerank`, `examples_k` 등)
+- `cks.ops.get_freshness` · `cks.ops.health`
 - `cks.ops.warmup` — embedder cold start 비용을 미리 지불.
   initialize 직후 1회 호출 권장. 응답 `{ready, duration_ms, embedder}`
 
 **Schema versioning**: 모든 tool response 의 top-level 에
-`schema_version` 문자열이 들어간다 (현재 `"1"`). 정책 — minor (1 → 1.1)
+`schema_version` 문자열이 들어간다 (현재 `"1.1"` — `pkg/mcp/server.go`
+`ResponseSchemaVersion`). 정책 — minor (1 → 1.1)
 = additive (필드 추가, 새 tool), major (1 → 2) = breaking (필드 제거 / 타입
 변경 / 의미 변경). 안정적 consumer 는 major 만 비교하고 mismatch 시 last-known-good
 parser 로 fallback 하면 된다. ckv 가 새 tool 을 추가해도 schema_version 누락은

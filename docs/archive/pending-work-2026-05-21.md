@@ -1,5 +1,7 @@
 # Pending Work (snapshot 2026-05-21)
 
+> **ARCHIVED 2026-07-19.** Superseded by [`remaining.md`](../remaining.md) (the code-verified work SoT); this doc self-flagged stale. Kept for provenance.
+
 > ⚠️ **SUPERSEDED** — 이 스냅샷은 `session-handoff-2026-06-29.md §4`와
 > [`remaining.md`](./remaining.md)(live SoT)로 대체됐다. B7(Symbol ID)은 canonical_id 단일화
 > (ADR-007 + [`retire-ckg-node-id.md`](./retire-ckg-node-id.md))로 방향 확정. 역사적 참고용.

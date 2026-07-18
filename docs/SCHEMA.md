@@ -76,7 +76,10 @@ Source: `pkg/types/chunk.go::ChunkKind` constants.
 | `symbol` | whole function/method/type |
 | `function_split` | sub-chunk of a long function (Phase A, planned) |
 | `file_header` | leading-N-lines slice (default 50) |
+| `file_full` | whole-file chunk (small files embedded in one piece) |
 | `doc` | markdown heading section (covers `DocSection` and `ADRSection`) |
+| `flow_step` | one step in a flow: symbol + branches (flow corpus, ADR-010) |
+| `flow_spine` | a flow's entry/summary backbone (flow corpus, ADR-010) |
 | `pr_background` | PR-corpus chunk; additive, only in indexes built with `--include-pr-history` |
 | `pr_solution` | PR-corpus chunk; additive, only with `--include-pr-history` |
 | `commit_message` | PR-corpus chunk; additive, only with `--include-pr-history` |
@@ -212,6 +215,10 @@ CREATE TABLE chunks (
     commit_hash     TEXT NOT NULL,
     content_sha256  TEXT NOT NULL,
     canonical_id    TEXT,
+    recent_prs      TEXT,           -- additive; recent-PR tagging (JSON)
+    flow_meta       TEXT,           -- additive; FlowStepMeta/FlowSpineMeta JSON (ADR-010)
+    enforced_at     TEXT,           -- additive; enforcement provenance timestamp
+    provenance      TEXT,           -- additive; e.g. 'curated' for hand-authored chunks
     text            TEXT NOT NULL
 );
 CREATE INDEX idx_chunks_file     ON chunks(file);
@@ -310,6 +317,6 @@ shim). No such bump has happened on CKV's 1.0 line.
 - [`internal/manifest/manifest.go`](../internal/manifest/manifest.go) — `Manifest`
 - [`internal/store/sqlitevec/store.go`](../internal/store/sqlitevec/store.go) — DDL + migrations
 - [`internal/query/errors.go`](../internal/query/errors.go) — error model
-- [`plan-S1-ckv.md §4`](./plan-S1-ckv.md) — original schema design
+- [`plan-S1-ckv.md §4`](./archive/plan-S1-ckv.md) — original schema design
   notes (predates some additive changes)
 - [`ADR-001`](./adr/001-sqlite-vec-storage.md) — *why* sqlite-vec

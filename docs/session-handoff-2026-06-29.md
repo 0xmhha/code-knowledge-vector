@@ -1,6 +1,11 @@
 # Session Handoff — 2026-06-29
 
-이 문서는 다른 머신·다른 세션에서 작업을 이어받기 위한 **현행 단일 진입점(SoT)**이다.
+> **갱신 2026-07-19.** 이 문서는 **서사·배경 진입점**이다. *작업 상태의 단일 SoT는
+> [`remaining.md`](./remaining.md)* (코드검증본, 2026-07-12: CKV 소관 실질 완료, 잔여는
+> 데이터/CKS 블록 4건). 아래 서사 중 작업-상태 서술이 `remaining.md`와 어긋나면
+> `remaining.md`가 우선한다.
+
+이 문서는 다른 머신·다른 세션에서 작업을 이어받기 위한 **서사 진입점**이다.
 직전 핸드오프 [`archive/session-handoff-2026-06-15.md`](./archive/session-handoff-2026-06-15.md)는
 PR #1~#6까지만 다뤄, 그 이후 머지된 #7~#15와 **CKG/CKV/CKS/coding-agent 4세션 협의
 수렴**을 반영하지 못한다 → **archive로 이동**. 새 세션은 이 문서부터 읽는다.
@@ -276,7 +281,7 @@ git pull && make build && make test   # coreml 1건 FAIL은 정상
 - `pkg/mcp/server.go` — MCP 15도구
 - `pkg/ckv/ckv.go` — public Go API (Freshness 포함)
 - `docs/coordination-prompts-2026-06-29.md` — 4세션 협의 SoT
-- `docs/embedding-model-recommendation-2026-06-22.md` — Qwen3 추천
+- `docs/archive/embedding-model-recommendation-2026-06-22.md` — Qwen3 추천
 
 ---
 

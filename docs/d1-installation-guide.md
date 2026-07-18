@@ -6,6 +6,13 @@
 >
 > **2026-05-18 업데이트**: 모델이 bge-code-v1 (Qwen2 5.8GB) → **bge-large-en-v1.5 (BERT 2.5GB)** 로 전환. **bge-large-en-v1.5는 ONNX 파일이 HF repo에 사전 포함돼 있어 Python 변환 단계가 불필요**.
 
+> **⚠️ 이 경로는 이제 선택 사항이다 (OPTIONAL).** CKV의 **기본 런타임은 ollama /
+> bge-m3** (`--embedder` 기본값 = `ollama`, 권장 모델 Qwen3-Embedding — ADR-008)로
+> 바뀌었다. 기본 사용에는 이 문서의 ONNX/bgeonnx 설치가 **필요하지 않다**
+> (`ollama serve` + `ollama pull bge-m3` 이면 충분). 아래 절차는 `-tags bgeonnx`
+> in-process ONNX 백엔드를 쓰려는 경우에만 필요하며, 설치 메커니즘 자체는 여전히
+> 유효하다.
+
 코드 자체는 `bgeonnx` 빌드 태그로 게이트돼 있어, **이 가이드를 따르지 않아도 기본
 빌드(`go build ./...`)는 영향 받지 않는다**. CKV의 mock embedder는 그대로 동작.
 
@@ -158,7 +165,12 @@ CGO_LDFLAGS="-L$HOME/lib" \
   --top=5 --threshold=-1 --embedder=bgeonnx
 ```
 
-### 실측 수치 (2026-05-18, bge-large-en-v1.5)
+### 실측 수치 (2026-05-18, bge-large-en-v1.5 — 역사적 기록)
+
+> **주의**: 아래 수치는 당시 기본 임베더였던 bge-large-en-v1.5 (bgeonnx) 기준의
+> 역사적 기록이다. 현재 기본 런타임은 ollama / bge-m3 (권장 Qwen3, ADR-008)이므로
+> 이 숫자는 bgeonnx 경로가 올바르게 배선됐는지 확인하는 sanity check 용도로만
+> 참고한다. 최신 eval 수치는 git history / `docs/eval-metrics.md` 를 정본으로 본다.
 
 - `recall@5`: 1.000 ✅ (가설 1.0)
 - `recall@3`: 0.900, `recall@1`: 0.600

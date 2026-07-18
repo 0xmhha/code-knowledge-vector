@@ -1,5 +1,7 @@
 # LLM contextual prefix (Phase D.2) — PoC 실측
 
+> **ARCHIVED 2026-07-19.** Measurement record; the go/no-go verdict is locked in [`adr/009-rule-based-prefix-default.md`](../adr/009-rule-based-prefix-default.md). Kept for provenance.
+
 > **시점**: 2026-07-12 (측정 스냅샷).
 > **목적**: retrieval-quality-roadmap Phase D.2("LLM이 청크마다 한 문장 맥락을 생성해
 > 임베드 텍스트 앞에 붙인다", Anthropic Contextual Retrieval)를 **실측 후 결정** 게이트로

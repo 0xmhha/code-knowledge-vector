@@ -5,7 +5,7 @@
 
 ## Context
 
-The retrieval-quality roadmap (`docs/retrieval-quality-roadmap.md`) proposed
+The retrieval-quality roadmap (`docs/archive/retrieval-quality-roadmap.md`) proposed
 several embed-text levers to raise recall, drawn from industry best practice:
 
 - **Phase D — contextual prefix** (Anthropic Contextual Retrieval): prepend a
@@ -23,17 +23,17 @@ throughput), and the default `queries.yaml` fixture was at the retrieval ceiling
 (bge-m3 recall@5 0.98), so it could not discriminate.
 
 A hard discrimination fixture reopened a measurable band
-(`docs/eval-hard-fixture-2026-07-12.md`, N=24: bge-m3 recall@1 0.58, MRR 0.669),
+(`docs/archive/eval-hard-fixture-2026-07-12.md`, N=24: bge-m3 recall@1 0.58, MRR 0.669),
 and three measurements then settled the levers:
 
-- **Prefix sweep** (`docs/prefix-lever-sweep-2026-07-12.md`): raw vs D.1 vs D.2,
+- **Prefix sweep** (`docs/archive/prefix-lever-sweep-2026-07-12.md`): raw vs D.1 vs D.2,
   both fixtures. D.1 wins everywhere — +0.16 recall@1 over raw (easy and hard
   alike). D.2 does **not** beat D.1 even off the ceiling (hard recall@1 0.54 <
   0.58, MRR 0.665 ≈ 0.669): the LLM prose dilutes the rule-based prefix's exact
   symbol/file tokens.
-- **D.2 PoC** (`docs/llm-contextual-prefix-poc-2026-07-12.md`): confirmed the
+- **D.2 PoC** (`docs/archive/llm-contextual-prefix-poc-2026-07-12.md`): confirmed the
   same on the easy fixture at 19× build cost.
-- **Phase B probe** (`docs/phase-b-multigran-probe-2026-07-12.md`): an opt-in
+- **Phase B probe** (`docs/archive/phase-b-multigran-probe-2026-07-12.md`): an opt-in
   whole-file coarse chunk **hurt** — on a coarse-query probe recall@3 dropped
   1.00 → 0.88 (the coarse chunk displaces the file's finer chunks); on the hard
   symbol fixture recall@5 dropped 0.88 → 0.79. The baseline already answered

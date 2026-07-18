@@ -1,5 +1,7 @@
 # Qwen3-Embedding 차원 A/B — 1024-truncate vs full-dim 실측
 
+> **ARCHIVED 2026-07-19.** Decision locked in [`adr/008-qwen3-embedding-1024-dim.md`](../adr/008-qwen3-embedding-1024-dim.md). Kept for provenance (measurement record).
+
 > **시점**: 2026-07-12 (측정 스냅샷). 채택 확정 시 ADR 승격.
 > **목적**: 협의 결정6("임베딩 차원 = 실측 후 결정, CKV 주관, 측정 전 확정 금지")을
 > 실측으로 닫는다. Qwen3-Embedding은 MRL(Matryoshka Representation Learning) 학습이라
