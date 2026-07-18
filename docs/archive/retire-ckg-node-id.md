@@ -1,5 +1,7 @@
 # [포인터] `ckg_node_id` 은퇴 · `canonical_id` 단일화 — CKV 작업분
 
+> **ARCHIVED 2026-07-19.** Done — decision in ADR-007; 0 `ckg_node_id`/`CKGNodeID` refs remain in `*.go`. Kept for provenance.
+
 - 상태: **CKV 코드 완료 (2026-07-11)** — 게이트 `grep ckg_node_id|CKGNodeID` → 0. cks 이관 대기.
 - 작성일: 2026-07-08 · 상태 갱신: 2026-07-11
 - **마스터 문서**: `code-knowledge-system/docs/retire-ckg-node-id.md` (전체 배경·판정·세 repo 체크리스트)

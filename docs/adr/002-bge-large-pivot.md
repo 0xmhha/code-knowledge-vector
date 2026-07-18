@@ -67,7 +67,7 @@ plus shipping the new model file.
 
 ## Related
 
-- A4 in `docs/backlog.md` tracks the deferred bge-code-v1 work.
+- A4 in `docs/archive/backlog.md` tracks the deferred bge-code-v1 work.
 - [ADR-005](005-coreml-mlprogram-static-shapes.md) covers the CoreML
   EP decision that depends on this embedder shape (BERT + static
   shapes).

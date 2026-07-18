@@ -73,4 +73,4 @@ Concretely:
 
 - Roadmap `§12 #4` (Phase C: PR/commit corpus) and `§12 #6/#7`
   (contextual prefix) work within CKV; orthogonal to fusion.
-- D1 / D4 in `docs/backlog.md` track the CKG and CKS dependencies.
+- D1 / D4 in `docs/archive/backlog.md` track the CKG and CKS dependencies.

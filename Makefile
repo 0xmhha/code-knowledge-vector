@@ -4,6 +4,12 @@ GO ?= go
 BIN_DIR := bin
 PKG_LIST := ./...
 
+# Version is derived from the git tag (falls back to "dev" outside a checkout)
+# and injected into cmd/ckv.Version via -ldflags. `ckv --version` and the build
+# manifest's ckv_version then report the tagged release.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X main.Version=$(VERSION)
+
 # CGO is required for sqlite-vec (vec0 virtual table) via mattn/go-sqlite3.
 # The asg017/sqlite-vec-go-bindings/cgo package links against a vendored
 # sqlite-vec amalgamation, so no external shared library is needed.
@@ -22,11 +28,11 @@ endif
 all: build ## Default: build the ckv binary
 
 build: ## Build bin/ckv
-	$(GO) build -o $(BIN_DIR)/ckv ./cmd/ckv
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/ckv ./cmd/ckv
 
 # The combined CKG+CKV binary (cks-mcp) lives in the CKS repository, not
 # here. CKV stays as a pure Vector-layer library; CKS imports it (and CKG)
-# and produces the multiplexed MCP binary. See plan-S1-ckv.md §7.
+# and produces the multiplexed MCP binary. See docs/archive/plan-S1-ckv.md §7.
 
 test: ## Run unit tests
 	$(GO) test $(PKG_LIST)

@@ -1,5 +1,7 @@
 # CKV 대규모 리팩토링·확장 계획서
 
+> **ARCHIVED 2026-07-19.** Plan executed; decisions live in the ADRs (`docs/adr/`) and live status in [`remaining.md`](../remaining.md). Kept for provenance.
+
 문서 버전: 1.0
 작성일: 2026-05-29
 대상 코드베이스: `/Users/wm-it-22-00661/Work/github/tools/code-knowledge-vector`

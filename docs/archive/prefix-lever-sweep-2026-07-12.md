@@ -1,5 +1,7 @@
 # Prefix lever sweep — raw vs D.1 rule-based vs D.2 LLM (hard fixture)
 
+> **ARCHIVED 2026-07-19.** Measurement record; the go/no-go verdict is locked in [`adr/009-rule-based-prefix-default.md`](../adr/009-rule-based-prefix-default.md). Kept for provenance.
+
 > **시점**: 2026-07-12 (측정 스냅샷).
 > **목적**: hard fixture(`eval-hard-fixture-2026-07-12.md`)로 측정 대역이 열린 지금,
 > 임베드-텍스트 prefix 레버 3종을 한 번에 재측정해 **어느 레버가 실제로 이득인지**

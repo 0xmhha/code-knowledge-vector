@@ -1,5 +1,7 @@
 # Plan S1 — CKV (Code Knowledge Vector)
 
+> **ARCHIVED 2026-07-19.** Plan executed; decisions live in the ADRs (`docs/adr/`) and live status in [`remaining.md`](../remaining.md). Kept for provenance.
+
 > **문서 버전**: 0.1 (초안)
 > **작성일**: 2026-05-08
 > **연관 문서**: `featurelist.md`, `use-cases.md`,

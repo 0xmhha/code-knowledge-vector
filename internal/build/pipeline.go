@@ -58,7 +58,7 @@ func newChunker(emb types.Embedder, cfg *projectcfg.Config) *chunk.Chunker {
 //
 // Combining (LLM + rule-based) beats LLM-alone: the rule-based prefix carries
 // exact symbol/file tokens that a prose paraphrase dilutes. Measured on
-// testdata/sample (docs/llm-contextual-prefix-poc-2026-07-12.md), even the
+// testdata/sample (docs/archive/llm-contextual-prefix-poc-2026-07-12.md), even the
 // combined form does not beat rule-based alone on that small, self-descriptive
 // corpus — so this lever ships opt-in and off by default.
 func resolveEmbedTextFn(ctx context.Context, disablePrefix bool, prefixer llmprefix.Prefixer) func(types.Chunk) string {

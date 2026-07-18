@@ -1,5 +1,7 @@
 # Hard eval fixture — ceiling 해소 실측
 
+> **ARCHIVED 2026-07-19.** Measurement record; the go/no-go verdict is locked in [`adr/009-rule-based-prefix-default.md`](../adr/009-rule-based-prefix-default.md). Kept for provenance.
+
 > **시점**: 2026-07-12 (측정 스냅샷).
 > **목적**: 기본 fixture(`testdata/queries.yaml`)가 `testdata/sample` 소형 코퍼스에서
 > retrieval **천장(ceiling)**에 도달해(bge-m3 recall@5 0.98) 품질 레버(contextual

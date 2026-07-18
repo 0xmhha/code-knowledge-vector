@@ -1,5 +1,7 @@
 # Code Knowledge Vector (CKV) — Feature List
 
+> **ARCHIVED 2026-07-19.** 2026-05 status snapshot, drifted from code (default model, tool count, reindex). The status SoT is [`remaining.md`](../remaining.md). Kept for provenance.
+
 > **문서 버전**: 1.0
 > **작성일**: 2026-05-05
 > **연관 문서**: [`use-cases.md`](./use-cases.md), `04-cks-deep-dive.md`

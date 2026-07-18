@@ -1,5 +1,7 @@
 # 임베딩 모델 업그레이드 추천 — bge-m3 → Qwen3-Embedding
 
+> **ARCHIVED 2026-07-19.** Decision locked in [`adr/008-qwen3-embedding-1024-dim.md`](../adr/008-qwen3-embedding-1024-dim.md). Kept for provenance (measurement record).
+
 > **시점**: 2026-06-22 (스냅샷). 실제 채택 시 ADR로 승격.
 > **목적**: 현재 사용 중인 `bge-m3`보다 **정밀도가 높고**, **라이선스가 깨끗하며**,
 > **Mac mini M4 (24GB)** 에서 동작하는 임베딩 모델을 평가·추천한다.

@@ -137,16 +137,17 @@ pkg/ckv     Engine wrapper around internal/query (in-process consumers)
 
 ## Documentation
 
-- [`docs/session-handoff-2026-05-23.md`](docs/session-handoff-2026-05-23.md) — **start here when resuming work on a fresh machine or in a new session**. Onboarding, prereqs, env-vars, current decisions, remaining Waves.
-- [`docs/embedder-integration.md`](docs/embedder-integration.md) — consumer integration: in-process API, MCP, environment overrides, migration off the subprocess proxy.
-- [`docs/d1-installation-guide.md`](docs/d1-installation-guide.md) — building `bgeonnx`, downloading models, system dependencies.
-- [`docs/use-cases.md`](docs/use-cases.md) — design use cases.
-- [`docs/featurelist.md`](docs/featurelist.md), [`docs/backlog.md`](docs/backlog.md) — feature and work tracking.
-- [`docs/retrieval-quality-roadmap.md`](docs/retrieval-quality-roadmap.md) — retrieval-quality work plan.
-- [`docs/plan-S1-ckv.md`](docs/plan-S1-ckv.md) — S1 architectural plan.
-- [`docs/eval-metrics.md`](docs/eval-metrics.md) — evaluation methodology.
-- [`docs/evaluation-design-2026-05-22.md`](docs/evaluation-design-2026-05-22.md) — go-stablenet evaluation method research + Wave 단위 작업 명세.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/SCHEMA.md`](docs/SCHEMA.md), [`docs/adr/`](docs/adr/) — internal module map, chunk schema, decision records.
+- [`docs/README.md`](docs/README.md) — **documentation index** (living reference vs design record vs archive). Start here.
+- [`docs/remaining.md`](docs/remaining.md) — **work status single source of truth** (code-verified).
+- [`docs/session-handoff-2026-06-29.md`](docs/session-handoff-2026-06-29.md) — narrative/background entry point (work status defers to `remaining.md`).
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/SCHEMA.md`](docs/SCHEMA.md) — module map + chunk/store schema.
+- [`docs/mcp-tools.md`](docs/mcp-tools.md) — MCP tool I/O specs (19 tools).
+- [`docs/embedder-integration.md`](docs/embedder-integration.md) — consumer integration: in-process API, MCP, env overrides.
+- [`docs/d1-installation-guide.md`](docs/d1-installation-guide.md) — building the optional `bgeonnx`/ONNX path (default runtime is ollama/bge-m3).
+- [`docs/eval-metrics.md`](docs/eval-metrics.md) — `ckv eval` metrics.
+- [`docs/adr/`](docs/adr/) — architecture decision records (001–010).
+
+"What is true now" = code + git.
 
 ## License
 

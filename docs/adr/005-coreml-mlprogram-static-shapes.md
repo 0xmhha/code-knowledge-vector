@@ -93,7 +93,7 @@ based on measured throughput, not on "ANE = faster" intuition.
 
 ## Related
 
-- A1 in `docs/backlog.md` (closed 2026-05-20) tracked the
+- A1 in `docs/archive/backlog.md` (closed 2026-05-20) tracked the
   resolution.
 - [ADR-002](002-bge-large-pivot.md) — the embedder choice this ADR
   builds on. Different embedder shape (Qwen2 last-token-pooling)

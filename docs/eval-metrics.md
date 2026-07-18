@@ -52,7 +52,17 @@ ckv eval \
 | `--fixture` | 정답이 정해진 쿼리 모음 (YAML) |
 | `--top` | 검사할 결과 개수 (K). 표준 5 |
 | `--threshold` | cosine 유사도 최소 임계값. `-1`은 임계값 미적용 (모든 결과 검사) |
-| `--embedder` | 쿼리 벡터화에 쓸 임베더. **vector DB 빌드 시와 같아야** (차원 일치) |
+| `--embedder` | 쿼리 벡터화에 쓸 임베더. **vector DB 빌드 시와 같아야** (차원 일치). default `ollama` (bge-m3) |
+
+### 추가 플래그 / 모드 (`cmd/ckv/eval.go`)
+
+| 플래그 | 역할 |
+|---|---|
+| `--json` | machine-readable JSON 출력 (PR 간 baseline 비교용) |
+| `--min-recall5` | recall@5가 이 값 미만이면 exit 1 (CI 회귀 게이트) |
+| `--src` | 소스 루트를 주면 각 hit의 snippet을 실제 파일과 대조해 **hallucination_rate** 를 추가 산출 (미지정 시 생략) |
+| `--max-halluc` | `--src` 와 함께: hallucination_rate가 이 값 초과면 exit 1 (기본 1.0 = 비활성) |
+| `--pr-fixture` | **PR-regression 모드** 로 전환 (`--fixture`와 상호배타). PR fixture YAML의 각 항목에 대해 fetch→worktree→build→query→agent→score 를 돌려 judge_score / file_f1 을 산출. `--pr-runs N` 으로 N회 반복 후 평균±표준편차 |
 
 ### 핵심: fixture 구조 (`testdata/queries.yaml`)
 
@@ -77,6 +87,13 @@ queries:
 ---
 
 ## 3. 지표별 정의 + 의미 + 해석
+
+> **어떤 지표가 `ckv eval`이 실제로 내보내는가**: `ckv eval`의 `Aggregate`
+> (`internal/eval/score.go`)는 **recall@1/3/5, MRR, citation@1** 만 산출한다
+> (`--src` 지정 시 hallucination_rate 추가). **§3.3 p95 latency 와 §3.5 build
+> throughput 은 `ckv eval` 출력이 아니다** — 각각 쿼리 벤치 / `ckv build`
+> 실행에서 별도로 측정하는 운영 지표이며, 여기서는 retriever 품질과 함께
+> 참고용으로만 설명한다.
 
 ### 3.1 recall@K — "정답 포함률"
 
@@ -147,7 +164,9 @@ MRR = (1/N) × Σ (1 / rank_of_first_correct_hit)
 - 원인 후보: 임베더가 "관련은 있지만 정답은 아닌" 결과를 더 가깝게 평가
 - 해결: 모델 교체, re-ranking, 쿼리 전처리
 
-### 3.3 p95 latency (warm) — "응답성"
+### 3.3 p95 latency (warm) — "응답성" (별도 벤치, `ckv eval` 미산출)
+
+> 이 지표는 `ckv eval`의 `Aggregate`에 포함되지 않는다 — 별도 쿼리 벤치로 측정.
 
 **정의**: 쿼리 100개를 처리하면 95개가 그 시간 이하로 끝나는 latency.
 
@@ -203,7 +222,9 @@ citation@1 = (top-1 hit AND line_range overlaps) / (top-1 hits)
 - 1.0 = 정답을 찾으면 인용 위치도 정확
 - < 1.0 = 정답 파일은 맞지만 엉뚱한 줄. 청킹 전략 검토
 
-### 3.5 build throughput (chunks/s) — "인덱싱 처리량"
+### 3.5 build throughput (chunks/s) — "인덱싱 처리량" (`ckv build`에서 측정, `ckv eval` 미산출)
+
+> 이 지표는 `ckv eval`의 `Aggregate`에 포함되지 않는다 — `ckv build` 실행에서 측정.
 
 **정의**: 초당 임베딩 계산 가능한 코드 청크 수.
 
@@ -280,11 +301,20 @@ throughput = total_chunks / build_duration_seconds
    - throughput ↓ → 더 큰 모델로 갔거나 배치 비효율
 ```
 
-**baseline 저장**: `eval` 명령이 JSON 출력을 지원하면 (FU 후보), 매 PR마다 비교 가능.
+**baseline 저장**: `ckv eval --json` (이미 제공, `cmd/ckv/eval.go`) 로 machine-readable
+결과를 얻어 매 PR마다 비교 가능.
 
 ---
 
-## 6. 현재 실측 (2026-05-18, bge-large-en-v1.5)
+## 6. 실측 baseline (2026-05-18, bge-large-en-v1.5 — 역사적 기록)
+
+> **주의 — 이 수치는 역사적 baseline이다.** 당시 기본 임베더였던 bge-large-en-v1.5
+> (bgeonnx) 기준이며, 현재 기본 런타임은 **ollama / bge-m3** 로 바뀌었다
+> (`--embedder` 기본값 = `ollama`, `cmd/ckv/root.go`). 권장 임베더는 Qwen3-Embedding
+> (ADR-008), 기본 prefix 전략은 rule-based (ADR-009) 이다. 또한 아래 수치는
+> `testdata/queries.yaml` (쉬운 fixture) 기준으로, 이후 난이도 높은
+> `testdata/queries-hard.yaml` fixture가 추가되어 회귀 신호가 강화됐다. 최신
+> 수치는 git history / `backlog.md` 를 정본으로 본다.
 
 | 지표 | 값 | 해석 |
 |---|---|---|
@@ -303,5 +333,5 @@ throughput = total_chunks / build_duration_seconds
 ## 7. Related
 
 - 평가 fixture 형식: `testdata/queries.yaml` 헤더 주석
-- 임베더 비교 결과 history 와 fixture 확장 (FU-7) 은 git commit history 와 [`backlog.md`](./backlog.md) 참조.
+- 임베더 비교 결과 history 와 fixture 확장 (FU-7) 은 git commit history 와 [`backlog.md`](./archive/backlog.md) 참조.
 - build throughput 개선: FU-8 (배치 + CoreML EP)

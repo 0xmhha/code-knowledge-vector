@@ -675,7 +675,7 @@ func embedAndUpsert(ctx context.Context, store *sqlitevec.Store, emb types.Embed
 // retried with a size-capped input, and only skipped (warned) if even that
 // fails — rather than aborting the whole build. This absorbs embedder backends
 // that reject oversized inputs — e.g. ollama's Qwen3-4b embedding endpoint
-// crashing on a very large chunk (docs/qwen3-dimension-ab-2026-07-12.md §8).
+// crashing on a very large chunk (docs/archive/qwen3-dimension-ab-2026-07-12.md §8).
 // A cancelled or timed-out context is propagated, not skipped, so a genuine
 // outage still fails loudly instead of silently dropping every chunk.
 func embedResilient(ctx context.Context, emb types.Embedder, chunks []types.Chunk, texts []string) ([]types.Chunk, [][]float32, error) {

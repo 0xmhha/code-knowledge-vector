@@ -5,7 +5,7 @@ package lives, how the pipelines wire them up, and which decisions
 (ADRs) shaped the layout. Consumer-facing material lives in
 [`README.md`](../README.md) (quickstart, supported languages,
 embedders); cross-tool integration lives in
-[`plan-S1-ckv.md §7`](./plan-S1-ckv.md).
+[`plan-S1-ckv.md §7`](./archive/plan-S1-ckv.md).
 
 ## 4-Layer position
 
@@ -30,12 +30,24 @@ code-knowledge-vector/
 ├── pkg/               Public surface, semver-stable
 │   ├── types/         Shared data contracts (Chunk, Hit, Filter, Embedder, VectorStore)
 │   ├── ckv/           In-process Go API (Open, SemanticSearch, Warmup, ...)
-│   └── mcp/           MCP server (`ckv mcp` + the surface CKS imports)
+│   ├── mcp/           MCP server (`ckv mcp` + the surface CKS imports)
+│   └── embed/ollama/  Default embedder backend (ollama + bge-m3, dim 1024)
 └── internal/          Implementation; no semver guarantees
     ├── discover/      File walker, ignore patterns, language classification
     ├── parse/         Language parsers (golang/typescript/javascript/solidity/markdown)
     ├── chunk/         Span → Chunk, file-header chunk, contextual prefix builder
-    ├── embed/         Embedder backends: mock (in-tree), bgeonnx (ONNX Runtime)
+    ├── embed/         Non-default embedder backends: mock (in-tree), bgeonnx
+    │                  (ONNX Runtime), coreml (CoreML), plus convert/registry/
+    │                  model/cache helpers. The DEFAULT backend is pkg/embed/ollama
+    ├── llmprefix/     Optional Anthropic-style contextual-prefix builder (off by default, ADR-009)
+    ├── flowcorpus/    Curated flow corpus (corpus.jsonl) → flow chunks (ADR-010)
+    ├── ckgalign/      In-memory index over a CKG SQLite store → canonical_id (ADR-007)
+    ├── convention/    Per-package AST statistics (convention chunks)
+    ├── invariant/     Extracts policy-bearing statements from Go source (invariant chunks)
+    ├── glossary/      Auto-extracts korean → english keyword mappings (`ckv glossary`)
+    ├── policy/        Loads project category + ModificationGuidance policy
+    ├── filter/        Sensitive-info filter engine (secret scanning)
+    ├── filterlist/    `--files-from` JSON include/exclude handling
     ├── store/sqlitevec/  sqlite-vec store: Upsert / Search / DeleteByFile / SetManifest
     ├── manifest/      manifest.json read/write (atomic via tmp + rename)
     ├── build/         Build & Reindex orchestrators
@@ -43,9 +55,8 @@ code-knowledge-vector/
     ├── freshness/     git HEAD diff vs manifest.IndexedHead
     ├── footprint/     Structured JSONL audit log
     ├── projectcfg/    ckv.yaml loader
-    ├── eval/          Recall@K / MRR / citation-accuracy fixture runner
-    ├── eval/prregress/  PR-regression LLM-judge eval mode
-    └── judge/         LLM-as-judge CLI wrapper
+    └── eval/          Recall@K / MRR / citation-accuracy fixture runner;
+                       eval/prregress/ is the PR-regression LLM-judge mode
 ```
 
 `pkg/types` has **no internal dependencies** by design — anything that
@@ -61,7 +72,7 @@ Inferred from `import` lines in the source tree:
                                  │
             ┌───────────────┬────┴────┬──────────────┬──────────────┐
             ▼               ▼         ▼              ▼              ▼
-       internal/build  internal/query  pkg/mcp   internal/eval  internal/judge
+       internal/build  internal/query  pkg/mcp   internal/eval  eval/prregress
             │               │           │
    ┌────────┼────────┐      │           │
    ▼        ▼        ▼      ▼           ▼
@@ -161,17 +172,29 @@ store silently breaks retrieval.
 | Decision | ADR | Impact on package layout |
 |----------|-----|--------------------------|
 | sqlite-vec for storage | [001](./adr/001-sqlite-vec-storage.md) | `internal/store/sqlitevec/` is the only store; one file on disk |
-| bge-large-en-v1.5 default | [002](./adr/002-bge-large-pivot.md) | `internal/embed/bgeonnx/` (BERT + CLS); Qwen2 adapter deferred |
+| bge-large ONNX pivot | [002](./adr/002-bge-large-pivot.md) | `internal/embed/bgeonnx/` (BERT + CLS); superseded as the default by ollama/bge-m3 (see 008) |
 | BM25 stays on CKS side | [003](./adr/003-bm25-dual-track.md) | No `internal/bm25/` package; `pkg/mcp.Server.Underlying()` is the integration point |
 | `ckv reindex` promoted to S1.5 | [004](./adr/004-ckv-reindex-s1-5-promotion.md) | `internal/build/reindex.go` ships in S1; not blocked behind S2 |
-| CoreML MLProgram + static shapes | [005](./adr/005-coreml-mlprogram-static-shapes.md) | `internal/embed/bgeonnx/session_impl.go` env-var knobs |
+| CoreML MLProgram + static shapes | [005](./adr/005-coreml-mlprogram-static-shapes.md) | `internal/embed/coreml/` + `internal/embed/bgeonnx/` session knobs |
+| BM25 candidate-set rerank (temporary) | [006](./adr/006-bm25-temporary-rerank.md) | eval-only measurement infra; no new store package |
+| `canonical_id` is the CKG↔CKV join key | [007](./adr/007-canonical-id-join-key.md) | `chunks.canonical_id` via `internal/ckgalign/`; positional `ckg_node_id` retired |
+| Qwen3-Embedding @ 1024 dims (MRL) recommended | [008](./adr/008-qwen3-embedding-1024-dim.md) | `pkg/embed/ollama` `TargetDim` / `--embed-dim`; 1024 default (MRL 256·512·1024), 4b native 2560 |
+| Rule-based prefix is the default | [009](./adr/009-rule-based-prefix-default.md) | `internal/llmprefix/` gated off by default; LLM prefix deferred |
+| Flow-corpus chunk signatures | [010](./adr/010-flow-corpus-chunk-signatures.md) | `internal/flowcorpus/`; `ChunkFlowStep` / `ChunkFlowSpine` |
+
+The default embedder is **ollama/bge-m3 (dim 1024)** (`cmd/ckv/embedder.go`;
+`internal/embed/registry/registry.go` `DefaultModelName = "bge-m3"`). The
+`bgeonnx` (ONNX Runtime) and `coreml` backends remain available via
+`--embedder`; `mock` backs the eval baseline. The default surface command set is
+`build`, `reindex`, `promote`, `query`, `mcp`, `freshness`, `model`, `eval`,
+`glossary`, `migrate` (`cmd/ckv/root.go`).
 
 ## Cross-tool integration
 
 `pkg/mcp.Server.Underlying()` exposes the underlying `*server.MCPServer`
 so CKS (a separate repo) can register its own tools next to CKV's
 without forking. The relationship is documented in
-[`plan-S1-ckv.md §7`](./plan-S1-ckv.md) — CKV is "vector retrieval over
+[`plan-S1-ckv.md §7`](./archive/plan-S1-ckv.md) — CKV is "vector retrieval over
 a code repo," nothing more.
 
 `pkg/ckv` is the alternative integration path for callers that want
@@ -186,5 +209,5 @@ consumer guide.
 - **mTLS / policy enforcement**: planned for S6.
 - **HTTP API** (`ckv serve`): planned for S2.
 
-Tracked in [`backlog.md`](./backlog.md) (categories C and D) and
-[`featurelist.md §0.1`](./featurelist.md).
+Tracked in [`backlog.md`](./archive/backlog.md) (categories C and D) and
+[`featurelist.md §0.1`](./archive/featurelist.md).
